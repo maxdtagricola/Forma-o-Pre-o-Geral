@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react'
 import { Layout, type TabKey } from './components/Layout'
 import { Dashboard } from './pages/Dashboard'
 import { MarginAnalysisPage } from './pages/MarginAnalysisPage'
+import { ProdutosPage } from './pages/ProdutosPage'
+import { FornecedoresPage } from './pages/FornecedoresPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { calculateItem } from './calc/calculator'
 import { saveQuote } from './db/analysesRepo'
@@ -10,6 +12,8 @@ import type { PricingConfig, ProductInput, QuoteItem, QuoteRecord } from './type
 
 export default function App() {
   const [tab, setTab] = useState<TabKey>('dashboard')
+  const [cliente, setCliente] = useState('')
+  const [maquina, setMaquina] = useState('')
   const [items, setItems] = useState<QuoteItem[]>(() => [createQuoteItem()])
   const [activeItemId, setActiveItemId] = useState<string>(() => items[0].id)
   const [editingQuoteId, setEditingQuoteId] = useState<string | undefined>(undefined)
@@ -48,7 +52,7 @@ export default function App() {
 
   async function handleSave() {
     try {
-      const record = await saveQuote(items, editingQuoteId)
+      const record = await saveQuote(cliente, maquina, items, editingQuoteId)
       setEditingQuoteId(record.id)
       setHistoryRefreshKey((k) => k + 1)
     } catch (err) {
@@ -58,6 +62,8 @@ export default function App() {
 
   function handleNew() {
     const fresh = createQuoteItem()
+    setCliente('')
+    setMaquina('')
     setItems([fresh])
     setActiveItemId(fresh.id)
     setEditingQuoteId(undefined)
@@ -65,6 +71,8 @@ export default function App() {
 
   function handleLoad(record: QuoteRecord) {
     const loadedItems = record.items.length > 0 ? record.items : [createQuoteItem()]
+    setCliente(record.cliente)
+    setMaquina(record.maquina)
     setItems(loadedItems)
     setActiveItemId(loadedItems[0].id)
     setEditingQuoteId(record.id)
@@ -75,6 +83,10 @@ export default function App() {
     <Layout active={tab} onChangeTab={setTab}>
       {tab === 'dashboard' && (
         <Dashboard
+          cliente={cliente}
+          maquina={maquina}
+          onClienteChange={setCliente}
+          onMaquinaChange={setMaquina}
           items={items}
           activeItemId={activeItem.id}
           activeProduct={activeItem.product}
@@ -91,6 +103,8 @@ export default function App() {
         />
       )}
       {tab === 'margins' && <MarginAnalysisPage product={activeItem.product} pricing={activeItem.pricing} />}
+      {tab === 'produtos' && <ProdutosPage />}
+      {tab === 'fornecedores' && <FornecedoresPage />}
       {tab === 'history' && <HistoryPage refreshKey={historyRefreshKey} onLoad={handleLoad} />}
     </Layout>
   )

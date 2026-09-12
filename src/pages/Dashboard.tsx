@@ -4,11 +4,16 @@ import { PricingConfigPanel } from '../components/PricingConfigPanel'
 import { ResultPanel } from '../components/ResultPanel'
 import { QuoteItemsList } from '../components/QuoteItemsList'
 import { Button } from '../components/ui/Basics'
+import { TextField } from '../components/ui/Field'
 import { calculateItem } from '../calc/calculator'
 import { formatCurrency } from '../utils'
 import type { CalculationResult, PricingConfig, ProductInput, QuoteItem } from '../types'
 
 export function Dashboard({
+  cliente,
+  maquina,
+  onClienteChange,
+  onMaquinaChange,
   items,
   activeItemId,
   activeProduct,
@@ -23,6 +28,10 @@ export function Dashboard({
   onSave,
   onNew,
 }: {
+  cliente: string
+  maquina: string
+  onClienteChange: (value: string) => void
+  onMaquinaChange: (value: string) => void
   items: QuoteItem[]
   activeItemId: string
   activeProduct: ProductInput
@@ -44,6 +53,15 @@ export function Dashboard({
 
   return (
     <div className="space-y-6">
+      <div className="card">
+        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Dados da cotação</h2>
+        <p className="text-sm text-ink-400 mb-4">Informações gerais — servem de base pra recursos futuros.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <TextField label="Cliente" value={cliente} onChange={onClienteChange} />
+          <TextField label="Máquina" value={maquina} onChange={onMaquinaChange} />
+        </div>
+      </div>
+
       <QuoteItemsList
         items={items}
         activeItemId={activeItemId}

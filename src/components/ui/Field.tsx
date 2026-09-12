@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 interface WrapperProps {
   label: string
@@ -39,6 +39,94 @@ export function TextField({ label, value, onChange, onBlur, placeholder, hint, c
         onChange={(e) => onChange(uppercase ? e.target.value.toUpperCase() : e.target.value)}
         onBlur={onBlur}
       />
+    </FieldWrapper>
+  )
+}
+
+interface AutocompleteOption {
+  value: string
+  label: string
+}
+
+interface AutocompleteFieldProps {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  onSelectSuggestion?: (option: AutocompleteOption) => void
+  onBlur?: () => void
+  suggestions: AutocompleteOption[]
+  placeholder?: string
+  hint?: string
+  className?: string
+}
+
+/** Campo de texto livre com sugestões (busca por letra digitada) — continua aceitando qualquer valor. */
+export function AutocompleteField({
+  label,
+  value,
+  onChange,
+  onSelectSuggestion,
+  onBlur,
+  suggestions,
+  placeholder,
+  hint,
+  className,
+}: AutocompleteFieldProps) {
+  const [open, setOpen] = useState(false)
+  const wrapperRef = useRef<HTMLDivElement>(null)
+
+  const filtered = useMemo(() => {
+    const q = value.trim().toLowerCase()
+    const list = q ? suggestions.filter((s) => s.label.toLowerCase().includes(q)) : suggestions
+    return list.slice(0, 8)
+  }, [value, suggestions])
+
+  useEffect(() => {
+    function handleClickOutside(e: globalThis.MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  return (
+    <FieldWrapper label={label} hint={hint} className={className}>
+      <div ref={wrapperRef} className="relative">
+        <input
+          type="text"
+          className="field-input"
+          value={value}
+          placeholder={placeholder}
+          onChange={(e) => {
+            onChange(e.target.value)
+            setOpen(true)
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => {
+            setOpen(false)
+            onBlur?.()
+          }}
+        />
+        {open && filtered.length > 0 && (
+          <div className="absolute z-20 mt-1 w-full rounded-lg border border-ink-200 bg-white shadow-lg max-h-56 overflow-auto">
+            {filtered.map((s) => (
+              <button
+                key={s.value}
+                type="button"
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  onChange(s.label)
+                  onSelectSuggestion?.(s)
+                  setOpen(false)
+                }}
+                className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-ink-50"
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </FieldWrapper>
   )
 }

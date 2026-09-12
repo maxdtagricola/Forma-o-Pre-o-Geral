@@ -35,17 +35,20 @@ export function HistoryPage({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return records
-    return records.filter((r) =>
-      r.items.some((item) => {
-        const p = item.product
-        return (
-          p.referencia.toLowerCase().includes(q) ||
-          p.descricao.toLowerCase().includes(q) ||
-          p.fornecedor.toLowerCase().includes(q) ||
-          p.marca.toLowerCase().includes(q) ||
-          p.ncm.toLowerCase().includes(q)
-        )
-      }),
+    return records.filter(
+      (r) =>
+        r.cliente.toLowerCase().includes(q) ||
+        r.maquina.toLowerCase().includes(q) ||
+        r.items.some((item) => {
+          const p = item.product
+          return (
+            p.referencia.toLowerCase().includes(q) ||
+            p.descricao.toLowerCase().includes(q) ||
+            p.fornecedor.toLowerCase().includes(q) ||
+            p.marca.toLowerCase().includes(q) ||
+            p.ncm.toLowerCase().includes(q)
+          )
+        }),
     )
   }, [records, query])
 
@@ -64,7 +67,7 @@ export function HistoryPage({
         <input
           type="text"
           className="field-input max-w-sm"
-          placeholder="Buscar por referência, descrição, fornecedor, marca ou NCM…"
+          placeholder="Buscar por cliente, máquina, referência, descrição, fornecedor, marca ou NCM…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -96,7 +99,10 @@ export function HistoryPage({
               >
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="min-w-0">
-                    <p className="font-medium text-ink-900 truncate">{first.product.descricao || '(sem descrição)'}</p>
+                    <p className="font-medium text-ink-900 truncate">
+                      {r.cliente || first.product.descricao || '(sem descrição)'}
+                    </p>
+                    {r.maquina && <p className="text-xs text-ink-500 truncate">Máquina: {r.maquina}</p>}
                     <p className="text-xs text-ink-400 truncate">
                       Ref. {first.product.referencia || '—'} · NCM {first.product.ncm || '—'}
                     </p>

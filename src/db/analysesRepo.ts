@@ -18,17 +18,26 @@ function isLegacyRecord(record: unknown): record is LegacyAnalysisRecord {
 }
 
 function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecord {
-  if (!isLegacyRecord(record)) return record
-  const result = calculateItem(record.product, record.pricing)
+  if (isLegacyRecord(record)) {
+    const result = calculateItem(record.product, record.pricing)
+    return {
+      id: record.id,
+      cliente: '',
+      maquina: '',
+      items: [{ id: makeId(), product: record.product, pricing: record.pricing }],
+      createdAt: record.createdAt,
+      updatedAt: record.updatedAt,
+      summary: {
+        totalItens: 1,
+        precoVendaTotalGeral: result.precoVendaTotal,
+      },
+    }
+  }
+  // registros salvos antes do campo cliente/máquina existir
   return {
-    id: record.id,
-    items: [{ id: makeId(), product: record.product, pricing: record.pricing }],
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-    summary: {
-      totalItens: 1,
-      precoVendaTotalGeral: result.precoVendaTotal,
-    },
+    ...record,
+    cliente: record.cliente ?? '',
+    maquina: record.maquina ?? '',
   }
 }
 
@@ -37,7 +46,12 @@ export async function listQuotes(): Promise<QuoteRecord[]> {
   return all.map(normalizeRecord).sort((a, b) => b.updatedAt - a.updatedAt)
 }
 
-export async function saveQuote(items: QuoteItem[], existingId?: string): Promise<QuoteRecord> {
+export async function saveQuote(
+  cliente: string,
+  maquina: string,
+  items: QuoteItem[],
+  existingId?: string,
+): Promise<QuoteRecord> {
   const now = Date.now()
   const precoVendaTotalGeral = items.reduce(
     (sum, item) => sum + calculateItem(item.product, item.pricing).precoVendaTotal,
@@ -45,6 +59,8 @@ export async function saveQuote(items: QuoteItem[], existingId?: string): Promis
   )
   const record: QuoteRecord = {
     id: existingId ?? makeId(),
+    cliente,
+    maquina,
     items,
     createdAt: now,
     updatedAt: now,

@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { NumberField, PercentField, SelectField, TextField } from './ui/Field'
+import { useEffect, useState } from 'react'
+import { AutocompleteField, NumberField, PercentField, SelectField, TextField } from './ui/Field'
 import { ESTADOS } from '../data/estados'
 import { findByInterno } from '../db/analysesRepo'
+import { listFornecedores } from '../db/fornecedoresRepo'
 import { ESTADOS_DESTINO, type EstadoDestino } from '../types'
-import type { ProductInput } from '../types'
+import type { Fornecedor, ProductInput } from '../types'
 
 const estadoOptions = ESTADOS.map((e) => ({ value: e.uf, label: `${e.uf} — ${e.nome}` }))
 const perfilOptions = ESTADOS_DESTINO.map((e) => ({ value: e.value, label: e.label }))
@@ -16,6 +17,24 @@ export function ProductForm({
   onChange: (patch: Partial<ProductInput>) => void
 }) {
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
+
+  useEffect(() => {
+    listFornecedores()
+      .then(setFornecedores)
+      .catch(() => {
+        // sugestão é só um extra — se o servidor estiver fora, o campo continua livre normalmente
+      })
+  }, [])
+
+  const fornecedorSuggestions = fornecedores.map((f) => ({ value: f.id, label: f.nome }))
+
+  function aplicarEstadoDoFornecedor(nome: string) {
+    const alvo = nome.trim().toLowerCase()
+    if (!alvo) return
+    const encontrado = fornecedores.find((f) => f.nome.trim().toLowerCase() === alvo)
+    if (encontrado) onChange({ estadoOrigem: encontrado.estado })
+  }
 
   async function handleInternoBlur() {
     const found = await findByInterno(product.interno)
@@ -63,7 +82,18 @@ export function ProductForm({
           onBlur={handleInternoBlur}
           hint="Ao sair do campo, carrega referência, NCM e descrição de uma análise salva com o mesmo código"
         />
-        <TextField label="Fornecedor" value={product.fornecedor} onChange={(v) => onChange({ fornecedor: v })} />
+        <AutocompleteField
+          label="Fornecedor"
+          value={product.fornecedor}
+          onChange={(v) => onChange({ fornecedor: v })}
+          suggestions={fornecedorSuggestions}
+          onSelectSuggestion={(s) => {
+            onChange({ fornecedor: s.label })
+            aplicarEstadoDoFornecedor(s.label)
+          }}
+          onBlur={() => aplicarEstadoDoFornecedor(product.fornecedor)}
+          hint="Ao digitar ou selecionar um fornecedor cadastrado, o estado de origem carrega sozinho"
+        />
         <TextField label="Marca" value={product.marca} onChange={(v) => onChange({ marca: v })} />
         <SelectField
           label="Estado de origem"
@@ -89,6 +119,13 @@ export function ProductForm({
           value={product.valorUnt}
           onChange={(v) => onChange({ valorUnt: v })}
           prefix="R$"
+          step={0.01}
+          min={0}
+        />
+        <NumberField
+          label="Peso (kg)"
+          value={product.peso}
+          onChange={(v) => onChange({ peso: v })}
           step={0.01}
           min={0}
         />

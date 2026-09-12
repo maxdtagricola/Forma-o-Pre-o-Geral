@@ -29,6 +29,8 @@ export interface ProductInput {
   descricao: string
   /** Valor unitário de compra (R$) */
   valorUnt: number
+  /** Peso do produto, em kg */
+  peso: number
 
   // Campos avançados — existem na planilha (colunas U, V, W, Y, Z, AA) mas
   // não fazem parte da entrada principal pedida. Têm padrão 0.
@@ -52,6 +54,7 @@ export const DEFAULT_PRODUCT_INPUT: ProductInput = {
   qtd: 1,
   descricao: '',
   valorUnt: 0,
+  peso: 0,
   stRetido: 0,
   outrasDespesas: 0,
   desconto: 0,
@@ -158,6 +161,9 @@ export interface MarginPoint {
 // ---------------------------------------------------------------------------
 export interface QuoteRecord {
   id: string
+  /** Dados iniciais da cotação — quem pediu e pra qual máquina, além dos itens. */
+  cliente: string
+  maquina: string
   items: QuoteItem[]
   createdAt: number
   updatedAt: number
@@ -166,4 +172,29 @@ export interface QuoteRecord {
     totalItens: number
     precoVendaTotalGeral: number
   }
+}
+
+// ---------------------------------------------------------------------------
+// Cadastro de fornecedores — dados completos de endereço, para dar base a um
+// futuro cálculo de frete a partir da origem de cada fornecedor.
+// ---------------------------------------------------------------------------
+export interface Fornecedor {
+  id: string
+  cnpj: string
+  nome: string
+  cep: string
+  rua: string
+  numero: string
+  cidade: string
+  estado: string
+}
+
+export const DEFAULT_FORNECEDOR: Omit<Fornecedor, 'id'> = {
+  cnpj: '',
+  nome: '',
+  cep: '',
+  rua: '',
+  numero: '',
+  cidade: '',
+  estado: 'RO',
 }
