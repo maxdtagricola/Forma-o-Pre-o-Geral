@@ -1,6 +1,20 @@
 import { makeId } from './utils'
 
 // ---------------------------------------------------------------------------
+// Acessos — só servem pra identificar quem criou cada cotação, sem senha nem
+// permissões diferentes entre eles (todos têm acesso total ao app).
+// ---------------------------------------------------------------------------
+export type AdminName = 'Maicon' | 'Gouvêa' | 'Max'
+
+export const ADMINS: AdminName[] = ['Maicon', 'Gouvêa', 'Max']
+
+// ---------------------------------------------------------------------------
+// Vendedor a quem a cotação se refere — usado pra organizar o histórico em
+// pastas (admin > vendedor > mês).
+// ---------------------------------------------------------------------------
+export const VENDEDORES: string[] = ['EDSON', 'GABRIEL', 'SHELTON', 'BRUNO', 'JOAO', 'JOSE', 'THIAGO']
+
+// ---------------------------------------------------------------------------
 // Estado de destino (perfil de cálculo) — cada planilha original (RBC, ICMS
 // ST e alíquotas) foi construída para um estado de destino específico.
 // ---------------------------------------------------------------------------
@@ -156,15 +170,67 @@ export interface MarginPoint {
 }
 
 // ---------------------------------------------------------------------------
+// Status de uma cotação — acompanha o fluxo desde o pedido até o arquivo.
+// ---------------------------------------------------------------------------
+export type QuoteStatus =
+  | 'PENDENTE'
+  | 'AGUARDANDO FORNECEDOR'
+  | 'ANALISANDO VALORES'
+  | 'ENVIADO'
+  | 'PEDIDO DE COMPRA'
+  | 'PEDIDO CONFIRMADO'
+  | 'EM TRANSPORTE'
+  | 'CADASTRO DE PRODUTO'
+  | 'PARCIALMENTE ENTREGUE'
+  | 'ENTREGUE'
+  | 'CONFERIDO'
+  | 'FATURADO'
+  | 'ARQUIVO'
+
+export const QUOTE_STATUSES: QuoteStatus[] = [
+  'PENDENTE',
+  'AGUARDANDO FORNECEDOR',
+  'ANALISANDO VALORES',
+  'ENVIADO',
+  'PEDIDO DE COMPRA',
+  'PEDIDO CONFIRMADO',
+  'EM TRANSPORTE',
+  'CADASTRO DE PRODUTO',
+  'PARCIALMENTE ENTREGUE',
+  'ENTREGUE',
+  'CONFERIDO',
+  'FATURADO',
+  'ARQUIVO',
+]
+
+export interface StatusChange {
+  status: QuoteStatus
+  changedAt: number
+}
+
+/** Preenchido quando o status vira "PEDIDO DE COMPRA": pedido completo ou só alguns itens. */
+export interface PedidoCompraInfo {
+  tipo: 'completo' | 'parcial'
+  itemIds: string[]
+}
+
+// ---------------------------------------------------------------------------
 // Registro salvo no histórico (IndexedDB) — uma cotação inteira, com um ou
 // mais itens.
 // ---------------------------------------------------------------------------
 export interface QuoteRecord {
   id: string
+  /** Quem criou a cotação — só um identificador, não controla permissão. */
+  criadoPor: string
+  /** Vendedor a quem a cotação se refere — usado pra organizar o histórico em pastas. */
+  vendedor: string
   /** Dados iniciais da cotação — quem pediu e pra qual máquina, além dos itens. */
   cliente: string
   maquina: string
   items: QuoteItem[]
+  status: QuoteStatus
+  statusHistory: StatusChange[]
+  pedidoCompra?: PedidoCompraInfo
   createdAt: number
   updatedAt: number
   // resumo pré-calculado para exibição rápida na lista do histórico

@@ -13,10 +13,14 @@ const TABS: { key: TabKey; label: string }[] = [
 export function Layout({
   active,
   onChangeTab,
+  currentAdmin,
+  onSwitchAdmin,
   children,
 }: {
   active: TabKey
   onChangeTab: (tab: TabKey) => void
+  currentAdmin: string
+  onSwitchAdmin: () => void
   children: ReactNode
 }) {
   return (
@@ -32,6 +36,12 @@ export function Layout({
                 <h1 className="font-display text-xl font-bold text-ink-900 tracking-tight">Formação de Preço</h1>
                 <p className="text-xs text-ink-400">Markup, ICMS-ST, RBC e PIS/COFINS</p>
               </div>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-sm font-medium text-ink-700">{currentAdmin}</p>
+              <button type="button" onClick={onSwitchAdmin} className="text-xs text-ink-400 hover:text-ink-600 transition">
+                Trocar acesso
+              </button>
             </div>
           </div>
           <nav className="mt-4 flex gap-2 overflow-x-auto">

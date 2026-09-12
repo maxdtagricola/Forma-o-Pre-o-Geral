@@ -5,14 +5,19 @@ import { ResultPanel } from '../components/ResultPanel'
 import { QuoteItemsList } from '../components/QuoteItemsList'
 import { FreightSplitPanel } from '../components/FreightSplitPanel'
 import { Button } from '../components/ui/Basics'
-import { TextField } from '../components/ui/Field'
+import { SelectField, TextField } from '../components/ui/Field'
 import { calculateItem } from '../calc/calculator'
 import { formatCurrency } from '../utils'
+import { VENDEDORES } from '../types'
 import type { CalculationResult, PricingConfig, ProductInput, QuoteItem } from '../types'
 
+const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
+
 export function Dashboard({
+  vendedor,
   cliente,
   maquina,
+  onVendedorChange,
   onClienteChange,
   onMaquinaChange,
   items,
@@ -30,8 +35,10 @@ export function Dashboard({
   onSave,
   onNew,
 }: {
+  vendedor: string
   cliente: string
   maquina: string
+  onVendedorChange: (value: string) => void
   onClienteChange: (value: string) => void
   onMaquinaChange: (value: string) => void
   items: QuoteItem[]
@@ -60,6 +67,7 @@ export function Dashboard({
         <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Dados da cotação</h2>
         <p className="text-sm text-ink-400 mb-4">Informações gerais — servem de base pra recursos futuros.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <SelectField label="Vendedor" value={vendedor} onChange={onVendedorChange} options={vendedorOptions} />
           <TextField label="Cliente" value={cliente} onChange={onClienteChange} />
           <TextField label="Máquina" value={maquina} onChange={onMaquinaChange} />
         </div>

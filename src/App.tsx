@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Layout, type TabKey } from './components/Layout'
+import { AdminGate } from './components/AdminGate'
 import { Dashboard } from './pages/Dashboard'
 import { MarginAnalysisPage } from './pages/MarginAnalysisPage'
 import { ProdutosPage } from './pages/ProdutosPage'
@@ -7,11 +8,14 @@ import { FornecedoresPage } from './pages/FornecedoresPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { calculateItem } from './calc/calculator'
 import { saveQuote } from './db/analysesRepo'
+import { clearCurrentAdmin, getCurrentAdmin, setCurrentAdmin } from './currentAdmin'
 import { createQuoteItem } from './types'
-import type { PricingConfig, ProductInput, QuoteItem, QuoteRecord } from './types'
+import type { AdminName, PricingConfig, ProductInput, QuoteItem, QuoteRecord } from './types'
 
 export default function App() {
+  const [currentAdmin, setCurrentAdminState] = useState<AdminName | null>(() => getCurrentAdmin())
   const [tab, setTab] = useState<TabKey>('dashboard')
+  const [vendedor, setVendedor] = useState('')
   const [cliente, setCliente] = useState('')
   const [maquina, setMaquina] = useState('')
   const [items, setItems] = useState<QuoteItem[]>(() => [createQuoteItem()])
@@ -21,6 +25,16 @@ export default function App() {
 
   const activeItem = items.find((item) => item.id === activeItemId) ?? items[0]
   const result = useMemo(() => calculateItem(activeItem.product, activeItem.pricing), [activeItem])
+
+  function handleSelectAdmin(admin: AdminName) {
+    setCurrentAdmin(admin)
+    setCurrentAdminState(admin)
+  }
+
+  function handleSwitchAdmin() {
+    clearCurrentAdmin()
+    setCurrentAdminState(null)
+  }
 
   function patchActiveProduct(patch: Partial<ProductInput>) {
     setItems((prev) => prev.map((item) => (item.id === activeItemId ? { ...item, product: { ...item.product, ...patch } } : item)))
@@ -59,8 +73,9 @@ export default function App() {
   }
 
   async function handleSave() {
+    if (!currentAdmin) return
     try {
-      const record = await saveQuote(cliente, maquina, items, editingQuoteId)
+      const record = await saveQuote(currentAdmin, vendedor, cliente, maquina, items, editingQuoteId)
       setEditingQuoteId(record.id)
       setHistoryRefreshKey((k) => k + 1)
     } catch (err) {
@@ -70,6 +85,7 @@ export default function App() {
 
   function handleNew() {
     const fresh = createQuoteItem()
+    setVendedor('')
     setCliente('')
     setMaquina('')
     setItems([fresh])
@@ -79,6 +95,7 @@ export default function App() {
 
   function handleLoad(record: QuoteRecord) {
     const loadedItems = record.items.length > 0 ? record.items : [createQuoteItem()]
+    setVendedor(record.vendedor)
     setCliente(record.cliente)
     setMaquina(record.maquina)
     setItems(loadedItems)
@@ -87,12 +104,18 @@ export default function App() {
     setTab('dashboard')
   }
 
+  if (!currentAdmin) {
+    return <AdminGate onSelect={handleSelectAdmin} />
+  }
+
   return (
-    <Layout active={tab} onChangeTab={setTab}>
+    <Layout active={tab} onChangeTab={setTab} currentAdmin={currentAdmin} onSwitchAdmin={handleSwitchAdmin}>
       {tab === 'dashboard' && (
         <Dashboard
+          vendedor={vendedor}
           cliente={cliente}
           maquina={maquina}
+          onVendedorChange={setVendedor}
           onClienteChange={setCliente}
           onMaquinaChange={setMaquina}
           items={items}

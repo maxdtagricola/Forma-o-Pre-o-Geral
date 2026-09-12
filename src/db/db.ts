@@ -11,7 +11,7 @@ export const STORE_ANALISES = 'analises'
 // console do navegador (F12) e rode:
 //   localStorage.setItem('serverUrl', 'http://NOVO_IP:3000')
 // e recarregue a página.
-const DEFAULT_SERVER_URL = 'http://192.168.28.106:3000'
+const DEFAULT_SERVER_URL = 'http://192.168.28.101:3000'
 
 export function getServerUrl(): string {
   return localStorage.getItem('serverUrl') || DEFAULT_SERVER_URL

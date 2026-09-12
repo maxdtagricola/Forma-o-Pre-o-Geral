@@ -1,7 +1,7 @@
 import { calculateItem } from '../calc/calculator'
-import { dbDelete, dbGetAll, dbPut, STORE_ANALISES } from './db'
+import { dbDelete, dbGet, dbGetAll, dbPut, STORE_ANALISES } from './db'
 import { makeId } from '../utils'
-import type { PricingConfig, ProductInput, QuoteItem, QuoteRecord } from '../types'
+import type { PedidoCompraInfo, PricingConfig, ProductInput, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
 
 // Formato antigo (uma análise = um único produto), salvo antes da cotação
 // com múltiplos itens existir. Mantido só para migrar registros já salvos.
@@ -22,9 +22,13 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
     const result = calculateItem(record.product, record.pricing)
     return {
       id: record.id,
+      criadoPor: '',
+      vendedor: '',
       cliente: '',
       maquina: '',
       items: [{ id: makeId(), product: record.product, pricing: record.pricing }],
+      status: 'PENDENTE',
+      statusHistory: [{ status: 'PENDENTE', changedAt: record.createdAt }],
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
       summary: {
@@ -33,11 +37,18 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
       },
     }
   }
-  // registros salvos antes do campo cliente/máquina existir
+  // preenche campos que não existiam em versões anteriores do registro
   return {
     ...record,
+    criadoPor: record.criadoPor ?? '',
+    vendedor: record.vendedor ?? '',
     cliente: record.cliente ?? '',
     maquina: record.maquina ?? '',
+    status: record.status ?? 'PENDENTE',
+    statusHistory:
+      record.statusHistory && record.statusHistory.length > 0
+        ? record.statusHistory
+        : [{ status: record.status ?? 'PENDENTE', changedAt: record.createdAt }],
   }
 }
 
@@ -47,6 +58,8 @@ export async function listQuotes(): Promise<QuoteRecord[]> {
 }
 
 export async function saveQuote(
+  criadoPor: string,
+  vendedor: string,
   cliente: string,
   maquina: string,
   items: QuoteItem[],
@@ -57,12 +70,22 @@ export async function saveQuote(
     (sum, item) => sum + calculateItem(item.product, item.pricing).precoVendaTotal,
     0,
   )
+
+  // ao editar uma cotação já existente, preserva quem criou e o histórico de status
+  const existente = existingId ? await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, existingId) : undefined
+  const base = existente ? normalizeRecord(existente) : undefined
+
   const record: QuoteRecord = {
     id: existingId ?? makeId(),
+    criadoPor: base?.criadoPor || criadoPor,
+    vendedor,
     cliente,
     maquina,
     items,
-    createdAt: now,
+    status: base?.status ?? 'PENDENTE',
+    statusHistory: base?.statusHistory ?? [{ status: 'PENDENTE', changedAt: now }],
+    pedidoCompra: base?.pedidoCompra,
+    createdAt: base?.createdAt ?? now,
     updatedAt: now,
     summary: {
       totalItens: items.length,
@@ -71,6 +94,26 @@ export async function saveQuote(
   }
   await dbPut(STORE_ANALISES, record)
   return record
+}
+
+export async function updateQuoteStatus(
+  id: string,
+  novoStatus: QuoteStatus,
+  pedidoCompra?: PedidoCompraInfo,
+): Promise<QuoteRecord> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  if (!atual) throw new Error('Cotação não encontrada no servidor.')
+  const normalizado = normalizeRecord(atual)
+  const now = Date.now()
+  const atualizado: QuoteRecord = {
+    ...normalizado,
+    status: novoStatus,
+    statusHistory: [...normalizado.statusHistory, { status: novoStatus, changedAt: now }],
+    pedidoCompra: novoStatus === 'PEDIDO DE COMPRA' ? pedidoCompra : normalizado.pedidoCompra,
+    updatedAt: now,
+  }
+  await dbPut(STORE_ANALISES, atualizado)
+  return atualizado
 }
 
 export async function deleteQuote(id: string): Promise<void> {
