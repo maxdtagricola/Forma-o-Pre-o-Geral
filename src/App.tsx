@@ -35,6 +35,14 @@ export default function App() {
     setActiveItemId(item.id)
   }
 
+  function handleApplyFreightSplit(valores: Record<string, number>) {
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id in valores ? { ...item, product: { ...item.product, freteAdicional: valores[item.id] } } : item,
+      ),
+    )
+  }
+
   function handleRemoveItem(id: string) {
     const idx = items.findIndex((item) => item.id === id)
     const next = items.filter((item) => item.id !== id)
@@ -96,6 +104,7 @@ export default function App() {
           onSelectItem={setActiveItemId}
           onAddItem={handleAddItem}
           onRemoveItem={handleRemoveItem}
+          onApplyFreightSplit={handleApplyFreightSplit}
           onProductChange={patchActiveProduct}
           onPricingChange={patchActivePricing}
           onSave={handleSave}

@@ -3,6 +3,7 @@ import { ProductForm } from '../components/ProductForm'
 import { PricingConfigPanel } from '../components/PricingConfigPanel'
 import { ResultPanel } from '../components/ResultPanel'
 import { QuoteItemsList } from '../components/QuoteItemsList'
+import { FreightSplitPanel } from '../components/FreightSplitPanel'
 import { Button } from '../components/ui/Basics'
 import { TextField } from '../components/ui/Field'
 import { calculateItem } from '../calc/calculator'
@@ -23,6 +24,7 @@ export function Dashboard({
   onSelectItem,
   onAddItem,
   onRemoveItem,
+  onApplyFreightSplit,
   onProductChange,
   onPricingChange,
   onSave,
@@ -41,6 +43,7 @@ export function Dashboard({
   onSelectItem: (id: string) => void
   onAddItem: () => void
   onRemoveItem: (id: string) => void
+  onApplyFreightSplit: (valores: Record<string, number>) => void
   onProductChange: (patch: Partial<ProductInput>) => void
   onPricingChange: (patch: Partial<PricingConfig>) => void
   onSave: () => void
@@ -69,6 +72,8 @@ export function Dashboard({
         onAdd={onAddItem}
         onRemove={onRemoveItem}
       />
+
+      <FreightSplitPanel items={items} onApply={onApplyFreightSplit} />
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         <div className="lg:col-span-3 space-y-6">
