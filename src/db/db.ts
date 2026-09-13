@@ -6,12 +6,14 @@
 // -----------------------------------------------------------------------
 export const STORE_ANALISES = 'analises'
 
-// Endereço do servidor no celular. Se o IP do celular mudar (acontece
-// quando ele reconecta no Wi-Fi), não precisa editar o código: abra o
+// Endereço do servidor no celular, pela rede privada do Tailscale — esse IP
+// (100.x.y.z) fica fixo independente de trocas de Wi-Fi ou quedas de energia,
+// desde que o celular continue com o Tailscale conectado na mesma conta.
+// Se precisar trocar por outro motivo, não precisa editar o código: abra o
 // console do navegador (F12) e rode:
 //   localStorage.setItem('serverUrl', 'http://NOVO_IP:3000')
 // e recarregue a página.
-const DEFAULT_SERVER_URL = 'http://192.168.28.101:3000'
+const DEFAULT_SERVER_URL = 'http://100.112.41.57:3000'
 
 export function getServerUrl(): string {
   return localStorage.getItem('serverUrl') || DEFAULT_SERVER_URL
@@ -26,7 +28,7 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
     })
   } catch {
     throw new Error(
-      `Não foi possível conectar ao servidor (${getServerUrl()}). Verifique se o celular está ligado, com o servidor rodando no Termux, e na mesma rede Wi-Fi do computador.`,
+      `Não foi possível conectar ao servidor (${getServerUrl()}). Verifique se o celular está ligado, com o servidor rodando no Termux, e com o Tailscale conectado (tanto no celular quanto neste dispositivo).`,
     )
   }
   if (res.status === 404) {
