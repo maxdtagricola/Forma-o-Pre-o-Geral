@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Layout, type TabKey } from './components/Layout'
 import { AdminGate } from './components/AdminGate'
 import { CotacoesPage } from './pages/CotacoesPage'
+import { AnalyticsPage } from './pages/AnalyticsPage'
 import { Dashboard } from './pages/Dashboard'
 import { MarginAnalysisPage } from './pages/MarginAnalysisPage'
 import { ProdutosPage } from './pages/ProdutosPage'
@@ -140,6 +141,7 @@ export default function App() {
           onOpenQuote={handleLoad}
         />
       )}
+      {tab === 'analytics' && <AnalyticsPage />}
       {tab === 'dashboard' && (
         <Dashboard
           currentAdmin={currentAdmin}

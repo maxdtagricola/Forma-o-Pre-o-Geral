@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listQuotes, updateQuoteStatus } from '../db/analysesRepo'
-import { Badge, Button } from '../components/ui/Basics'
+import { getStatusColors } from '../db/configRepo'
+import { Button } from '../components/ui/Basics'
 import { SelectField, TextField } from '../components/ui/Field'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { formatCurrency, formatDate } from '../utils'
+import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { QUOTE_STATUSES, TIPOS_REFERENCIA, VENDEDORES } from '../types'
 import type { PedidoCompraInfo, QuoteRecord, QuoteStatus, TipoReferencia } from '../types'
 
@@ -28,6 +30,7 @@ export function CotacoesPage({
   const [tipo, setTipo] = useState<TipoReferencia>('itens')
   const [criando, setCriando] = useState(false)
   const [pedidoModalRecord, setPedidoModalRecord] = useState<QuoteRecord | undefined>(undefined)
+  const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
 
   async function refresh() {
     setLoading(true)
@@ -44,6 +47,18 @@ export function CotacoesPage({
     refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey])
+
+  useEffect(() => {
+    getStatusColors()
+      .then(setCoresStatus)
+      .catch(() => {
+        // cores customizadas são só um extra visual — se o servidor falhar, usa a paleta padrão
+      })
+  }, [])
+
+  function corDoStatus(status: string): string {
+    return coresStatus[status] || corPadraoDoStatus(status)
+  }
 
   async function handleCriar() {
     if (!vendedor) {
@@ -126,7 +141,12 @@ export function CotacoesPage({
             {grupos.map((grupo) => (
               <div key={grupo.status}>
                 <div className="flex items-center gap-2 mb-2">
-                  <Badge tone="neutral">{grupo.status}</Badge>
+                  <span
+                    className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
+                    style={{ backgroundColor: corDoStatus(grupo.status), color: corTexto(corDoStatus(grupo.status)) }}
+                  >
+                    {grupo.status}
+                  </span>
                   <span className="text-xs text-ink-400">{grupo.itens.length}</span>
                 </div>
                 <div className="overflow-x-auto rounded-xl border border-ink-100">
@@ -155,19 +175,25 @@ export function CotacoesPage({
                               {formatDate(r.createdAt)}
                             </td>
                             <td className="py-2 px-3">
-                              <select
-                                value={r.status}
-                                disabled={travadaPorOutro}
-                                onChange={(e) => handleStatusChange(r, e.target.value as QuoteStatus)}
-                                className={`field-input text-xs py-1.5 ${travadaPorOutro ? 'opacity-60 cursor-not-allowed' : ''}`}
-                                title={travadaPorOutro ? `Em análise por ${r.responsavelStatus} — só ele(a) pode mudar` : undefined}
-                              >
-                                {QUOTE_STATUSES.map((s) => (
-                                  <option key={s} value={s}>
-                                    {s}
-                                  </option>
-                                ))}
-                              </select>
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                  style={{ backgroundColor: corDoStatus(r.status) }}
+                                />
+                                <select
+                                  value={r.status}
+                                  disabled={travadaPorOutro}
+                                  onChange={(e) => handleStatusChange(r, e.target.value as QuoteStatus)}
+                                  className={`field-input text-xs py-1.5 ${travadaPorOutro ? 'opacity-60 cursor-not-allowed' : ''}`}
+                                  title={travadaPorOutro ? `Em análise por ${r.responsavelStatus} — só ele(a) pode mudar` : undefined}
+                                >
+                                  {QUOTE_STATUSES.map((s) => (
+                                    <option key={s} value={s}>
+                                      {s}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
                             </td>
                             <td className="py-2 px-3 text-ink-500">{r.responsavelStatus || '—'}</td>
                             <td
