@@ -3,6 +3,7 @@ import { dbDelete, dbGet, dbGetAll, dbPut, STORE_ANALISES } from './db'
 import { makeId } from '../utils'
 import type {
   PedidoCompraInfo,
+  PreRegistroItem,
   PricingConfig,
   ProductInput,
   QuoteItem,
@@ -36,6 +37,7 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
       cliente: '',
       maquina: '',
       items: [{ id: makeId(), product: record.product, pricing: record.pricing }],
+      itensPreRegistro: [],
       status: 'PENDENTE',
       responsavelStatus: '',
       statusHistory: [{ status: 'PENDENTE', changedAt: record.createdAt }],
@@ -55,6 +57,7 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
     tipoReferencia: record.tipoReferencia ?? 'itens',
     cliente: record.cliente ?? '',
     maquina: record.maquina ?? '',
+    itensPreRegistro: record.itensPreRegistro ?? [],
     status: record.status ?? 'PENDENTE',
     responsavelStatus: record.responsavelStatus ?? '',
     statusHistory:
@@ -102,6 +105,8 @@ export async function saveQuote(
     cliente,
     maquina,
     items,
+    itensPreRegistro: base?.itensPreRegistro ?? [],
+    planilhaOriginal: base?.planilhaOriginal,
     status: base?.status ?? 'PENDENTE',
     responsavelStatus: base?.responsavelStatus ?? '',
     statusHistory: base?.statusHistory ?? [{ status: 'PENDENTE', changedAt: now }],
@@ -146,6 +151,44 @@ export async function updateQuoteStatus(
     pedidoCompra: novoStatus === 'PEDIDO DE COMPRA' ? pedidoCompra : normalizado.pedidoCompra,
     updatedAt: now,
   }
+  await dbPut(STORE_ANALISES, atualizado)
+  return atualizado
+}
+
+/** Salva a lista de pré-registro (Interno, Referência, Quantidade) da cotação, sem mexer nos itens já precificados. */
+export async function updateItensPreRegistro(
+  id: string,
+  itens: PreRegistroItem[],
+  atorAdmin: string,
+): Promise<QuoteRecord> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  if (!atual) throw new Error('Cotação não encontrada no servidor.')
+  const normalizado = normalizeRecord(atual)
+
+  if (
+    normalizado.status !== 'PENDENTE' &&
+    normalizado.responsavelStatus &&
+    normalizado.responsavelStatus !== atorAdmin
+  ) {
+    throw new Error(
+      `Essa cotação está sendo analisada por ${normalizado.responsavelStatus} — só ele(a) pode alterá-la agora.`,
+    )
+  }
+
+  const atualizado: QuoteRecord = { ...normalizado, itensPreRegistro: itens, updatedAt: Date.now() }
+  await dbPut(STORE_ANALISES, atualizado)
+  return atualizado
+}
+
+/** Guarda a planilha original do cliente (só usado logo na criação, por importação de planilha). */
+export async function setPlanilhaOriginal(
+  id: string,
+  planilha: { nomeArquivo: string; conteudoBase64: string },
+): Promise<QuoteRecord> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  if (!atual) throw new Error('Cotação não encontrada no servidor.')
+  const normalizado = normalizeRecord(atual)
+  const atualizado: QuoteRecord = { ...normalizado, planilhaOriginal: planilha, updatedAt: Date.now() }
   await dbPut(STORE_ANALISES, atualizado)
   return atualizado
 }

@@ -90,4 +90,11 @@
   .pill-tab {
     @apply inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition whitespace-nowrap;
   }
+  .planilha-preview table {
+    @apply w-full border-collapse text-xs text-ink-800;
+  }
+  .planilha-preview td,
+  .planilha-preview th {
+    @apply border border-ink-100 px-2 py-1 whitespace-nowrap;
+  }
 }

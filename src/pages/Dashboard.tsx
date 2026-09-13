@@ -36,11 +36,16 @@ export function Dashboard({
   onAddItem,
   onRemoveItem,
   onApplyFreightSplit,
+  onPatchItem,
+  onApplyMarginToAll,
   onProductChange,
   onPricingChange,
   onSave,
   onNew,
   onGoToCotacoes,
+  onGoToPreRegistro,
+  temPlanilhaCliente,
+  onVerPlanilhaCliente,
 }: {
   currentAdmin: string
   activeStatus: QuoteStatus
@@ -63,11 +68,16 @@ export function Dashboard({
   onAddItem: () => void
   onRemoveItem: (id: string) => void
   onApplyFreightSplit: (valores: Record<string, number>) => void
+  onPatchItem: (id: string, patch: Partial<ProductInput>) => void
+  onApplyMarginToAll: (lucroPct: number) => void
   onProductChange: (patch: Partial<ProductInput>) => void
   onPricingChange: (patch: Partial<PricingConfig>) => void
   onSave: () => void
   onNew: () => void
   onGoToCotacoes: () => void
+  onGoToPreRegistro: () => void
+  temPlanilhaCliente: boolean
+  onVerPlanilhaCliente: () => void
 }) {
   const travadaPorOutro = activeStatus !== 'PENDENTE' && !!activeResponsavel && activeResponsavel !== currentAdmin
 
@@ -102,7 +112,19 @@ export function Dashboard({
       )}
 
       <div className="card">
-        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Dados da cotação</h2>
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <h2 className="font-display text-lg font-semibold text-ink-900">Dados da cotação</h2>
+          <div className="flex gap-2 shrink-0">
+            {temPlanilhaCliente && (
+              <Button variant="ghost" onClick={onVerPlanilhaCliente}>
+                Planilha do cliente
+              </Button>
+            )}
+            <Button variant="ghost" onClick={onGoToPreRegistro}>
+              Ver itens a cotar
+            </Button>
+          </div>
+        </div>
         <p className="text-sm text-ink-400 mb-4">Informações gerais — servem de base pra recursos futuros.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <SelectField label="Vendedor" value={vendedor} onChange={onVendedorChange} options={vendedorOptions} />
@@ -123,6 +145,8 @@ export function Dashboard({
         onSelect={onSelectItem}
         onAdd={onAddItem}
         onRemove={onRemoveItem}
+        onPatchItem={onPatchItem}
+        onApplyMarginToAll={onApplyMarginToAll}
       />
 
       <FreightSplitPanel items={items} onApply={onApplyFreightSplit} />

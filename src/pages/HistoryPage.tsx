@@ -166,7 +166,7 @@ export function HistoryPage({
 
   function renderCard(r: QuoteRecord) {
     const first = r.items[0]
-    const extras = r.items.length - 1
+    const extras = Math.max(r.items.length - 1, 0)
     const expandido = expandedId === r.id
     const travadaPorOutro = r.status !== 'PENDENTE' && !!r.responsavelStatus && r.responsavelStatus !== currentAdmin
     return (
@@ -175,11 +175,15 @@ export function HistoryPage({
           <div className="flex items-start justify-between gap-2 mb-2">
             <div className="min-w-0">
               <p className="font-medium text-ink-900 truncate">
-                {r.cliente || first.product.descricao || '(sem descrição)'}
+                {r.cliente || first?.product.descricao || '(sem descrição)'}
               </p>
               {r.maquina && <p className="text-xs text-ink-500 truncate">Máquina: {r.maquina}</p>}
               <p className="text-xs text-ink-400 truncate">
-                Ref. {first.product.referencia || '—'} · NCM {first.product.ncm || '—'}
+                {first ? (
+                  <>Ref. {first.product.referencia || '—'} · NCM {first.product.ncm || '—'}</>
+                ) : (
+                  <>{r.itensPreRegistro.length} item{r.itensPreRegistro.length === 1 ? '' : 's'} a cotar</>
+                )}
               </p>
             </div>
             <Badge tone="neutral">
@@ -190,7 +194,7 @@ export function HistoryPage({
           <div className="text-xs text-ink-400 mb-3 space-y-0.5">
             <p>Solicitado em: {formatDate(r.createdAt)}</p>
             <p>Criado por: {r.criadoPor || '—'}{r.vendedor ? ` · Vendedor: ${r.vendedor}` : ''}</p>
-            <p>Fornecedor: {first.product.fornecedor || '—'}</p>
+            {first && <p>Fornecedor: {first.product.fornecedor || '—'}</p>}
             {extras > 0 && <p>+ {extras} outro{extras > 1 ? 's' : ''} item{extras > 1 ? 's' : ''} nesta cotação</p>}
             {r.pedidoCompra && (
               <p>

@@ -45,6 +45,8 @@ export interface ProductInput {
   valorUnt: number
   /** Peso do produto, em kg */
   peso: number
+  /** Prazo de entrega (texto livre, ex.: "IMEDIATO", "2 DIAS") — usado ao devolver a planilha do cliente preenchida. */
+  prazoEntrega: string
 
   // Campos avançados — existem na planilha (colunas U, V, W, Y, Z, AA) mas
   // não fazem parte da entrada principal pedida. Têm padrão 0.
@@ -69,6 +71,7 @@ export const DEFAULT_PRODUCT_INPUT: ProductInput = {
   descricao: '',
   valorUnt: 0,
   peso: 0,
+  prazoEntrega: '',
   stRetido: 0,
   outrasDespesas: 0,
   desconto: 0,
@@ -225,6 +228,19 @@ export interface PedidoCompraInfo {
 }
 
 // ---------------------------------------------------------------------------
+// Pré-registro — lista rápida (Interno, Referência, Quantidade) dos itens que
+// ainda precisam ser cotados, preenchida antes de ir pra precificação.
+// ---------------------------------------------------------------------------
+export interface PreRegistroItem {
+  id: string
+  interno: string
+  referencia: string
+  /** Preenchida quando o item vem de uma planilha importada — ajuda a identificar o item mesmo sem Interno. */
+  descricao?: string
+  quantidade: number
+}
+
+// ---------------------------------------------------------------------------
 // Registro salvo no histórico (IndexedDB) — uma cotação inteira, com um ou
 // mais itens.
 // ---------------------------------------------------------------------------
@@ -240,6 +256,10 @@ export interface QuoteRecord {
   cliente: string
   maquina: string
   items: QuoteItem[]
+  /** Itens ainda não precificados — lista rápida preenchida antes da precificação. */
+  itensPreRegistro: PreRegistroItem[]
+  /** Planilha original enviada pelo cliente, guardada pra devolver com valores e prazos preenchidos. */
+  planilhaOriginal?: { nomeArquivo: string; conteudoBase64: string }
   status: QuoteStatus
   /** Admin que tirou a cotação de PENDENTE — só ele pode mudar o status até voltar pra PENDENTE. */
   responsavelStatus: string

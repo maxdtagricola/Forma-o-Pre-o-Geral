@@ -4,6 +4,8 @@ import { getStatusColors } from '../db/configRepo'
 import { Button } from '../components/ui/Basics'
 import { SelectField, TextField } from '../components/ui/Field'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
+import { lerPlanilhaCotacao, type ItemCotacaoImportado } from '../quoteImport'
+import { arquivoParaBase64 } from '../planilhaCliente'
 import { formatCurrency, formatDate } from '../utils'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { QUOTE_STATUSES, TIPOS_REFERENCIA, VENDEDORES } from '../types'
@@ -11,26 +13,159 @@ import type { PedidoCompraInfo, QuoteRecord, QuoteStatus, TipoReferencia } from 
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
 const tipoOptions = TIPOS_REFERENCIA.map((t) => ({ value: t.value, label: t.label }))
+const NOVO = '__novo__'
+
+/** Correspondências case-insensitive, por igualdade ou substring em qualquer direção. */
+function encontrarCorrespondencias(valor: string, conhecidos: string[]): string[] {
+  const alvo = valor.trim().toLowerCase()
+  if (!alvo) return []
+  const vistos = new Set<string>()
+  const resultado: string[] = []
+  for (const c of conhecidos) {
+    const atual = c.trim().toLowerCase()
+    if (!atual || vistos.has(atual)) continue
+    if (atual === alvo || atual.includes(alvo) || alvo.includes(atual)) {
+      vistos.add(atual)
+      resultado.push(c)
+    }
+  }
+  return resultado
+}
 
 export function CotacoesPage({
   refreshKey,
   currentAdmin,
   onCreateQuote,
+  onImportQuote,
   onOpenQuote,
 }: {
   refreshKey: number
   currentAdmin: string
-  onCreateQuote: (vendedor: string, cliente: string, tipo: TipoReferencia) => Promise<void>
+  onCreateQuote: (vendedor: string, cliente: string, maquina: string, tipo: TipoReferencia) => Promise<void>
+  onImportQuote: (
+    vendedor: string,
+    cliente: string,
+    maquina: string,
+    itens: ItemCotacaoImportado[],
+    planilhaOriginal: { nomeArquivo: string; conteudoBase64: string },
+  ) => Promise<void>
   onOpenQuote: (record: QuoteRecord) => void
 }) {
   const [records, setRecords] = useState<QuoteRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [modoNovo, setModoNovo] = useState<'manual' | 'importar'>('manual')
   const [vendedor, setVendedor] = useState('')
   const [cliente, setCliente] = useState('')
+  const [maquina, setMaquina] = useState('')
   const [tipo, setTipo] = useState<TipoReferencia>('itens')
   const [criando, setCriando] = useState(false)
   const [pedidoModalRecord, setPedidoModalRecord] = useState<QuoteRecord | undefined>(undefined)
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
+
+  // --- importar planilha de cotação -----------------------------------------
+  const [lendoArquivo, setLendoArquivo] = useState(false)
+  const [importado, setImportado] = useState(false)
+  const [clienteMatches, setClienteMatches] = useState<string[]>([])
+  const [clienteEscolha, setClienteEscolha] = useState('')
+  const [clienteNovoTexto, setClienteNovoTexto] = useState('')
+  const [maquinaMatches, setMaquinaMatches] = useState<string[]>([])
+  const [maquinaEscolha, setMaquinaEscolha] = useState('')
+  const [maquinaNovoTexto, setMaquinaNovoTexto] = useState('')
+  const [vendedorImport, setVendedorImport] = useState('')
+  const [itensImportados, setItensImportados] = useState<ItemCotacaoImportado[]>([])
+  const [arquivoImportado, setArquivoImportado] = useState<File | undefined>(undefined)
+  const [confirmandoImport, setConfirmandoImport] = useState(false)
+
+  const clientesConhecidos = useMemo(
+    () => Array.from(new Set(records.map((r) => r.cliente.trim()).filter(Boolean))),
+    [records],
+  )
+  const maquinasConhecidas = useMemo(
+    () => Array.from(new Set(records.map((r) => r.maquina.trim()).filter(Boolean))),
+    [records],
+  )
+
+  function resetImportacao() {
+    setImportado(false)
+    setClienteMatches([])
+    setClienteEscolha('')
+    setClienteNovoTexto('')
+    setMaquinaMatches([])
+    setMaquinaEscolha('')
+    setMaquinaNovoTexto('')
+    setVendedorImport('')
+    setItensImportados([])
+    setArquivoImportado(undefined)
+  }
+
+  async function handleArquivoSelecionado(file: File) {
+    setLendoArquivo(true)
+    try {
+      const resultado = await lerPlanilhaCotacao(file)
+      const clMatches = encontrarCorrespondencias(resultado.cliente, clientesConhecidos)
+      const maMatches = encontrarCorrespondencias(resultado.equipamento, maquinasConhecidas)
+      setClienteMatches(clMatches)
+      setClienteEscolha(clMatches[0] ?? NOVO)
+      setClienteNovoTexto(resultado.cliente)
+      setMaquinaMatches(maMatches)
+      setMaquinaEscolha(maMatches[0] ?? NOVO)
+      setMaquinaNovoTexto(resultado.equipamento)
+      setVendedorImport(resultado.vendedor)
+      setItensImportados(resultado.itens)
+      setArquivoImportado(file)
+      setImportado(true)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
+    } finally {
+      setLendoArquivo(false)
+    }
+  }
+
+  function handlePatchItemImportado(index: number, patch: Partial<ItemCotacaoImportado>) {
+    setItensImportados((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)))
+  }
+  function handleRemoveItemImportado(index: number) {
+    setItensImportados((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  async function handleConfirmarImportacao() {
+    if (!vendedorImport) {
+      alert('Selecione o vendedor.')
+      return
+    }
+    const clienteFinal = clienteEscolha === NOVO ? clienteNovoTexto.trim().toUpperCase() : clienteEscolha
+    const maquinaFinal = maquinaEscolha === NOVO ? maquinaNovoTexto.trim() : maquinaEscolha
+    if (!clienteFinal) {
+      alert('Informe o cliente.')
+      return
+    }
+    if (!maquinaFinal) {
+      alert('Informe a máquina.')
+      return
+    }
+    if (itensImportados.length === 0) {
+      alert('Nenhum item pra importar — remova a planilha e confira se ela tem itens marcados como "COTAR".')
+      return
+    }
+    if (!arquivoImportado) {
+      alert('Selecione o arquivo novamente.')
+      return
+    }
+    setConfirmandoImport(true)
+    try {
+      const conteudoBase64 = await arquivoParaBase64(arquivoImportado)
+      await onImportQuote(vendedorImport, clienteFinal, maquinaFinal, itensImportados, {
+        nomeArquivo: arquivoImportado.name,
+        conteudoBase64,
+      })
+      resetImportacao()
+      setModoNovo('manual')
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao importar a cotação.')
+    } finally {
+      setConfirmandoImport(false)
+    }
+  }
 
   async function refresh() {
     setLoading(true)
@@ -65,11 +200,20 @@ export function CotacoesPage({
       alert('Selecione o vendedor.')
       return
     }
+    if (!cliente.trim()) {
+      alert('Informe o cliente.')
+      return
+    }
+    if (!maquina.trim()) {
+      alert('Informe a máquina.')
+      return
+    }
     setCriando(true)
     try {
-      await onCreateQuote(vendedor, cliente, tipo)
+      await onCreateQuote(vendedor, cliente, maquina, tipo)
       setVendedor('')
       setCliente('')
+      setMaquina('')
       setTipo('itens')
     } finally {
       setCriando(false)
@@ -110,23 +254,210 @@ export function CotacoesPage({
   return (
     <div className="space-y-6">
       <div className="card">
-        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Nova cotação</h2>
-        <p className="text-sm text-ink-400 mb-4">
-          Identifique o vendedor, o cliente e a que se refere — depois é só ir pra Precificação e adicionar os itens.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-          <SelectField label="Vendedor" value={vendedor} onChange={setVendedor} options={vendedorOptions} />
-          <TextField label="Cliente" value={cliente} onChange={setCliente} uppercase />
-          <SelectField
-            label="Refere-se a"
-            value={tipo}
-            onChange={(v) => setTipo(v as TipoReferencia)}
-            options={tipoOptions}
-          />
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <h2 className="font-display text-lg font-semibold text-ink-900">Nova cotação</h2>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setModoNovo('manual')}
+              className={`pill-tab border ${
+                modoNovo === 'manual' ? 'bg-ink-950 border-ink-950 text-white' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+              }`}
+            >
+              Manual
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoNovo('importar')}
+              className={`pill-tab border ${
+                modoNovo === 'importar' ? 'bg-ink-950 border-ink-950 text-white' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+              }`}
+            >
+              Importar planilha
+            </button>
+          </div>
         </div>
-        <Button variant="primary" onClick={handleCriar} disabled={criando}>
-          Criar cotação e ir pra Precificação
-        </Button>
+
+        {modoNovo === 'manual' ? (
+          <>
+            <p className="text-sm text-ink-400 mb-4">
+              Identifique o vendedor, o cliente, a máquina e a que se refere — depois é só registrar os itens a cotar.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+              <SelectField label="Vendedor" value={vendedor} onChange={setVendedor} options={vendedorOptions} />
+              <TextField label="Cliente" value={cliente} onChange={setCliente} uppercase />
+              <TextField label="Máquina" value={maquina} onChange={setMaquina} />
+              <SelectField
+                label="Refere-se a"
+                value={tipo}
+                onChange={(v) => setTipo(v as TipoReferencia)}
+                options={tipoOptions}
+              />
+            </div>
+            <Button variant="primary" onClick={handleCriar} disabled={criando}>
+              Criar cotação e registrar itens
+            </Button>
+          </>
+        ) : (
+          <div className="mt-4">
+            <p className="text-sm text-ink-400 mb-4">
+              Envie a planilha de orçamento do cliente — o cliente e o equipamento são lidos do topo, e os itens sem
+              prazo de entrega marcados como "COTAR" viram os itens a cotar dessa cotação.
+            </p>
+            <label className="block mb-4">
+              <span className="field-label">Arquivo (.xlsx)</span>
+              <input
+                type="file"
+                accept=".xlsx"
+                className="field-input"
+                disabled={lendoArquivo}
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) handleArquivoSelecionado(file)
+                  e.target.value = ''
+                }}
+              />
+            </label>
+
+            {lendoArquivo && <p className="text-sm text-ink-400">Lendo planilha…</p>}
+
+            {importado && (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <span className="field-label">Cliente</span>
+                    <select
+                      className="field-input"
+                      value={clienteEscolha}
+                      onChange={(e) => setClienteEscolha(e.target.value)}
+                    >
+                      {clienteMatches.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                      <option value={NOVO}>+ Adicionar novo cliente</option>
+                    </select>
+                    {clienteEscolha === NOVO && (
+                      <input
+                        className="field-input uppercase mt-2"
+                        value={clienteNovoTexto}
+                        onChange={(e) => setClienteNovoTexto(e.target.value)}
+                      />
+                    )}
+                  </div>
+                  <div>
+                    <span className="field-label">Máquina</span>
+                    <select
+                      className="field-input"
+                      value={maquinaEscolha}
+                      onChange={(e) => setMaquinaEscolha(e.target.value)}
+                    >
+                      {maquinaMatches.map((m) => (
+                        <option key={m} value={m}>
+                          {m}
+                        </option>
+                      ))}
+                      <option value={NOVO}>+ Adicionar nova máquina</option>
+                    </select>
+                    {maquinaEscolha === NOVO && (
+                      <input
+                        className="field-input mt-2"
+                        value={maquinaNovoTexto}
+                        onChange={(e) => setMaquinaNovoTexto(e.target.value)}
+                      />
+                    )}
+                  </div>
+                </div>
+
+                <SelectField
+                  label="Vendedor"
+                  value={vendedorImport}
+                  onChange={setVendedorImport}
+                  options={vendedorOptions}
+                />
+
+                <div>
+                  <p className="field-label mb-2">Itens a cotar encontrados na planilha</p>
+                  <div className="overflow-x-auto rounded-xl border border-ink-100">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="bg-ink-50 text-left text-ink-400">
+                          <th className="py-2 px-2 font-medium w-10">#</th>
+                          <th className="py-2 px-2 font-medium min-w-[10rem]">Referência</th>
+                          <th className="py-2 px-2 font-medium min-w-[14rem]">Descrição</th>
+                          <th className="py-2 px-2 font-medium w-28 text-right">Quantidade</th>
+                          <th className="w-10"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {itensImportados.length === 0 ? (
+                          <tr>
+                            <td colSpan={5} className="py-6 text-center text-ink-400 border-t border-ink-100">
+                              Nenhum item restante.
+                            </td>
+                          </tr>
+                        ) : (
+                          itensImportados.map((item, index) => (
+                            <tr key={index}>
+                              <td className="px-2 py-1 border-t border-ink-100 text-ink-400 text-xs text-center">
+                                {index + 1}
+                              </td>
+                              <td className="px-1 py-1 border-t border-ink-100">
+                                <input
+                                  className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-brand-400"
+                                  value={item.referencia}
+                                  onChange={(e) => handlePatchItemImportado(index, { referencia: e.target.value })}
+                                />
+                              </td>
+                              <td className="px-1 py-1 border-t border-ink-100">
+                                <input
+                                  className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                                  value={item.descricao}
+                                  onChange={(e) => handlePatchItemImportado(index, { descricao: e.target.value })}
+                                />
+                              </td>
+                              <td className="px-1 py-1 border-t border-ink-100">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 text-right tabular-nums focus:outline-none focus:ring-1 focus:ring-brand-400"
+                                  value={item.quantidade}
+                                  onChange={(e) =>
+                                    handlePatchItemImportado(index, { quantidade: Number(e.target.value) || 0 })
+                                  }
+                                />
+                              </td>
+                              <td className="px-1 py-1 border-t border-ink-100 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveItemImportado(index)}
+                                  aria-label="Remover item"
+                                  className="h-6 w-6 rounded-full text-xs leading-none text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
+                                >
+                                  ×
+                                </button>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={resetImportacao}>
+                    Cancelar
+                  </Button>
+                  <Button variant="primary" onClick={handleConfirmarImportacao} disabled={confirmandoImport}>
+                    Criar cotação com esses itens
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="card">
