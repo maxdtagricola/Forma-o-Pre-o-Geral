@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Button } from '../components/ui/Basics'
+import { PlanilhaFornecedoresModal } from '../components/PlanilhaFornecedoresModal'
 import { findByInterno } from '../db/analysesRepo'
 import type { PreRegistroItem, QuoteStatus } from '../types'
 
@@ -8,6 +9,8 @@ export function PreRegistroPage({
   isEditing,
   activeStatus,
   activeResponsavel,
+  cliente,
+  maquina,
   itens,
   onAddItem,
   onRemoveItem,
@@ -20,6 +23,8 @@ export function PreRegistroPage({
   isEditing: boolean
   activeStatus: QuoteStatus
   activeResponsavel: string
+  cliente: string
+  maquina: string
   itens: PreRegistroItem[]
   onAddItem: () => void
   onRemoveItem: (id: string) => void
@@ -30,6 +35,7 @@ export function PreRegistroPage({
 }) {
   const [salvando, setSalvando] = useState(false)
   const [indo, setIndo] = useState(false)
+  const [mostrarPlanilhaFornecedores, setMostrarPlanilhaFornecedores] = useState(false)
 
   const travadaPorOutro = activeStatus !== 'PENDENTE' && !!activeResponsavel && activeResponsavel !== currentAdmin
 
@@ -100,9 +106,18 @@ export function PreRegistroPage({
               Referência é carregada sozinha. Confira a lista e siga pra precificação quando estiver pronta.
             </p>
           </div>
-          <Button variant="secondary" onClick={onAddItem} disabled={travadaPorOutro} className="shrink-0">
-            + Adicionar item
-          </Button>
+          <div className="flex gap-2 shrink-0">
+            <Button
+              variant="secondary"
+              onClick={() => setMostrarPlanilhaFornecedores(true)}
+              disabled={itens.length === 0}
+            >
+              Planilha para fornecedores
+            </Button>
+            <Button variant="secondary" onClick={onAddItem} disabled={travadaPorOutro}>
+              + Adicionar item
+            </Button>
+          </div>
         </div>
 
         <div className="mt-4 overflow-x-auto rounded-xl border border-ink-100">
@@ -191,6 +206,15 @@ export function PreRegistroPage({
           </Button>
         </div>
       </div>
+
+      {mostrarPlanilhaFornecedores && (
+        <PlanilhaFornecedoresModal
+          itens={itens}
+          cliente={cliente}
+          maquina={maquina}
+          onClose={() => setMostrarPlanilhaFornecedores(false)}
+        />
+      )}
     </div>
   )
 }

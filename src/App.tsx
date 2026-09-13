@@ -323,6 +323,8 @@ export default function App() {
           isEditing={!!editingQuoteId}
           activeStatus={activeStatus}
           activeResponsavel={activeResponsavel}
+          cliente={cliente}
+          maquina={maquina}
           itens={preRegistroItems}
           onAddItem={handleAddPreRegistroItem}
           onRemoveItem={handleRemovePreRegistroItem}
