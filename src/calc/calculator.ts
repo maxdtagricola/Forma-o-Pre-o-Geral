@@ -19,12 +19,12 @@ import type {
 // isso são as mesmas para todos os perfis; só a alíquota reduzida "local" do
 // RBC e o MVA do ICMS-ST mudam por estado.
 // ---------------------------------------------------------------------------
-interface RbcData {
+export interface RbcData {
   rateNormal: Record<string, number>
   rateRbc: Record<string, number>
   rbcNcms: string[]
 }
-interface StInfo {
+export interface StInfo {
   mva04: number
   mva07: number
   mva12: number
@@ -33,17 +33,34 @@ interface StInfo {
 
 const pisCofinsMono = pisCofinsRaw as Record<string, boolean>
 
-const RBC_BY_PERFIL: Record<EstadoDestino, RbcData> = {
+const RBC_PADRAO: Record<EstadoDestino, RbcData> = {
   RO: rbcRoRaw as RbcData,
   AC: rbcAcRaw as RbcData,
 }
-const ICMS_ST_BY_PERFIL: Record<EstadoDestino, Record<string, StInfo>> = {
+const ICMS_ST_PADRAO: Record<EstadoDestino, Record<string, StInfo>> = {
   RO: icmsStRoRaw as Record<string, StInfo>,
   AC: icmsStAcRaw as Record<string, StInfo>,
 }
-const RBC_NCM_SET_BY_PERFIL: Record<EstadoDestino, Set<string>> = {
-  RO: new Set(RBC_BY_PERFIL.RO.rbcNcms),
-  AC: new Set(RBC_BY_PERFIL.AC.rbcNcms),
+
+// Substitutas em memória — aplicadas quando uma planilha de markup nova é
+// importada e salva pela aba Configurações. Enquanto o app não for
+// recarregado, o cálculo passa a usar essas tabelas em vez das originais.
+const rbcSubstituto: Partial<Record<EstadoDestino, RbcData>> = {}
+const icmsStSubstituto: Partial<Record<EstadoDestino, Record<string, StInfo>>> = {}
+
+export function definirTabelasCustomizadas(perfil: EstadoDestino, rbc: RbcData, icmsSt: Record<string, StInfo>): void {
+  rbcSubstituto[perfil] = rbc
+  icmsStSubstituto[perfil] = icmsSt
+}
+
+function getRbcData(perfil: EstadoDestino): RbcData {
+  return rbcSubstituto[perfil] ?? RBC_PADRAO[perfil]
+}
+function getIcmsStData(perfil: EstadoDestino): Record<string, StInfo> {
+  return icmsStSubstituto[perfil] ?? ICMS_ST_PADRAO[perfil]
+}
+function getRbcNcmSet(perfil: EstadoDestino): Set<string> {
+  return new Set(getRbcData(perfil).rbcNcms)
 }
 
 /** Remove tudo que não for dígito — a planilha usa o NCM "cru" para os lookups. */
@@ -75,10 +92,10 @@ export interface NcmInfo {
 /** Informações de classificação de um NCM, sem depender de estado/valores. */
 export function getNcmInfo(ncmRaw: string, perfil: EstadoDestino = 'RO'): NcmInfo {
   const ncm = normalizeNcm(ncmRaw)
-  const stInfo = ICMS_ST_BY_PERFIL[perfil][ncm] ?? null
+  const stInfo = getIcmsStData(perfil)[ncm] ?? null
   return {
     ncm,
-    isRbcElegivel: RBC_NCM_SET_BY_PERFIL[perfil].has(ncm),
+    isRbcElegivel: getRbcNcmSet(perfil).has(ncm),
     isSTemRO: !!stInfo,
     isMonoPisCofins: !!pisCofinsMono[ncm],
     stInfo,
@@ -94,7 +111,7 @@ export function getNcmInfo(ncmRaw: string, perfil: EstadoDestino = 'RO'): NcmInf
  */
 export function calculateItem(product: ProductInput, pricing: PricingConfig): CalculationResult {
   const perfil = product.perfil ?? 'RO'
-  const rbcData = RBC_BY_PERFIL[perfil]
+  const rbcData = getRbcData(perfil)
   const info = getNcmInfo(product.ncm, perfil)
   const qtd = Number(product.qtd) || 0
   const valorUnt = Number(product.valorUnt) || 0

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { listQuotes } from '../db/analysesRepo'
-import { getStatusColors, setStatusColor } from '../db/configRepo'
+import { getStatusColors } from '../db/configRepo'
 import { formatCurrency } from '../utils'
 import { COR_OUTROS, PALETA_CATEGORICA, corPadraoDoStatus, corTexto } from '../statusColors'
 import { QUOTE_STATUSES } from '../types'
@@ -118,11 +118,18 @@ function DonutChart({
               </text>
             ),
         )}
-        <circle cx={cx} cy={cy} r={rInner - 6} fill="#fcfcfb" />
-        <text x={cx} y={cy - 6} textAnchor="middle" fontSize="20" fontWeight="700" fill="#0b0b0b">
+        <circle cx={cx} cy={cy} r={rInner - 6} style={{ fill: 'rgb(var(--surface))' }} />
+        <text
+          x={cx}
+          y={cy - 6}
+          textAnchor="middle"
+          fontSize="20"
+          fontWeight="700"
+          style={{ fill: 'rgb(var(--ink-900))' }}
+        >
           {centerValue}
         </text>
-        <text x={cx} y={cy + 16} textAnchor="middle" fontSize="11" fill="#898781">
+        <text x={cx} y={cy + 16} textAnchor="middle" fontSize="11" style={{ fill: 'rgb(var(--ink-400))' }}>
           {centerLabel}
         </text>
       </svg>
@@ -191,15 +198,6 @@ export function AnalyticsPage() {
       })
   }, [])
 
-  async function handleCorStatusChange(status: string, cor: string) {
-    setCoresStatus((prev) => ({ ...prev, [status]: cor }))
-    try {
-      await setStatusColor(status, cor)
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar a cor no servidor.')
-    }
-  }
-
   const filtrados = useMemo(() => {
     const inicio = inicioPeriodo(periodo)
     return records.filter((r) => r.createdAt >= inicio)
@@ -257,7 +255,10 @@ export function AnalyticsPage() {
     <div className="space-y-6">
       <div className="card">
         <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Dashboard</h2>
-        <p className="text-sm text-ink-400 mb-4">Visão geral das cotações no período selecionado.</p>
+        <p className="text-sm text-ink-400 mb-4">
+          Visão geral das cotações no período selecionado. As cores de cada status são configuráveis na aba
+          Configurações.
+        </p>
         <div className="flex flex-wrap gap-2">
           {PERIODOS.map((p) => (
             <button
@@ -266,7 +267,7 @@ export function AnalyticsPage() {
               onClick={() => setPeriodo(p.value)}
               className={`pill-tab border ${
                 periodo === p.value
-                  ? 'bg-ink-900 border-ink-900 text-white'
+                  ? 'bg-ink-950 border-ink-950 text-white'
                   : 'border-ink-200 text-ink-600 hover:bg-ink-50'
               }`}
             >
@@ -296,29 +297,6 @@ export function AnalyticsPage() {
               valueFormatter={(v) => String(v)}
               emptyText="Nenhuma cotação nesse período."
             />
-          </div>
-
-          <div className="card">
-            <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Cores dos status</h3>
-            <p className="text-xs text-ink-400 mb-4">
-              Escolha a cor de cada status — vale pra todos os admins, salvo no servidor.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {QUOTE_STATUSES.map((status) => (
-                <label
-                  key={status}
-                  className="flex items-center gap-2 rounded-lg border border-ink-100 px-3 py-2 text-xs text-ink-700"
-                >
-                  <input
-                    type="color"
-                    value={coresStatus[status] || corPadraoDoStatus(status)}
-                    onChange={(e) => handleCorStatusChange(status, e.target.value)}
-                    className="h-6 w-8 shrink-0 cursor-pointer rounded border border-ink-200 p-0"
-                  />
-                  <span className="truncate">{status}</span>
-                </label>
-              ))}
-            </div>
           </div>
 
           <div className="card">

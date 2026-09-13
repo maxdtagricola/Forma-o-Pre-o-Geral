@@ -16,12 +16,12 @@ export function PricingConfigPanel({
   return (
     <div className="card">
       <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Formação de preço</h2>
-      <p className="text-sm text-ink-400 mb-5">Percentuais aplicados sobre o preço final de venda.</p>
+      <p className="text-sm text-ink-400 mb-5">
+        Imposto federal, comissão e custo fixo agora são definidos na aba Configurações, valendo pra todas as
+        cotações.
+      </p>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <PercentField label="Imposto federal" value={pricing.impFedPct} onChange={(v) => onChange({ impFedPct: v })} />
-        <PercentField label="Comissão" value={pricing.comissaoPct} onChange={(v) => onChange({ comissaoPct: v })} />
-        <PercentField label="Custo fixo" value={pricing.custoFixoPct} onChange={(v) => onChange({ custoFixoPct: v })} />
         <PercentField
           label="Lucro / margem de lucro"
           value={pricing.lucroPct}

@@ -40,7 +40,7 @@ export function QuoteItemsList({
             <div
               key={item.id}
               className={`flex items-center gap-2 rounded-full pl-1 pr-1 py-1 text-sm border transition ${
-                isActive ? 'bg-ink-900 text-white border-ink-900' : 'bg-white text-ink-600 border-ink-200 hover:border-ink-300'
+                isActive ? 'bg-ink-950 text-white border-ink-950' : 'bg-surface text-ink-600 border-ink-200 hover:border-ink-300'
               }`}
             >
               <button
@@ -49,7 +49,7 @@ export function QuoteItemsList({
                 className="flex items-center gap-2 pl-3 pr-1 py-1"
               >
                 <span className="font-medium truncate max-w-[10rem]">{label}</span>
-                <span className={`font-mono text-xs tabular-nums ${isActive ? 'text-ink-300' : 'text-ink-400'}`}>
+                <span className={`font-mono text-xs tabular-nums ${isActive ? 'text-white/60' : 'text-ink-400'}`}>
                   {formatCurrency(result.precoVendaTotal)}
                 </span>
               </button>

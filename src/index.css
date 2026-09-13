@@ -3,11 +3,61 @@
 @tailwind utilities;
 
 @layer base {
+  :root {
+    --ink-50: 250 249 247;
+    --ink-100: 240 238 233;
+    --ink-200: 224 220 212;
+    --ink-300: 199 192 180;
+    --ink-400: 163 154 140;
+    --ink-500: 125 116 104;
+    --ink-600: 95 88 78;
+    --ink-700: 72 66 58;
+    --ink-800: 0 0 0;
+    --ink-900: 0 0 0;
+    --ink-950: 20 17 14;
+    --surface: 255 255 255;
+    --amber-50: 253 246 236;
+    --amber-100: 250 232 203;
+    --amber-200: 242 205 143;
+    --amber-300: 232 172 87;
+    --amber-400: 221 143 48;
+    --amber-500: 196 116 31;
+    --amber-600: 162 90 24;
+    --amber-700: 127 68 23;
+    --amber-800: 103 55 24;
+    --amber-900: 86 47 23;
+  }
+
+  .dark {
+    --ink-50: 18 16 14;
+    --ink-100: 32 29 25;
+    --ink-200: 54 49 43;
+    --ink-300: 82 75 66;
+    --ink-400: 150 142 128;
+    --ink-500: 173 165 151;
+    --ink-600: 194 187 174;
+    --ink-700: 213 207 196;
+    --ink-800: 236 233 227;
+    --ink-900: 250 249 247;
+    --ink-950: 20 17 14;
+    --surface: 30 27 24;
+    --amber-50: 30 24 14;
+    --amber-100: 45 36 20;
+    --amber-200: 90 68 34;
+    --amber-300: 140 100 48;
+    --amber-400: 200 140 60;
+    --amber-500: 221 143 48;
+    --amber-600: 232 172 87;
+    --amber-700: 242 205 143;
+    --amber-800: 250 232 203;
+    --amber-900: 253 246 236;
+  }
+
   html {
     @apply antialiased;
   }
   body {
-    @apply bg-ink-50 text-ink-900 font-sans;
+    @apply bg-ink-50 text-ink-900 font-sans transition-colors;
   }
   ::selection {
     @apply bg-brand-200 text-ink-900;
@@ -27,7 +77,7 @@
     @apply block text-[13px] font-medium text-ink-500 mb-1.5;
   }
   .field-input {
-    @apply w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-[15px] text-ink-900
+    @apply w-full rounded-lg border border-ink-200 bg-surface px-3 py-2 text-[15px] text-ink-900
       placeholder:text-ink-300 outline-none transition
       focus:border-brand-400 focus:ring-2 focus:ring-brand-100;
   }
@@ -35,7 +85,7 @@
     @apply font-mono tabular-nums;
   }
   .card {
-    @apply rounded-2xl border border-ink-100 bg-white p-5 sm:p-6;
+    @apply rounded-2xl border border-ink-100 bg-surface p-5 sm:p-6;
   }
   .pill-tab {
     @apply inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition whitespace-nowrap;

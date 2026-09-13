@@ -27,7 +27,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 export function Button({ variant = 'secondary', className = '', ...props }: ButtonProps) {
   const variants: Record<string, string> = {
     primary: 'bg-brand-600 text-white hover:bg-brand-700 shadow-sm',
-    secondary: 'bg-white text-ink-700 border border-ink-200 hover:bg-ink-50',
+    secondary: 'bg-surface text-ink-700 border border-ink-200 hover:bg-ink-50',
     ghost: 'text-ink-500 hover:bg-ink-100',
     danger: 'text-rose-600 hover:bg-rose-50',
   }

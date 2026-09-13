@@ -1,22 +1,27 @@
 /** @type {import('tailwindcss').Config} */
 export default {
+  darkMode: 'class',
   content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
   theme: {
     extend: {
       colors: {
+        // ink, amber e surface viram variáveis CSS (definidas em index.css)
+        // pra trocar de valor sozinhas quando a classe "dark" é aplicada —
+        // assim os componentes que já usam essas classes não precisam mudar.
         ink: {
-          50: '#faf9f7',
-          100: '#f0eee9',
-          200: '#e0dcd4',
-          300: '#c7c0b4',
-          400: '#a39a8c',
-          500: '#7d7468',
-          600: '#5f584e',
-          700: '#48423a',
-          800: '#000000',
-          900: '#000000',
-          950: '#14110e',
+          50: 'rgb(var(--ink-50) / <alpha-value>)',
+          100: 'rgb(var(--ink-100) / <alpha-value>)',
+          200: 'rgb(var(--ink-200) / <alpha-value>)',
+          300: 'rgb(var(--ink-300) / <alpha-value>)',
+          400: 'rgb(var(--ink-400) / <alpha-value>)',
+          500: 'rgb(var(--ink-500) / <alpha-value>)',
+          600: 'rgb(var(--ink-600) / <alpha-value>)',
+          700: 'rgb(var(--ink-700) / <alpha-value>)',
+          800: 'rgb(var(--ink-800) / <alpha-value>)',
+          900: 'rgb(var(--ink-900) / <alpha-value>)',
+          950: 'rgb(var(--ink-950) / <alpha-value>)',
         },
+        surface: 'rgb(var(--surface) / <alpha-value>)',
         brand: {
           50: '#f5f5f5',
           100: '#e5e5e5',
@@ -30,16 +35,16 @@ export default {
           900: '#000000',
         },
         amber: {
-          50: '#fdf6ec',
-          100: '#fae8cb',
-          200: '#f2cd8f',
-          300: '#e8ac57',
-          400: '#dd8f30',
-          500: '#c4741f',
-          600: '#a25a18',
-          700: '#7f4417',
-          800: '#673718',
-          900: '#562f17',
+          50: 'rgb(var(--amber-50) / <alpha-value>)',
+          100: 'rgb(var(--amber-100) / <alpha-value>)',
+          200: 'rgb(var(--amber-200) / <alpha-value>)',
+          300: 'rgb(var(--amber-300) / <alpha-value>)',
+          400: 'rgb(var(--amber-400) / <alpha-value>)',
+          500: 'rgb(var(--amber-500) / <alpha-value>)',
+          600: 'rgb(var(--amber-600) / <alpha-value>)',
+          700: 'rgb(var(--amber-700) / <alpha-value>)',
+          800: 'rgb(var(--amber-800) / <alpha-value>)',
+          900: 'rgb(var(--amber-900) / <alpha-value>)',
         },
       },
       fontFamily: {

@@ -1,6 +1,14 @@
 import type { ReactNode } from 'react'
 
-export type TabKey = 'cotacoes' | 'analytics' | 'dashboard' | 'margins' | 'produtos' | 'fornecedores' | 'history'
+export type TabKey =
+  | 'cotacoes'
+  | 'analytics'
+  | 'dashboard'
+  | 'margins'
+  | 'produtos'
+  | 'fornecedores'
+  | 'configuracoes'
+  | 'history'
 
 const TABS: { key: TabKey; label: string }[] = [
   { key: 'cotacoes', label: 'Cotações' },
@@ -9,6 +17,7 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'margins', label: 'Análise de Margens' },
   { key: 'produtos', label: 'Produtos' },
   { key: 'fornecedores', label: 'Fornecedores' },
+  { key: 'configuracoes', label: 'Configurações' },
   { key: 'history', label: 'Histórico' },
 ]
 
@@ -52,7 +61,7 @@ export function Layout({
                 key={tab.key}
                 onClick={() => onChangeTab(tab.key)}
                 className={`pill-tab ${
-                  active === tab.key ? 'bg-ink-900 text-white' : 'text-ink-500 hover:bg-ink-100'
+                  active === tab.key ? 'bg-ink-950 text-white' : 'text-ink-500 hover:bg-ink-100'
                 }`}
               >
                 {tab.label}

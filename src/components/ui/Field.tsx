@@ -108,7 +108,7 @@ export function AutocompleteField({
           }}
         />
         {open && filtered.length > 0 && (
-          <div className="absolute z-20 mt-1 w-full rounded-lg border border-ink-200 bg-white shadow-lg max-h-56 overflow-auto">
+          <div className="absolute z-20 mt-1 w-full rounded-lg border border-ink-200 bg-surface shadow-lg max-h-56 overflow-auto">
             {filtered.map((s) => (
               <button
                 key={s.value}

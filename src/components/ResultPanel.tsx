@@ -42,12 +42,12 @@ export function ResultPanel({ result, qtd }: { result: CalculationResult; qtd: n
         </Badge>
       </div>
 
-      <div className="rounded-xl bg-ink-900 text-white p-5 mb-5">
-        <p className="text-ink-300 text-sm mb-1">Preço de venda (unitário)</p>
+      <div className="rounded-xl bg-ink-950 text-white p-5 mb-5">
+        <p className="text-white/60 text-sm mb-1">Preço de venda (unitário)</p>
         <p className="font-mono text-3xl sm:text-4xl font-semibold tabular-nums">
           {formatCurrency(result.precoVendaUnitario)}
         </p>
-        <div className="mt-3 flex items-center justify-between text-sm text-ink-300">
+        <div className="mt-3 flex items-center justify-between text-sm text-white/60">
           <span>
             Total ({formatNumber(qtd, 0)} un.): <span className="text-white font-mono">{formatCurrency(result.precoVendaTotal)}</span>
           </span>
