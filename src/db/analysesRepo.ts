@@ -1,7 +1,15 @@
 import { calculateItem } from '../calc/calculator'
 import { dbDelete, dbGet, dbGetAll, dbPut, STORE_ANALISES } from './db'
 import { makeId } from '../utils'
-import type { PedidoCompraInfo, PricingConfig, ProductInput, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
+import type {
+  PedidoCompraInfo,
+  PricingConfig,
+  ProductInput,
+  QuoteItem,
+  QuoteRecord,
+  QuoteStatus,
+  TipoReferencia,
+} from '../types'
 
 // Formato antigo (uma análise = um único produto), salvo antes da cotação
 // com múltiplos itens existir. Mantido só para migrar registros já salvos.
@@ -24,10 +32,12 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
       id: record.id,
       criadoPor: '',
       vendedor: '',
+      tipoReferencia: 'itens',
       cliente: '',
       maquina: '',
       items: [{ id: makeId(), product: record.product, pricing: record.pricing }],
       status: 'PENDENTE',
+      responsavelStatus: '',
       statusHistory: [{ status: 'PENDENTE', changedAt: record.createdAt }],
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
@@ -42,9 +52,11 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
     ...record,
     criadoPor: record.criadoPor ?? '',
     vendedor: record.vendedor ?? '',
+    tipoReferencia: record.tipoReferencia ?? 'itens',
     cliente: record.cliente ?? '',
     maquina: record.maquina ?? '',
     status: record.status ?? 'PENDENTE',
+    responsavelStatus: record.responsavelStatus ?? '',
     statusHistory:
       record.statusHistory && record.statusHistory.length > 0
         ? record.statusHistory
@@ -58,8 +70,9 @@ export async function listQuotes(): Promise<QuoteRecord[]> {
 }
 
 export async function saveQuote(
-  criadoPor: string,
+  atorAdmin: string,
   vendedor: string,
+  tipoReferencia: TipoReferencia,
   cliente: string,
   maquina: string,
   items: QuoteItem[],
@@ -75,14 +88,22 @@ export async function saveQuote(
   const existente = existingId ? await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, existingId) : undefined
   const base = existente ? normalizeRecord(existente) : undefined
 
+  if (base && base.status !== 'PENDENTE' && base.responsavelStatus && base.responsavelStatus !== atorAdmin) {
+    throw new Error(
+      `Essa cotação está sendo analisada por ${base.responsavelStatus} — só ele(a) pode alterá-la agora.`,
+    )
+  }
+
   const record: QuoteRecord = {
     id: existingId ?? makeId(),
-    criadoPor: base?.criadoPor || criadoPor,
+    criadoPor: base?.criadoPor || atorAdmin,
     vendedor,
+    tipoReferencia,
     cliente,
     maquina,
     items,
     status: base?.status ?? 'PENDENTE',
+    responsavelStatus: base?.responsavelStatus ?? '',
     statusHistory: base?.statusHistory ?? [{ status: 'PENDENTE', changedAt: now }],
     pedidoCompra: base?.pedidoCompra,
     createdAt: base?.createdAt ?? now,
@@ -99,15 +120,28 @@ export async function saveQuote(
 export async function updateQuoteStatus(
   id: string,
   novoStatus: QuoteStatus,
+  atorAdmin: string,
   pedidoCompra?: PedidoCompraInfo,
 ): Promise<QuoteRecord> {
   const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
   if (!atual) throw new Error('Cotação não encontrada no servidor.')
   const normalizado = normalizeRecord(atual)
+
+  if (
+    normalizado.status !== 'PENDENTE' &&
+    normalizado.responsavelStatus &&
+    normalizado.responsavelStatus !== atorAdmin
+  ) {
+    throw new Error(
+      `Essa cotação está sendo analisada por ${normalizado.responsavelStatus} — só ele(a) pode mudar o status agora.`,
+    )
+  }
+
   const now = Date.now()
   const atualizado: QuoteRecord = {
     ...normalizado,
     status: novoStatus,
+    responsavelStatus: novoStatus === 'PENDENTE' ? '' : atorAdmin,
     statusHistory: [...normalizado.statusHistory, { status: novoStatus, changedAt: now }],
     pedidoCompra: novoStatus === 'PEDIDO DE COMPRA' ? pedidoCompra : normalizado.pedidoCompra,
     updatedAt: now,
@@ -116,7 +150,16 @@ export async function updateQuoteStatus(
   return atualizado
 }
 
-export async function deleteQuote(id: string): Promise<void> {
+export async function deleteQuote(id: string, atorAdmin: string): Promise<void> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  if (atual) {
+    const normalizado = normalizeRecord(atual)
+    if (normalizado.status !== 'PENDENTE' && normalizado.responsavelStatus && normalizado.responsavelStatus !== atorAdmin) {
+      throw new Error(
+        `Essa cotação está sendo analisada por ${normalizado.responsavelStatus} — só ele(a) pode excluí-la agora.`,
+      )
+    }
+  }
   await dbDelete(STORE_ANALISES, id)
 }
 

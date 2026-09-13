@@ -1,9 +1,10 @@
 import type { ReactNode } from 'react'
 
-export type TabKey = 'dashboard' | 'margins' | 'produtos' | 'fornecedores' | 'history'
+export type TabKey = 'cotacoes' | 'dashboard' | 'margins' | 'produtos' | 'fornecedores' | 'history'
 
 const TABS: { key: TabKey; label: string }[] = [
-  { key: 'dashboard', label: 'Início' },
+  { key: 'cotacoes', label: 'Cotações' },
+  { key: 'dashboard', label: 'Precificação' },
   { key: 'margins', label: 'Análise de Margens' },
   { key: 'produtos', label: 'Produtos' },
   { key: 'fornecedores', label: 'Fornecedores' },

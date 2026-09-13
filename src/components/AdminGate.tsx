@@ -7,10 +7,7 @@ export function AdminGate({ onSelect }: { onSelect: (admin: AdminName) => void }
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 font-display text-base font-bold text-white">
           R$
         </div>
-        <h1 className="font-display text-lg font-semibold text-ink-900 mb-1">Quem está usando?</h1>
-        <p className="text-sm text-ink-400 mb-5">
-          Só pra identificar quem criou cada cotação — todos têm acesso completo ao app.
-        </p>
+        <h1 className="font-display text-lg font-semibold text-ink-900 mb-5">Quem está usando?</h1>
         <div className="flex flex-col gap-2">
           {ADMINS.map((admin) => (
             <button

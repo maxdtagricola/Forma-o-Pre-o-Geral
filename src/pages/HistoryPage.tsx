@@ -49,9 +49,11 @@ function FolderCard({ label, count, onClick }: { label: string; count: number; o
 
 export function HistoryPage({
   refreshKey,
+  currentAdmin,
   onLoad,
 }: {
   refreshKey: number
+  currentAdmin: string
   onLoad: (record: QuoteRecord) => void
 }) {
   const [records, setRecords] = useState<QuoteRecord[]>([])
@@ -130,8 +132,12 @@ export function HistoryPage({
   async function handleDelete(id: string, e: MouseEvent) {
     e.stopPropagation()
     if (!confirm('Excluir esta cotação salva? Essa ação não pode ser desfeita.')) return
-    await deleteQuote(id)
-    refresh()
+    try {
+      await deleteQuote(id, currentAdmin)
+      refresh()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao excluir a cotação.')
+    }
   }
 
   async function handleStatusChange(record: QuoteRecord, novoStatus: QuoteStatus) {
@@ -140,7 +146,7 @@ export function HistoryPage({
       return
     }
     try {
-      await updateQuoteStatus(record.id, novoStatus)
+      await updateQuoteStatus(record.id, novoStatus, currentAdmin)
       refresh()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
@@ -150,7 +156,7 @@ export function HistoryPage({
   async function handleConfirmPedidoCompra(info: PedidoCompraInfo) {
     if (!pedidoModalRecord) return
     try {
-      await updateQuoteStatus(pedidoModalRecord.id, 'PEDIDO DE COMPRA', info)
+      await updateQuoteStatus(pedidoModalRecord.id, 'PEDIDO DE COMPRA', currentAdmin, info)
       setPedidoModalRecord(undefined)
       refresh()
     } catch (err) {
@@ -162,6 +168,7 @@ export function HistoryPage({
     const first = r.items[0]
     const extras = r.items.length - 1
     const expandido = expandedId === r.id
+    const travadaPorOutro = r.status !== 'PENDENTE' && !!r.responsavelStatus && r.responsavelStatus !== currentAdmin
     return (
       <div key={r.id} className="card hover:border-brand-300 hover:shadow-sm transition group relative">
         <div onClick={() => onLoad(r)} className="cursor-pointer">
@@ -191,14 +198,17 @@ export function HistoryPage({
                 {r.pedidoCompra.tipo === 'completo' ? 'completo' : `${r.pedidoCompra.itemIds.length} de ${r.items.length} itens`}
               </p>
             )}
+            {r.responsavelStatus && <p>Em análise por: {r.responsavelStatus}</p>}
           </div>
         </div>
 
         <div className="mb-3" onClick={(e) => e.stopPropagation()}>
           <select
             value={r.status}
+            disabled={travadaPorOutro}
             onChange={(e) => handleStatusChange(r, e.target.value as QuoteStatus)}
-            className="field-input text-xs py-1.5"
+            className={`field-input text-xs py-1.5 ${travadaPorOutro ? 'opacity-60 cursor-not-allowed' : ''}`}
+            title={travadaPorOutro ? `Em análise por ${r.responsavelStatus} — só ele(a) pode mudar` : undefined}
           >
             {QUOTE_STATUSES.map((s) => (
               <option key={s} value={s}>
@@ -214,13 +224,17 @@ export function HistoryPage({
             <p className="font-mono font-semibold text-ink-900 tabular-nums">{formatCurrency(r.summary.precoVendaTotalGeral)}</p>
           </div>
           <div className="text-right">
-            <span className="text-[11px] text-ink-400 group-hover:hidden">{formatDate(r.updatedAt)}</span>
-            <span
-              onClick={(e) => handleDelete(r.id, e)}
-              className="hidden group-hover:inline text-[11px] font-medium text-rose-600 hover:text-rose-700"
-            >
-              Excluir cotação
+            <span className={`text-[11px] text-ink-400 ${travadaPorOutro ? '' : 'group-hover:hidden'}`}>
+              {formatDate(r.updatedAt)}
             </span>
+            {!travadaPorOutro && (
+              <span
+                onClick={(e) => handleDelete(r.id, e)}
+                className="hidden group-hover:inline text-[11px] font-medium text-rose-600 hover:text-rose-700"
+              >
+                Excluir cotação
+              </span>
+            )}
           </div>
         </div>
 
@@ -365,7 +379,7 @@ export function HistoryPage({
             {records.length === 0 ? 'Nenhuma cotação salva ainda' : 'Nada encontrado'}
           </h3>
           <p className="text-sm text-ink-400">
-            {records.length === 0 ? 'Salve uma cotação na aba Início para vê-la aqui.' : 'Tente outro termo de busca ou outra pasta.'}
+            {records.length === 0 ? 'Crie uma cotação na aba Cotações para vê-la aqui.' : 'Tente outro termo de busca ou outra pasta.'}
           </p>
         </div>
       ) : (

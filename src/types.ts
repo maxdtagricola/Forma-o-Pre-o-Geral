@@ -208,6 +208,16 @@ export interface StatusChange {
   changedAt: number
 }
 
+// ---------------------------------------------------------------------------
+// A que a cotação se refere — definido já na criação, antes de precificar.
+// ---------------------------------------------------------------------------
+export type TipoReferencia = 'planilha' | 'itens'
+
+export const TIPOS_REFERENCIA: { value: TipoReferencia; label: string }[] = [
+  { value: 'planilha', label: 'PLANILHA COMPLETA' },
+  { value: 'itens', label: 'SOMENTE ALGUNS ITENS' },
+]
+
 /** Preenchido quando o status vira "PEDIDO DE COMPRA": pedido completo ou só alguns itens. */
 export interface PedidoCompraInfo {
   tipo: 'completo' | 'parcial'
@@ -224,11 +234,15 @@ export interface QuoteRecord {
   criadoPor: string
   /** Vendedor a quem a cotação se refere — usado pra organizar o histórico em pastas. */
   vendedor: string
+  /** Se a cotação se refere a uma planilha completa ou só a alguns itens. */
+  tipoReferencia: TipoReferencia
   /** Dados iniciais da cotação — quem pediu e pra qual máquina, além dos itens. */
   cliente: string
   maquina: string
   items: QuoteItem[]
   status: QuoteStatus
+  /** Admin que tirou a cotação de PENDENTE — só ele pode mudar o status até voltar pra PENDENTE. */
+  responsavelStatus: string
   statusHistory: StatusChange[]
   pedidoCompra?: PedidoCompraInfo
   createdAt: number

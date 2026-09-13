@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Layout, type TabKey } from './components/Layout'
 import { AdminGate } from './components/AdminGate'
+import { CotacoesPage } from './pages/CotacoesPage'
 import { Dashboard } from './pages/Dashboard'
 import { MarginAnalysisPage } from './pages/MarginAnalysisPage'
 import { ProdutosPage } from './pages/ProdutosPage'
@@ -10,17 +11,20 @@ import { calculateItem } from './calc/calculator'
 import { saveQuote } from './db/analysesRepo'
 import { clearCurrentAdmin, getCurrentAdmin, setCurrentAdmin } from './currentAdmin'
 import { createQuoteItem } from './types'
-import type { AdminName, PricingConfig, ProductInput, QuoteItem, QuoteRecord } from './types'
+import type { AdminName, PricingConfig, ProductInput, QuoteItem, QuoteRecord, QuoteStatus, TipoReferencia } from './types'
 
 export default function App() {
   const [currentAdmin, setCurrentAdminState] = useState<AdminName | null>(() => getCurrentAdmin())
-  const [tab, setTab] = useState<TabKey>('dashboard')
+  const [tab, setTab] = useState<TabKey>('cotacoes')
   const [vendedor, setVendedor] = useState('')
+  const [tipoReferencia, setTipoReferencia] = useState<TipoReferencia>('itens')
   const [cliente, setCliente] = useState('')
   const [maquina, setMaquina] = useState('')
   const [items, setItems] = useState<QuoteItem[]>(() => [createQuoteItem()])
   const [activeItemId, setActiveItemId] = useState<string>(() => items[0].id)
   const [editingQuoteId, setEditingQuoteId] = useState<string | undefined>(undefined)
+  const [activeStatus, setActiveStatus] = useState<QuoteStatus>('PENDENTE')
+  const [activeResponsavel, setActiveResponsavel] = useState('')
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
 
   const activeItem = items.find((item) => item.id === activeItemId) ?? items[0]
@@ -75,7 +79,7 @@ export default function App() {
   async function handleSave() {
     if (!currentAdmin) return
     try {
-      const record = await saveQuote(currentAdmin, vendedor, cliente, maquina, items, editingQuoteId)
+      const record = await saveQuote(currentAdmin, vendedor, tipoReferencia, cliente, maquina, items, editingQuoteId)
       setEditingQuoteId(record.id)
       setHistoryRefreshKey((k) => k + 1)
     } catch (err) {
@@ -86,22 +90,40 @@ export default function App() {
   function handleNew() {
     const fresh = createQuoteItem()
     setVendedor('')
+    setTipoReferencia('itens')
     setCliente('')
     setMaquina('')
     setItems([fresh])
     setActiveItemId(fresh.id)
     setEditingQuoteId(undefined)
+    setActiveStatus('PENDENTE')
+    setActiveResponsavel('')
   }
 
   function handleLoad(record: QuoteRecord) {
     const loadedItems = record.items.length > 0 ? record.items : [createQuoteItem()]
     setVendedor(record.vendedor)
+    setTipoReferencia(record.tipoReferencia)
     setCliente(record.cliente)
     setMaquina(record.maquina)
     setItems(loadedItems)
     setActiveItemId(loadedItems[0].id)
     setEditingQuoteId(record.id)
+    setActiveStatus(record.status)
+    setActiveResponsavel(record.responsavelStatus)
     setTab('dashboard')
+  }
+
+  async function handleCreateQuote(vendedorNovo: string, clienteNovo: string, tipo: TipoReferencia) {
+    if (!currentAdmin) return
+    try {
+      const item = createQuoteItem()
+      const record = await saveQuote(currentAdmin, vendedorNovo, tipo, clienteNovo, '', [item], undefined)
+      setHistoryRefreshKey((k) => k + 1)
+      handleLoad(record)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao criar a cotação no servidor.')
+    }
   }
 
   if (!currentAdmin) {
@@ -110,12 +132,25 @@ export default function App() {
 
   return (
     <Layout active={tab} onChangeTab={setTab} currentAdmin={currentAdmin} onSwitchAdmin={handleSwitchAdmin}>
+      {tab === 'cotacoes' && (
+        <CotacoesPage
+          refreshKey={historyRefreshKey}
+          currentAdmin={currentAdmin}
+          onCreateQuote={handleCreateQuote}
+          onOpenQuote={handleLoad}
+        />
+      )}
       {tab === 'dashboard' && (
         <Dashboard
+          currentAdmin={currentAdmin}
+          activeStatus={activeStatus}
+          activeResponsavel={activeResponsavel}
           vendedor={vendedor}
+          tipoReferencia={tipoReferencia}
           cliente={cliente}
           maquina={maquina}
           onVendedorChange={setVendedor}
+          onTipoReferenciaChange={setTipoReferencia}
           onClienteChange={setCliente}
           onMaquinaChange={setMaquina}
           items={items}
@@ -132,12 +167,15 @@ export default function App() {
           onPricingChange={patchActivePricing}
           onSave={handleSave}
           onNew={handleNew}
+          onGoToCotacoes={() => setTab('cotacoes')}
         />
       )}
       {tab === 'margins' && <MarginAnalysisPage product={activeItem.product} pricing={activeItem.pricing} />}
       {tab === 'produtos' && <ProdutosPage />}
       {tab === 'fornecedores' && <FornecedoresPage />}
-      {tab === 'history' && <HistoryPage refreshKey={historyRefreshKey} onLoad={handleLoad} />}
+      {tab === 'history' && (
+        <HistoryPage refreshKey={historyRefreshKey} currentAdmin={currentAdmin} onLoad={handleLoad} />
+      )}
     </Layout>
   )
 }
