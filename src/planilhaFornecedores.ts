@@ -1,4 +1,6 @@
 import * as XLSX from 'xlsx'
+import jsPDF from 'jspdf'
+import { autoTable } from 'jspdf-autotable'
 import type { PreRegistroItem } from './types'
 
 export interface PlanilhaFornecedores {
@@ -24,4 +26,25 @@ export function gerarPlanilhaFornecedores(itens: PreRegistroItem[]): PlanilhaFor
 
   const htmlPreview = XLSX.utils.sheet_to_html(ws)
   return { workbook, htmlPreview }
+}
+
+/** Mesma lista, já em PDF — o formato que sai pra baixar/compartilhar com o fornecedor. */
+export function gerarPdfFornecedores(itens: PreRegistroItem[], cliente: string, maquina: string): Blob {
+  const doc = new jsPDF()
+
+  doc.setFontSize(14)
+  doc.text('Itens para cotar', 14, 18)
+  doc.setFontSize(10)
+  doc.setTextColor(90)
+  doc.text(`Cliente: ${cliente || '—'}    Máquina: ${maquina || '—'}`, 14, 25)
+
+  autoTable(doc, {
+    startY: 31,
+    head: [['Referência', 'Descrição', 'Quantidade', 'Valor unitário', 'Prazo de entrega']],
+    body: itens.map((it) => [it.referencia, it.descricao ?? '', String(it.quantidade), '', '']),
+    styles: { fontSize: 9 },
+    headStyles: { fillColor: [20, 17, 14] },
+  })
+
+  return doc.output('blob')
 }

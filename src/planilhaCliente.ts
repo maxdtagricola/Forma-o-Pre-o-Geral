@@ -92,7 +92,18 @@ export function baixarWorkbook(workbook: XLSX.WorkBook, nomeArquivo: string): vo
 
 export function workbookParaBlob(workbook: XLSX.WorkBook): Blob {
   const array = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer
-  return new Blob([array], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  return new Blob([array], { type: MIME_XLSX })
+}
+
+export function baixarBlob(blob: Blob, nomeArquivo: string): void {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nomeArquivo
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
 }
 
 function escaparHtml(texto: string): string {
@@ -136,13 +147,13 @@ export function linkEmail(assunto: string, corpo: string): string {
   return `mailto:?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`
 }
 
-export function suportaCompartilharArquivo(): boolean {
+const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+
+export function suportaCompartilharArquivo(tipo: string = MIME_XLSX): boolean {
   const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean }
   if (!nav.canShare || !navigator.share) return false
   try {
-    const teste = new File(['teste'], 'teste.xlsx', {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    })
+    const teste = new File(['teste'], 'teste', { type: tipo })
     return nav.canShare({ files: [teste] })
   } catch {
     return false
@@ -154,9 +165,8 @@ export async function compartilharArquivo(
   nomeArquivo: string,
   titulo: string,
   texto: string,
+  tipo: string = MIME_XLSX,
 ): Promise<void> {
-  const arquivo = new File([blob], nomeArquivo, {
-    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  })
+  const arquivo = new File([blob], nomeArquivo, { type: tipo })
   await navigator.share({ files: [arquivo], title: titulo, text: texto })
 }
