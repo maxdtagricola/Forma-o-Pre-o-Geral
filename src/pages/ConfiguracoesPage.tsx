@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '../components/ui/Basics'
 import { PercentField, SelectField } from '../components/ui/Field'
+import { PreviaImportacao } from '../components/PreviaImportacao'
 import {
   getPlanilhaAtivaIds,
   getStatusColors,
@@ -15,6 +16,7 @@ import { lerPlanilhaMarkup } from '../xlsxImport'
 import { corPadraoDoStatus } from '../statusColors'
 import { aplicarTema, getTema, type Tema } from '../theme'
 import { formatDate } from '../utils'
+import { gerarPreviaPlanilha, type PreviaPlanilha } from '../xlsxSheetUtil'
 import { ESTADOS_DESTINO, QUOTE_STATUSES } from '../types'
 import type { EstadoDestino } from '../types'
 import type { PricingGlobal } from '../db/configRepo'
@@ -82,6 +84,9 @@ export function ConfiguracoesPage({
   const [perfilImportacao, setPerfilImportacao] = useState<EstadoDestino>('RO')
   const [senhaImportar, setSenhaImportar] = useState('')
   const [arquivo, setArquivo] = useState<File | undefined>(undefined)
+  const [lendoPrevia, setLendoPrevia] = useState(false)
+  const [previaArquivo, setPreviaArquivo] = useState<PreviaPlanilha | undefined>(undefined)
+  const [arquivoConfirmado, setArquivoConfirmado] = useState(false)
   const [importando, setImportando] = useState(false)
   const [pendente, setPendente] = useState<{ nomeArquivo: string; rbc: PlanilhaImportada['rbc']; icmsSt: PlanilhaImportada['icmsSt']; totalNcmsRbc: number; totalNcmsIcmsSt: number } | undefined>(undefined)
   const [senhaSalvar, setSenhaSalvar] = useState('')
@@ -108,6 +113,22 @@ export function ConfiguracoesPage({
     refreshPlanilhas()
   }, [])
 
+  async function handleArquivoSelecionado(file: File | undefined) {
+    setArquivo(file)
+    setArquivoConfirmado(false)
+    setPreviaArquivo(undefined)
+    if (!file) return
+    setLendoPrevia(true)
+    try {
+      setPreviaArquivo(await gerarPreviaPlanilha(file))
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
+      setArquivo(undefined)
+    } finally {
+      setLendoPrevia(false)
+    }
+  }
+
   async function handleImportar() {
     if (!habilitado) return
     if (senhaImportar !== SENHA_IMPORTACAO) {
@@ -116,6 +137,10 @@ export function ConfiguracoesPage({
     }
     if (!arquivo) {
       alert('Selecione o arquivo da planilha.')
+      return
+    }
+    if (!arquivoConfirmado) {
+      alert('Confirme que é a planilha certa antes de importar.')
       return
     }
     setImportando(true)
@@ -156,6 +181,8 @@ export function ConfiguracoesPage({
       setPendente(undefined)
       setSenhaSalvar('')
       setArquivo(undefined)
+      setPreviaArquivo(undefined)
+      setArquivoConfirmado(false)
       setHabilitado(false)
       await refreshPlanilhas()
       alert('Planilha salva e aplicada com sucesso.')
@@ -293,14 +320,31 @@ export function ConfiguracoesPage({
             <input
               type="file"
               accept=".xlsx"
-              onChange={(e) => setArquivo(e.target.files?.[0])}
+              onChange={(e) => handleArquivoSelecionado(e.target.files?.[0])}
               disabled={!habilitado}
               className="field-input"
             />
           </label>
         </div>
 
-        <Button variant="secondary" onClick={handleImportar} disabled={!habilitado || importando}>
+        {lendoPrevia && <p className="text-sm text-ink-400 mb-4">Lendo planilha…</p>}
+
+        {habilitado && previaArquivo && arquivo && !arquivoConfirmado && (
+          <div className="mb-4">
+            <PreviaImportacao
+              nomeArquivo={arquivo.name}
+              previa={previaArquivo}
+              onConfirmar={() => setArquivoConfirmado(true)}
+              onCancelar={() => handleArquivoSelecionado(undefined)}
+            />
+          </div>
+        )}
+
+        <Button
+          variant="secondary"
+          onClick={handleImportar}
+          disabled={!habilitado || !arquivoConfirmado || importando}
+        >
           Importar (só leitura)
         </Button>
 

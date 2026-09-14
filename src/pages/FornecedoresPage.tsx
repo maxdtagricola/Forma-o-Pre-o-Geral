@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { TextField, SelectField } from '../components/ui/Field'
 import { Button } from '../components/ui/Basics'
+import { PreviaImportacao } from '../components/PreviaImportacao'
 import { ESTADOS } from '../data/estados'
 import { deleteFornecedor, listFornecedores, saveFornecedor } from '../db/fornecedoresRepo'
 import { lerPlanilhaFornecedores, type FornecedorImportado } from '../fornecedoresImport'
+import { gerarPreviaPlanilha, type PreviaPlanilha } from '../xlsxSheetUtil'
 import { DEFAULT_FORNECEDOR } from '../types'
 import type { Fornecedor } from '../types'
 
@@ -19,6 +21,8 @@ export function FornecedoresPage() {
 
   // --- importar planilha de fornecedores -------------------------------------
   const [lendoArquivo, setLendoArquivo] = useState(false)
+  const [arquivoPendente, setArquivoPendente] = useState<File | undefined>(undefined)
+  const [previaImport, setPreviaImport] = useState<PreviaPlanilha | undefined>(undefined)
   const [itensImportados, setItensImportados] = useState<FornecedorImportado[]>([])
   const [confirmandoImport, setConfirmandoImport] = useState(false)
 
@@ -84,8 +88,29 @@ export function FornecedoresPage() {
   async function handleArquivoSelecionado(file: File) {
     setLendoArquivo(true)
     try {
-      const resultado = await lerPlanilhaFornecedores(file)
+      const previa = await gerarPreviaPlanilha(file)
+      setArquivoPendente(file)
+      setPreviaImport(previa)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
+    } finally {
+      setLendoArquivo(false)
+    }
+  }
+
+  function handleCancelarPrevia() {
+    setArquivoPendente(undefined)
+    setPreviaImport(undefined)
+  }
+
+  async function handleConfirmarPrevia() {
+    if (!arquivoPendente) return
+    setLendoArquivo(true)
+    try {
+      const resultado = await lerPlanilhaFornecedores(arquivoPendente)
       setItensImportados(resultado)
+      setPreviaImport(undefined)
+      setArquivoPendente(undefined)
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
     } finally {
@@ -196,6 +221,16 @@ export function FornecedoresPage() {
         </label>
 
         {lendoArquivo && <p className="text-sm text-ink-400">Lendo planilha…</p>}
+
+        {previaImport && arquivoPendente && (
+          <PreviaImportacao
+            nomeArquivo={arquivoPendente.name}
+            previa={previaImport}
+            onConfirmar={handleConfirmarPrevia}
+            onCancelar={handleCancelarPrevia}
+            confirmando={lendoArquivo}
+          />
+        )}
 
         {itensImportados.length > 0 && (
           <div className="space-y-4">

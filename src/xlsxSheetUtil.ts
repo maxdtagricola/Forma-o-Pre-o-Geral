@@ -90,3 +90,46 @@ export function localizarTabelaItens(ws: XLSX.WorkSheet): TabelaItensLocalizada 
 
   return { linhaCabecalho, colReferencia, colDescricao, colQuant, colEntrega, colVlrUnt, colVlrTotal, maxRow, maxCol }
 }
+
+export interface PreviaPlanilha {
+  htmlPreview: string
+  nomeAba: string
+  totalLinhas: number
+  linhasMostradas: number
+}
+
+/**
+ * Prévia bruta da primeira aba de um arquivo, pra conferir visualmente "é essa planilha mesmo?"
+ * antes de ler/processar o conteúdo de verdade — limita a poucas linhas pra não travar em
+ * planilhas grandes (a de markup, por exemplo, tem mais de 1500 linhas).
+ */
+export async function gerarPreviaPlanilha(arquivo: File, maxLinhas = 30): Promise<PreviaPlanilha> {
+  const buffer = await arquivo.arrayBuffer()
+  const workbook = XLSX.read(buffer, { type: 'array' })
+  const nomeAba = workbook.SheetNames[0]
+  const ws = workbook.Sheets[nomeAba]
+
+  const refCompleto = ws['!ref']
+  if (!refCompleto) {
+    return { htmlPreview: '<p>(aba vazia)</p>', nomeAba, totalLinhas: 0, linhasMostradas: 0 }
+  }
+  const range = XLSX.utils.decode_range(refCompleto)
+  const totalLinhas = range.e.r - range.s.r + 1
+  const linhasMostradas = Math.min(totalLinhas, maxLinhas)
+  const ultimaLinha = range.s.r + linhasMostradas - 1
+
+  // sheet_to_html não tem opção de range — monta uma planilha só com as linhas
+  // mostradas, copiando as células originais, em vez de renderizar tudo.
+  const wsLimitado: XLSX.WorkSheet = {
+    '!ref': XLSX.utils.encode_range({ s: range.s, e: { r: ultimaLinha, c: range.e.c } }),
+  }
+  for (let r = range.s.r; r <= ultimaLinha; r++) {
+    for (let c = range.s.c; c <= range.e.c; c++) {
+      const addr = XLSX.utils.encode_cell({ r, c })
+      if (ws[addr] !== undefined) wsLimitado[addr] = ws[addr]
+    }
+  }
+  const htmlPreview = XLSX.utils.sheet_to_html(wsLimitado)
+
+  return { htmlPreview, nomeAba, totalLinhas, linhasMostradas }
+}

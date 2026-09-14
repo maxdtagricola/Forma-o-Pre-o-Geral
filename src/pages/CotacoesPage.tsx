@@ -4,8 +4,10 @@ import { getStatusColors } from '../db/configRepo'
 import { Button } from '../components/ui/Basics'
 import { SelectField, TextField } from '../components/ui/Field'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
+import { PreviaImportacao } from '../components/PreviaImportacao'
 import { lerPlanilhaCotacao, type ItemCotacaoImportado } from '../quoteImport'
 import { arquivoParaBase64 } from '../planilhaCliente'
+import { gerarPreviaPlanilha, type PreviaPlanilha } from '../xlsxSheetUtil'
 import { formatCurrency, formatDate, selecionarTudoAoFocar } from '../utils'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { QUOTE_STATUSES, TIPOS_REFERENCIA, VENDEDORES } from '../types'
@@ -64,6 +66,8 @@ export function CotacoesPage({
 
   // --- importar planilha de cotação -----------------------------------------
   const [lendoArquivo, setLendoArquivo] = useState(false)
+  const [arquivoPendente, setArquivoPendente] = useState<File | undefined>(undefined)
+  const [previaImport, setPreviaImport] = useState<PreviaPlanilha | undefined>(undefined)
   const [importado, setImportado] = useState(false)
   const [clienteMatches, setClienteMatches] = useState<string[]>([])
   const [clienteEscolha, setClienteEscolha] = useState('')
@@ -86,6 +90,8 @@ export function CotacoesPage({
   )
 
   function resetImportacao() {
+    setArquivoPendente(undefined)
+    setPreviaImport(undefined)
     setImportado(false)
     setClienteMatches([])
     setClienteEscolha('')
@@ -101,7 +107,21 @@ export function CotacoesPage({
   async function handleArquivoSelecionado(file: File) {
     setLendoArquivo(true)
     try {
-      const resultado = await lerPlanilhaCotacao(file)
+      const previa = await gerarPreviaPlanilha(file)
+      setArquivoPendente(file)
+      setPreviaImport(previa)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
+    } finally {
+      setLendoArquivo(false)
+    }
+  }
+
+  async function handleConfirmarPrevia() {
+    if (!arquivoPendente) return
+    setLendoArquivo(true)
+    try {
+      const resultado = await lerPlanilhaCotacao(arquivoPendente)
       const clMatches = encontrarCorrespondencias(resultado.cliente, clientesConhecidos)
       const maMatches = encontrarCorrespondencias(resultado.equipamento, maquinasConhecidas)
       setClienteMatches(clMatches)
@@ -112,8 +132,9 @@ export function CotacoesPage({
       setMaquinaNovoTexto(resultado.equipamento)
       setVendedorImport(resultado.vendedor)
       setItensImportados(resultado.itens)
-      setArquivoImportado(file)
+      setArquivoImportado(arquivoPendente)
       setImportado(true)
+      setPreviaImport(undefined)
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
     } finally {
@@ -320,6 +341,16 @@ export function CotacoesPage({
             </label>
 
             {lendoArquivo && <p className="text-sm text-ink-400">Lendo planilha…</p>}
+
+            {previaImport && arquivoPendente && (
+              <PreviaImportacao
+                nomeArquivo={arquivoPendente.name}
+                previa={previaImport}
+                onConfirmar={handleConfirmarPrevia}
+                onCancelar={resetImportacao}
+                confirmando={lendoArquivo}
+              />
+            )}
 
             {importado && (
               <div className="space-y-4">
