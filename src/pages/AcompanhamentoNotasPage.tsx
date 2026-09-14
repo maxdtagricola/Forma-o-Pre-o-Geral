@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { TextField, AutocompleteField, NumberField } from '../components/ui/Field'
 import { Button } from '../components/ui/Basics'
-import { DonutChart, type DonutDatum } from '../components/DonutChart'
+import { DonutChart, limitarComOutros, type DonutDatum } from '../components/DonutChart'
 import { StatTile } from '../components/StatTile'
 import { deleteNotaFiscal, listNotasFiscais, saveNotaFiscal, updateNotaFiscalStatus } from '../db/notasFiscaisRepo'
 import { listFornecedores } from '../db/fornecedoresRepo'
@@ -137,6 +137,19 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
   const valorTotalNotas = notasDoPeriodo.reduce((s, n) => s + n.valorNota, 0)
   const valorTotalFrete = notasDoPeriodo.reduce((s, n) => s + n.valorFrete, 0)
 
+  // valores de transferência — soma do valor das notas por filial (recebedor) no período
+  const valorPorRecebedorData: DonutDatum[] = useMemo(() => {
+    const porRecebedor = new Map<string, number>()
+    for (const n of notasDoPeriodo) {
+      const chave = n.recebedor || '(sem recebedor)'
+      porRecebedor.set(chave, (porRecebedor.get(chave) ?? 0) + n.valorNota)
+    }
+    return limitarComOutros(
+      Array.from(porRecebedor.entries()).map(([label, value]) => ({ label, value })),
+      7,
+    )
+  }, [notasDoPeriodo])
+
   const filtradas = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return notas
@@ -198,6 +211,20 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
               centerLabel="Notas"
               valueFormatter={(v) => String(v)}
               emptyText="Nenhuma nota nesse período."
+            />
+          </div>
+
+          <div className="card">
+            <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Valores de transferência</h3>
+            <p className="text-xs text-ink-400 mb-4">
+              Soma do valor das notas por filial (recebedor), no período selecionado.
+            </p>
+            <DonutChart
+              data={valorPorRecebedorData}
+              centerValue={formatCurrency(valorTotalNotas)}
+              centerLabel="Total"
+              valueFormatter={formatCurrency}
+              emptyText="Nenhuma nota com valor nesse período."
             />
           </div>
         </>
