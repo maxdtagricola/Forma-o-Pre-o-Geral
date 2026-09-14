@@ -77,8 +77,16 @@ export function AutocompleteField({
   const wrapperRef = useRef<HTMLDivElement>(null)
 
   const filtered = useMemo(() => {
-    const q = value.trim().toLowerCase()
-    const list = q ? suggestions.filter((s) => s.label.toLowerCase().includes(q)) : suggestions
+    const termos = value.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    // cada palavra digitada precisa aparecer em algum lugar do nome — não precisa ser em ordem
+    // nem contígua, então busca nomes grandes ("DANIEL TRATORES ARIQUEMES") por qualquer parte dele
+    const list =
+      termos.length === 0
+        ? suggestions
+        : suggestions.filter((s) => {
+            const alvo = s.label.toLowerCase()
+            return termos.every((termo) => alvo.includes(termo))
+          })
     return list.slice(0, 8)
   }, [value, suggestions])
 
@@ -92,7 +100,19 @@ export function AutocompleteField({
 
   return (
     <FieldWrapper label={label} hint={hint} className={className}>
-      <div ref={wrapperRef} className="relative">
+      <div
+        ref={wrapperRef}
+        className="relative"
+        onBlur={(e) => {
+          // só fecha quando o foco sai do campo E da lista de sugestões — assim dar Tab
+          // dentro da lista pula pro próximo nome em vez de fechar a busca
+          const next = e.relatedTarget as Node | null
+          if (!next || !wrapperRef.current?.contains(next)) {
+            setOpen(false)
+            onBlur?.()
+          }
+        }}
+      >
         <input
           type="text"
           className="field-input"
@@ -103,10 +123,6 @@ export function AutocompleteField({
             setOpen(true)
           }}
           onFocus={() => setOpen(true)}
-          onBlur={() => {
-            setOpen(false)
-            onBlur?.()
-          }}
         />
         {open && filtered.length > 0 && (
           <div className="absolute z-20 mt-1 w-full rounded-lg border border-ink-200 bg-surface shadow-lg max-h-56 overflow-auto">
@@ -120,7 +136,12 @@ export function AutocompleteField({
                   onSelectSuggestion?.(s)
                   setOpen(false)
                 }}
-                className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-ink-50"
+                onClick={() => {
+                  onChange(s.label)
+                  onSelectSuggestion?.(s)
+                  setOpen(false)
+                }}
+                className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-ink-50 focus:bg-ink-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-brand-400"
               >
                 {s.label}
               </button>
