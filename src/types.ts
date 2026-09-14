@@ -372,3 +372,29 @@ export const DEFAULT_FORNECEDOR: Omit<Fornecedor, 'id'> = {
   cidade: '',
   estado: 'RO',
 }
+
+// ---------------------------------------------------------------------------
+// Empresas (do próprio grupo) que recebem os materiais — usadas como destino
+// no cálculo de frete automático da aba Frete. Endereço completo, igual ao
+// fornecedor.
+// ---------------------------------------------------------------------------
+export interface Empresa {
+  id: string
+  cnpj: string
+  nome: string
+  cep: string
+  rua: string
+  numero: string
+  cidade: string
+  estado: string
+}
+
+export const DEFAULT_EMPRESA: Omit<Empresa, 'id'> = {
+  cnpj: '',
+  nome: '',
+  cep: '',
+  rua: '',
+  numero: '',
+  cidade: '',
+  estado: 'RO',
+}

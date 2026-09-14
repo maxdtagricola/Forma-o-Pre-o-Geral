@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Button } from '../components/ui/Basics'
-import { PercentField, SelectField } from '../components/ui/Field'
+import { PercentField, SelectField, TextField } from '../components/ui/Field'
 import { PreviaImportacao } from '../components/PreviaImportacao'
 import {
   getPlanilhaAtivaIds,
@@ -11,15 +11,19 @@ import {
   setStatusColor,
   type PlanilhaImportada,
 } from '../db/configRepo'
+import { deleteEmpresa, listEmpresas, saveEmpresa } from '../db/empresasRepo'
 import { definirTabelasCustomizadas } from '../calc/calculator'
 import { lerPlanilhaMarkup } from '../xlsxImport'
 import { corPadraoDoStatus } from '../statusColors'
 import { aplicarTema, getTema, type Tema } from '../theme'
 import { formatDate } from '../utils'
 import { gerarPreviaPlanilha, type PreviaPlanilha } from '../xlsxSheetUtil'
-import { ESTADOS_DESTINO, QUOTE_STATUSES } from '../types'
-import type { EstadoDestino } from '../types'
+import { ESTADOS } from '../data/estados'
+import { DEFAULT_EMPRESA, ESTADOS_DESTINO, QUOTE_STATUSES } from '../types'
+import type { Empresa, EstadoDestino } from '../types'
 import type { PricingGlobal } from '../db/configRepo'
+
+const estadoOptions = ESTADOS.map((e) => ({ value: e.uf, label: `${e.uf} — ${e.nome}` }))
 
 const SENHA_IMPORTACAO = '11994044'
 
@@ -76,6 +80,70 @@ export function ConfiguracoesPage({
       alert(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
     } finally {
       setSalvandoGlobal(false)
+    }
+  }
+
+  // --- empresas que recebem os materiais (destino do frete automático) --------
+  const [empresas, setEmpresas] = useState<Empresa[]>([])
+  const [carregandoEmpresas, setCarregandoEmpresas] = useState(true)
+  const [formEmpresa, setFormEmpresa] = useState(DEFAULT_EMPRESA)
+  const [editingEmpresaId, setEditingEmpresaId] = useState<string | undefined>(undefined)
+  const [salvandoEmpresa, setSalvandoEmpresa] = useState(false)
+
+  async function refreshEmpresas() {
+    setCarregandoEmpresas(true)
+    try {
+      setEmpresas(await listEmpresas())
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao carregar empresas do servidor.')
+    } finally {
+      setCarregandoEmpresas(false)
+    }
+  }
+
+  useEffect(() => {
+    refreshEmpresas()
+  }, [])
+
+  function patchEmpresa(p: Partial<typeof formEmpresa>) {
+    setFormEmpresa((prev) => ({ ...prev, ...p }))
+  }
+
+  function handleCancelEditEmpresa() {
+    setFormEmpresa(DEFAULT_EMPRESA)
+    setEditingEmpresaId(undefined)
+  }
+
+  async function handleSubmitEmpresa() {
+    if (!formEmpresa.nome.trim()) {
+      alert('Informe pelo menos o nome da empresa.')
+      return
+    }
+    setSalvandoEmpresa(true)
+    try {
+      await saveEmpresa(formEmpresa, editingEmpresaId)
+      handleCancelEditEmpresa()
+      await refreshEmpresas()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao salvar a empresa no servidor.')
+    } finally {
+      setSalvandoEmpresa(false)
+    }
+  }
+
+  function handleEditEmpresa(e: Empresa) {
+    setFormEmpresa({ cnpj: e.cnpj, nome: e.nome, cep: e.cep, rua: e.rua, numero: e.numero, cidade: e.cidade, estado: e.estado })
+    setEditingEmpresaId(e.id)
+  }
+
+  async function handleDeleteEmpresa(id: string) {
+    if (!confirm('Excluir esta empresa? Essa ação não pode ser desfeita.')) return
+    try {
+      await deleteEmpresa(id)
+      if (editingEmpresaId === id) handleCancelEditEmpresa()
+      await refreshEmpresas()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao excluir a empresa no servidor.')
     }
   }
 
@@ -278,6 +346,64 @@ export function ConfiguracoesPage({
         <Button variant="primary" onClick={handleSalvarGlobal} disabled={salvandoGlobal}>
           Salvar formação de preço
         </Button>
+      </div>
+
+      <div className="card">
+        <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Empresas que recebem os materiais</h3>
+        <p className="text-xs text-ink-400 mb-4">
+          Dados completos de cada empresa do grupo — vão ser usados na aba Frete como destino, pra gerar o frete
+          automático por transportadora.
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <TextField label="CNPJ" value={formEmpresa.cnpj} onChange={(v) => patchEmpresa({ cnpj: v })} placeholder="00.000.000/0000-00" />
+          <TextField label="Nome" value={formEmpresa.nome} onChange={(v) => patchEmpresa({ nome: v })} />
+          <TextField label="CEP" value={formEmpresa.cep} onChange={(v) => patchEmpresa({ cep: v })} placeholder="00000-000" />
+          <TextField label="Rua" value={formEmpresa.rua} onChange={(v) => patchEmpresa({ rua: v })} />
+          <TextField label="Número" value={formEmpresa.numero} onChange={(v) => patchEmpresa({ numero: v })} />
+          <TextField label="Cidade" value={formEmpresa.cidade} onChange={(v) => patchEmpresa({ cidade: v })} />
+          <SelectField label="Estado" value={formEmpresa.estado} onChange={(v) => patchEmpresa({ estado: v })} options={estadoOptions} />
+        </div>
+
+        <div className="mt-4 flex gap-2">
+          <Button variant="primary" onClick={handleSubmitEmpresa} disabled={salvandoEmpresa}>
+            {editingEmpresaId ? 'Salvar alterações' : 'Adicionar empresa'}
+          </Button>
+          {editingEmpresaId && (
+            <Button variant="secondary" onClick={handleCancelEditEmpresa}>
+              Cancelar edição
+            </Button>
+          )}
+        </div>
+
+        {carregandoEmpresas ? (
+          <p className="text-sm text-ink-400 text-center py-6">Carregando…</p>
+        ) : empresas.length === 0 ? (
+          <p className="text-sm text-ink-400 text-center py-6">Nenhuma empresa cadastrada ainda.</p>
+        ) : (
+          <div className="mt-4 divide-y divide-ink-100 border-t border-ink-100">
+            {empresas.map((e) => (
+              <div key={e.id} className="flex items-center justify-between gap-3 py-3">
+                <button type="button" onClick={() => handleEditEmpresa(e)} className="min-w-0 text-left flex-1 hover:opacity-80">
+                  <p className="text-sm font-medium text-ink-900 truncate">{e.nome}</p>
+                  <p className="text-xs text-ink-400 truncate">
+                    CNPJ {e.cnpj || '—'} · {e.rua || '—'}
+                    {e.numero ? `, ${e.numero}` : ''} · {e.cidade || '—'}
+                    {e.cidade && e.estado ? ' - ' : ''}
+                    {e.estado || ''}
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteEmpresa(e.id)}
+                  className="shrink-0 text-xs font-medium text-rose-600 hover:text-rose-700"
+                >
+                  Excluir
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="card">

@@ -117,3 +117,25 @@ export async function proximoCodigoCotacao(): Promise<string> {
   await dbPut(STORE_CONFIG, { id: DOC_CONTADOR_COTACAO, valor: proximo })
   return `COT-${String(proximo).padStart(4, '0')}`
 }
+
+// ---------------------------------------------------------------------------
+// Empresa destino escolhida por transportadora, na aba Frete — base pro
+// futuro cálculo de frete automático (transportadora + destino).
+// ---------------------------------------------------------------------------
+const DOC_EMPRESA_POR_TRANSPORTADORA = 'empresaPorTransportadora'
+
+interface EmpresaPorTransportadoraDoc {
+  id: string
+  porTransportadora: Record<string, string>
+}
+
+export async function getEmpresaPorTransportadora(): Promise<Record<string, string>> {
+  const doc = await dbGet<EmpresaPorTransportadoraDoc>(STORE_CONFIG, DOC_EMPRESA_POR_TRANSPORTADORA)
+  return doc?.porTransportadora ?? {}
+}
+
+export async function setEmpresaPorTransportadora(transportadora: string, empresaId: string): Promise<void> {
+  const atuais = await getEmpresaPorTransportadora()
+  const porTransportadora = { ...atuais, [transportadora]: empresaId }
+  await dbPut(STORE_CONFIG, { id: DOC_EMPRESA_POR_TRANSPORTADORA, porTransportadora })
+}
