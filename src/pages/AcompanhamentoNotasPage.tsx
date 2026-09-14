@@ -6,10 +6,11 @@ import { listFornecedores } from '../db/fornecedoresRepo'
 import { getStatusColors } from '../db/configRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency, formatDate } from '../utils'
-import { DEFAULT_NOTA_FISCAL, NOTA_FISCAL_STATUSES, TRANSPORTADORAS } from '../types'
+import { DEFAULT_NOTA_FISCAL, NOTA_FISCAL_STATUSES, RECEBEDORES, TRANSPORTADORAS } from '../types'
 import type { Fornecedor, NotaFiscal, NotaFiscalStatus } from '../types'
 
 const transportadoraSuggestions = TRANSPORTADORAS.map((t) => ({ value: t, label: t }))
+const recebedorSuggestions = RECEBEDORES.map((r) => ({ value: r, label: r }))
 
 export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string }) {
   const [notas, setNotas] = useState<NotaFiscal[]>([])
@@ -141,7 +142,12 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
             suggestions={fornecedorSuggestions}
             onSelectSuggestion={(s) => patch({ fornecedor: s.label })}
           />
-          <TextField label="Recebedor" value={form.recebedor} onChange={(v) => patch({ recebedor: v })} />
+          <AutocompleteField
+            label="Recebedor"
+            value={form.recebedor}
+            onChange={(v) => patch({ recebedor: v })}
+            suggestions={recebedorSuggestions}
+          />
           <AutocompleteField
             label="Transportadora"
             value={form.transportadora}

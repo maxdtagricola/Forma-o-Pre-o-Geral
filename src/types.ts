@@ -21,6 +21,11 @@ export const VENDEDORES: string[] = ['EDSON', 'GABRIEL', 'SHELTON', 'BRUNO', 'JO
 export const TRANSPORTADORAS: string[] = ['CARVALIMA', 'EUCATUR', 'RODONAVES', 'VAPTLOG', 'GRANEXPRESS']
 
 // ---------------------------------------------------------------------------
+// Recebedores (filiais) sugeridos no Acompanhamento de notas.
+// ---------------------------------------------------------------------------
+export const RECEBEDORES: string[] = ['DANIEL TRATORES ARIQUEMES', 'DANIEL TRATORES RIO BRANCO', 'DANIEL TRATORES CEREJEIRAS']
+
+// ---------------------------------------------------------------------------
 // Notas fiscais — aba "Acompanhamento de notas", por enquanto só pro admin Max.
 // Reaproveita o mesmo modelo de status das cotações (status + histórico), só
 // que com os status do fluxo de recebimento de mercadoria.
