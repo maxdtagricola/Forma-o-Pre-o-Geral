@@ -14,6 +14,7 @@ import {
 import { deleteEmpresa, listEmpresas, saveEmpresa } from '../db/empresasRepo'
 import { definirTabelasCustomizadas } from '../calc/calculator'
 import { lerPlanilhaMarkup } from '../xlsxImport'
+import { baixarWorkbookMarkup } from '../planilhaMarkupDownload'
 import { corPadraoDoStatus } from '../statusColors'
 import { aplicarTema, getTema, type Tema } from '../theme'
 import { formatDate } from '../utils'
@@ -267,14 +268,40 @@ export function ConfiguracoesPage({
     }
   }
 
-  async function handleUsarPlanilha(planilha: PlanilhaImportada) {
+  // --- trocar planilha ativa / baixar planilha — as duas pedem senha antes -----
+  const [acaoPlanilhaPendente, setAcaoPlanilhaPendente] = useState<
+    { tipo: 'usar' | 'baixar'; planilha: PlanilhaImportada } | undefined
+  >(undefined)
+  const [senhaAcaoPlanilha, setSenhaAcaoPlanilha] = useState('')
+  const [executandoAcaoPlanilha, setExecutandoAcaoPlanilha] = useState(false)
+
+  function handleCancelarAcaoPlanilha() {
+    setAcaoPlanilhaPendente(undefined)
+    setSenhaAcaoPlanilha('')
+  }
+
+  async function handleConfirmarAcaoPlanilha() {
+    if (!acaoPlanilhaPendente) return
+    if (senhaAcaoPlanilha !== SENHA_IMPORTACAO) {
+      alert('Senha incorreta.')
+      return
+    }
+    const { tipo, planilha } = acaoPlanilhaPendente
+    setExecutandoAcaoPlanilha(true)
     try {
-      await setPlanilhaAtivaId(planilha.perfil, planilha.id)
-      definirTabelasCustomizadas(planilha.perfil, planilha.rbc, planilha.icmsSt)
-      setPlanilhaAtivaIds((prev) => ({ ...prev, [planilha.perfil]: planilha.id }))
-      alert(`Planilha "${planilha.nomeArquivo}" aplicada pro perfil ${planilha.perfil}.`)
+      if (tipo === 'usar') {
+        await setPlanilhaAtivaId(planilha.perfil, planilha.id)
+        definirTabelasCustomizadas(planilha.perfil, planilha.rbc, planilha.icmsSt)
+        setPlanilhaAtivaIds((prev) => ({ ...prev, [planilha.perfil]: planilha.id }))
+        alert(`Planilha "${planilha.nomeArquivo}" aplicada pro perfil ${planilha.perfil}.`)
+      } else {
+        baixarWorkbookMarkup(planilha)
+      }
+      handleCancelarAcaoPlanilha()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao aplicar essa planilha.')
+      alert(err instanceof Error ? err.message : 'Erro ao concluir a ação.')
+    } finally {
+      setExecutandoAcaoPlanilha(false)
     }
   }
 
@@ -543,14 +570,50 @@ export function ConfiguracoesPage({
                       Perfil {p.perfil} · importado por {p.importadoPor || '—'} em {formatDate(p.importadoEm)}
                     </p>
                   </div>
-                  {!ativa && (
-                    <Button variant="secondary" onClick={() => handleUsarPlanilha(p)} className="shrink-0">
-                      Usar esta
+                  <div className="flex gap-2 shrink-0">
+                    <Button
+                      variant="secondary"
+                      onClick={() => setAcaoPlanilhaPendente({ tipo: 'baixar', planilha: p })}
+                    >
+                      Baixar
                     </Button>
-                  )}
+                    {!ativa && (
+                      <Button
+                        variant="secondary"
+                        onClick={() => setAcaoPlanilhaPendente({ tipo: 'usar', planilha: p })}
+                      >
+                        Usar esta
+                      </Button>
+                    )}
+                  </div>
                 </div>
               )
             })}
+          </div>
+        )}
+
+        {acaoPlanilhaPendente && (
+          <div className="mt-4 rounded-xl border border-brand-200 bg-brand-50 p-4">
+            <p className="text-sm text-ink-900 mb-3">
+              {acaoPlanilhaPendente.tipo === 'usar'
+                ? `Confirme a senha pra usar "${acaoPlanilhaPendente.planilha.nomeArquivo}" no perfil ${acaoPlanilhaPendente.planilha.perfil}.`
+                : `Confirme a senha pra baixar "${acaoPlanilhaPendente.planilha.nomeArquivo}".`}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                type="password"
+                className="field-input max-w-[10rem]"
+                placeholder="Senha"
+                value={senhaAcaoPlanilha}
+                onChange={(e) => setSenhaAcaoPlanilha(e.target.value)}
+              />
+              <Button variant="primary" onClick={handleConfirmarAcaoPlanilha} disabled={executandoAcaoPlanilha}>
+                Confirmar
+              </Button>
+              <Button variant="ghost" onClick={handleCancelarAcaoPlanilha}>
+                Cancelar
+              </Button>
+            </div>
           </div>
         )}
       </div>
