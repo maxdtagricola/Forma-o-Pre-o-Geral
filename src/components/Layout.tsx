@@ -155,9 +155,11 @@ export function Layout({
           <button
             type="button"
             onClick={() => setCollapsed((c) => !c)}
-            className="hidden sm:flex w-full items-center justify-center rounded-lg py-2 text-xs text-ink-400 hover:bg-ink-100 mb-2 transition"
+            title={collapsed ? 'Expandir menu' : 'Recolher menu'}
+            aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'}
+            className="hidden sm:flex w-full items-center justify-center rounded-lg py-2 text-base text-ink-400 hover:bg-ink-100 mb-2 transition"
           >
-            {collapsed ? '»' : '« Recolher menu'}
+            ☰
           </button>
           {collapsed ? (
             <button
