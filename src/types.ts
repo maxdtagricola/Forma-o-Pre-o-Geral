@@ -21,6 +21,60 @@ export const VENDEDORES: string[] = ['EDSON', 'GABRIEL', 'SHELTON', 'BRUNO', 'JO
 export const TRANSPORTADORAS: string[] = ['CARVALIMA', 'EUCATUR', 'RODONAVES', 'VAPTLOG', 'GRANEXPRESS']
 
 // ---------------------------------------------------------------------------
+// Notas fiscais — aba "Acompanhamento de notas", por enquanto só pro admin Max.
+// Reaproveita o mesmo modelo de status das cotações (status + histórico), só
+// que com os status do fluxo de recebimento de mercadoria.
+// ---------------------------------------------------------------------------
+export type NotaFiscalStatus =
+  | 'AGUARDANDO COLETA'
+  | 'EM TRANSPORTE'
+  | 'EM VERIFICAÇÃO'
+  | 'CONFERÊNCIA DO MATERIAL'
+  | 'AGUARDANDO ENTRADA'
+  | 'DEVOLUÇÃO PARCIAL'
+  | 'DEVOLUÇÃO'
+  | 'CONCLUIDO'
+
+export const NOTA_FISCAL_STATUSES: NotaFiscalStatus[] = [
+  'AGUARDANDO COLETA',
+  'EM TRANSPORTE',
+  'EM VERIFICAÇÃO',
+  'CONFERÊNCIA DO MATERIAL',
+  'AGUARDANDO ENTRADA',
+  'DEVOLUÇÃO PARCIAL',
+  'DEVOLUÇÃO',
+  'CONCLUIDO',
+]
+
+export interface NotaFiscalStatusChange {
+  status: NotaFiscalStatus
+  changedAt: number
+}
+
+export interface NotaFiscal {
+  id: string
+  numeroNfe: string
+  fornecedor: string
+  recebedor: string
+  transportadora: string
+  valorNota: number
+  valorFrete: number
+  status: NotaFiscalStatus
+  statusHistory: NotaFiscalStatusChange[]
+  criadoPor: string
+  createdAt: number
+}
+
+export const DEFAULT_NOTA_FISCAL: Omit<NotaFiscal, 'id' | 'criadoPor' | 'createdAt' | 'status' | 'statusHistory'> = {
+  numeroNfe: '',
+  fornecedor: '',
+  recebedor: '',
+  transportadora: '',
+  valorNota: 0,
+  valorFrete: 0,
+}
+
+// ---------------------------------------------------------------------------
 // Estado de destino (perfil de cálculo) — cada planilha original (RBC, ICMS
 // ST e alíquotas) foi construída para um estado de destino específico.
 // ---------------------------------------------------------------------------

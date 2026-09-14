@@ -11,11 +11,19 @@ export type TabKey =
   | 'fornecedores'
   | 'frete'
   | 'configuracoes'
+  | 'acompanhamentoNotas'
   | 'history'
+
+interface NavItem {
+  key: TabKey
+  label: string
+  /** Se preenchido, só aparece no menu pra esse admin específico. */
+  somenteAdmin?: string
+}
 
 interface NavGroup {
   label: string
-  items: { key: TabKey; label: string }[]
+  items: NavItem[]
 }
 
 const NAV_GROUPS: NavGroup[] = [
@@ -45,7 +53,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: 'Sistema',
-    items: [{ key: 'configuracoes', label: 'Configurações' }],
+    items: [
+      { key: 'configuracoes', label: 'Configurações' },
+      { key: 'acompanhamentoNotas', label: 'Acompanhamento de notas', somenteAdmin: 'Max' },
+    ],
   },
 ]
 
@@ -101,7 +112,13 @@ export function Layout({
         </div>
 
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
-          {NAV_GROUPS.map((group, i) => (
+          {NAV_GROUPS.map((grupoBruto, i) => {
+            const group = {
+              ...grupoBruto,
+              items: grupoBruto.items.filter((item) => !item.somenteAdmin || item.somenteAdmin === currentAdmin),
+            }
+            if (group.items.length === 0) return null
+            return (
             <div key={group.label}>
               {collapsed ? (
                 i > 0 && <div className="mx-2 mb-1 border-t border-ink-100" />
@@ -130,7 +147,8 @@ export function Layout({
                 })}
               </div>
             </div>
-          ))}
+            )
+          })}
         </nav>
 
         <div className="border-t border-ink-100 p-3">

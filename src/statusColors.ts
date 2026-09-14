@@ -13,9 +13,10 @@ export const PALETA_CATEGORICA = [
 ]
 export const COR_OUTROS = '#c3c2b7'
 
-export function corPadraoDoStatus(status: string): string {
-  const indice = QUOTE_STATUSES.indexOf(status as (typeof QUOTE_STATUSES)[number])
-  return PALETA_CATEGORICA[indice % PALETA_CATEGORICA.length]
+/** Cor padrão pra um status, pela posição dele numa lista — mesma paleta fixa pra todos os fluxos de status do app. */
+export function corPadraoDoStatus(status: string, lista: readonly string[] = QUOTE_STATUSES): string {
+  const indice = lista.indexOf(status)
+  return PALETA_CATEGORICA[(indice === -1 ? 0 : indice) % PALETA_CATEGORICA.length]
 }
 
 /** Escolhe texto branco ou escuro pra contrastar com a cor de fundo. */
