@@ -12,6 +12,7 @@ import { ProdutosPage } from './pages/ProdutosPage'
 import { FornecedoresPage } from './pages/FornecedoresPage'
 import { FretePage } from './pages/FretePage'
 import { AcompanhamentoNotasPage } from './pages/AcompanhamentoNotasPage'
+import { NotasFiscaisDashboardPage } from './pages/NotasFiscaisDashboardPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { PlanilhaClienteModal } from './components/PlanilhaClienteModal'
 import { RecuperarRascunhoModal } from './components/RecuperarRascunhoModal'
@@ -523,6 +524,7 @@ export default function App() {
       {tab === 'acompanhamentoNotas' && currentAdmin === 'Max' && (
         <AcompanhamentoNotasPage currentAdmin={currentAdmin} />
       )}
+      {tab === 'notasFiscaisDashboard' && currentAdmin === 'Max' && <NotasFiscaisDashboardPage />}
       {tab === 'history' && (
         <HistoryPage refreshKey={historyRefreshKey} currentAdmin={currentAdmin} onLoad={handleLoad} />
       )}

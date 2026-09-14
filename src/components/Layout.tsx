@@ -12,6 +12,7 @@ export type TabKey =
   | 'frete'
   | 'configuracoes'
   | 'acompanhamentoNotas'
+  | 'notasFiscaisDashboard'
   | 'history'
 
 interface NavItem {
@@ -38,7 +39,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: 'Visão geral',
-    items: [{ key: 'analytics', label: 'Dashboard' }],
+    items: [
+      { key: 'analytics', label: 'Dashboard' },
+      { key: 'notasFiscaisDashboard', label: 'Notas fiscais', somenteAdmin: 'Max' },
+    ],
   },
   {
     label: 'Cadastros',

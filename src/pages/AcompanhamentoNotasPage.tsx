@@ -1,64 +1,19 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { TextField, AutocompleteField, NumberField, SelectField, DateField } from '../components/ui/Field'
 import { Button } from '../components/ui/Basics'
-import { DonutChart, limitarComOutros, type DonutDatum } from '../components/DonutChart'
-import { GroupedBarChart } from '../components/BarChart'
-import { StatTile } from '../components/StatTile'
 import { deleteNotaFiscal, listNotasFiscais, saveNotaFiscal, updateNotaFiscalStatus } from '../db/notasFiscaisRepo'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { getStatusColors } from '../db/configRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency, formatDate } from '../utils'
-import { PERIODOS, inicioPeriodo, type Periodo } from '../periodo'
 import { DEFAULT_NOTA_FISCAL, NOTA_FISCAL_STATUSES, NOTA_FISCAL_TIPOS, RECEBEDORES, TRANSPORTADORAS } from '../types'
 import type { Fornecedor, NotaFiscal, NotaFiscalStatus, NotaFiscalTipo } from '../types'
+import { chaveMes, chaveMesDaNota, labelDoMes, dataLimiteDoMes, corDoTipo, labelDoTipo } from '../notasFiscaisHelpers'
 
 const transportadoraSuggestions = TRANSPORTADORAS.map((t) => ({ value: t, label: t }))
 const recebedorSuggestions = RECEBEDORES.map((r) => ({ value: r, label: r }))
 const statusOptions = NOTA_FISCAL_STATUSES.map((s) => ({ value: s, label: s }))
 const tipoOptions = NOTA_FISCAL_TIPOS
-
-// cores fixas por tipo — mesma ordem da paleta categórica usada nos status, pra manter consistência visual
-const CORES_TIPO: Record<NotaFiscalTipo, string> = { PECAS: '#2a78d6', IMPLEMENTOS: '#eb6834' }
-function corDoTipo(tipo: NotaFiscalTipo): string {
-  return CORES_TIPO[tipo] ?? CORES_TIPO.PECAS
-}
-function labelDoTipo(tipo: NotaFiscalTipo): string {
-  return NOTA_FISCAL_TIPOS.find((t) => t.value === tipo)?.label ?? tipo
-}
-
-// ---------------------------------------------------------------------------
-// Pastas por mês de referência (mês de emissão da nota, ou de registro quando
-// a nota não tem data de emissão informada) — usadas pra arquivar meses
-// anteriores sem perder o acesso a eles.
-// ---------------------------------------------------------------------------
-function chaveMes(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-}
-
-function chaveMesDaNota(n: NotaFiscal): string {
-  const data = n.dataEmissao ? new Date(`${n.dataEmissao}T00:00:00`) : new Date(n.createdAt)
-  return chaveMes(data)
-}
-
-function labelDoMes(mesKey: string): string {
-  const [ano, mes] = mesKey.split('-').map(Number)
-  const label = new Date(ano, mes - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-  return label.charAt(0).toUpperCase() + label.slice(1)
-}
-
-const MESES_ABREV = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
-
-function labelCurtoDoMes(mesKey: string): string {
-  const [ano, mes] = mesKey.split('-').map(Number)
-  return `${MESES_ABREV[mes - 1]}/${String(ano).slice(2)}`
-}
-
-/** Data em que os três meses de retenção do mês de referência se encerram. */
-function dataLimiteDoMes(mesKey: string): number {
-  const [ano, mes] = mesKey.split('-').map(Number)
-  return new Date(ano, mes - 1 + 3, 1).getTime()
-}
 
 function GrupoStatusTable({
   grupo,
@@ -293,8 +248,6 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
   const [editingId, setEditingId] = useState<string | undefined>(undefined)
   const [saving, setSaving] = useState(false)
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
-  const [periodo, setPeriodo] = useState<Periodo>('mes')
-  const [tipoFiltro, setTipoFiltro] = useState<'TODOS' | NotaFiscalTipo>('TODOS')
   const [mostrarArquivadas, setMostrarArquivadas] = useState(false)
 
   async function refresh() {
@@ -401,72 +354,6 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
 
   const fornecedorSuggestions = useMemo(() => fornecedores.map((f) => ({ value: f.id, label: f.nome })), [fornecedores])
 
-  const notasDoPeriodo = useMemo(() => {
-    const inicio = inicioPeriodo(periodo)
-    return notas.filter(
-      (n) => n.createdAt >= inicio && (tipoFiltro === 'TODOS' || (n.tipo ?? 'PECAS') === tipoFiltro),
-    )
-  }, [notas, periodo, tipoFiltro])
-
-  const statusData: DonutDatum[] = useMemo(
-    () =>
-      NOTA_FISCAL_STATUSES.map((status) => ({
-        label: status,
-        value: notasDoPeriodo.filter((n) => n.status === status).length,
-        color: corDoStatus(status),
-      })).filter((d) => d.value > 0),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [notasDoPeriodo, coresStatus],
-  )
-
-  const valorTotalNotas = notasDoPeriodo.reduce((s, n) => s + n.valorNota, 0)
-  const valorTotalFrete = notasDoPeriodo.reduce((s, n) => s + n.valorFrete, 0)
-
-  // valores de transferência — soma do valor das notas por filial (recebedor) no período
-  const valorPorRecebedorData: DonutDatum[] = useMemo(() => {
-    const porRecebedor = new Map<string, number>()
-    for (const n of notasDoPeriodo) {
-      const chave = n.recebedor || '(sem recebedor)'
-      porRecebedor.set(chave, (porRecebedor.get(chave) ?? 0) + n.valorNota)
-    }
-    return limitarComOutros(
-      Array.from(porRecebedor.entries()).map(([label, value]) => ({ label, value })),
-      7,
-    )
-  }, [notasDoPeriodo])
-
-  // registros por mês (últimos 6 meses de referência), diferenciando peças de implementos —
-  // tendência independente do período do dashboard acima
-  const notasPorMesData = useMemo(() => {
-    const porMes = new Map<string, Record<NotaFiscalTipo, { quantidade: number; valor: number }>>()
-    for (const n of notas) {
-      const chave = chaveMesDaNota(n)
-      const tipo: NotaFiscalTipo = n.tipo ?? 'PECAS'
-      if (!porMes.has(chave)) {
-        porMes.set(chave, { PECAS: { quantidade: 0, valor: 0 }, IMPLEMENTOS: { quantidade: 0, valor: 0 } })
-      }
-      const atual = porMes.get(chave)![tipo]
-      atual.quantidade += 1
-      atual.valor += n.valorNota
-    }
-    return Array.from(porMes.entries())
-      .sort(([a], [b]) => (a < b ? -1 : 1))
-      .slice(-6)
-      .map(([mesKey, porTipo]) => ({ mesKey, porTipo }))
-  }, [notas])
-
-  const tipoSeries = tipoOptions.map((t) => ({ key: t.value, label: t.label, color: corDoTipo(t.value) }))
-
-  const registrosPorMesChartData = notasPorMesData.map((d) => ({
-    label: labelCurtoDoMes(d.mesKey),
-    values: { PECAS: d.porTipo.PECAS.quantidade, IMPLEMENTOS: d.porTipo.IMPLEMENTOS.quantidade },
-  }))
-
-  const valoresPorMesChartData = notasPorMesData.map((d) => ({
-    label: labelCurtoDoMes(d.mesKey),
-    values: { PECAS: d.porTipo.PECAS.valor, IMPLEMENTOS: d.porTipo.IMPLEMENTOS.valor },
-  }))
-
   const filtradas = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return notas
@@ -522,109 +409,11 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
   return (
     <div className="space-y-6">
       <div className="card">
-        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Dashboard</h2>
-        <p className="text-sm text-ink-400 mb-4">Visão geral das notas fiscais no período selecionado.</p>
-        <div className="flex flex-wrap gap-2 mb-3">
-          {PERIODOS.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => setPeriodo(p.value)}
-              className={`pill-tab border ${
-                periodo === p.value
-                  ? 'bg-ink-950 border-ink-950 text-white'
-                  : 'border-ink-200 text-ink-600 hover:bg-ink-50'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {(['TODOS', ...tipoOptions.map((t) => t.value)] as const).map((valor) => (
-            <button
-              key={valor}
-              type="button"
-              onClick={() => setTipoFiltro(valor)}
-              className={`pill-tab border ${
-                tipoFiltro === valor
-                  ? 'bg-ink-950 border-ink-950 text-white'
-                  : 'border-ink-200 text-ink-600 hover:bg-ink-50'
-              }`}
-            >
-              {valor === 'TODOS' ? 'Todos os tipos' : labelDoTipo(valor)}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {!loading && (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <StatTile label="Notas no período" value={String(notasDoPeriodo.length)} />
-            <StatTile label="Valor total das notas" value={formatCurrency(valorTotalNotas)} />
-            <StatTile label="Valor total de frete" value={formatCurrency(valorTotalFrete)} />
-          </div>
-
-          <div className="card">
-            <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Status das notas</h3>
-            <p className="text-xs text-ink-400 mb-4">Quantidade de notas em cada status, no período selecionado.</p>
-            <DonutChart
-              data={statusData}
-              centerValue={String(notasDoPeriodo.length)}
-              centerLabel="Notas"
-              valueFormatter={(v) => String(v)}
-              emptyText="Nenhuma nota nesse período."
-            />
-          </div>
-
-          <div className="card">
-            <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Valores de transferência</h3>
-            <p className="text-xs text-ink-400 mb-4">
-              Soma do valor das notas por filial (recebedor), no período selecionado.
-            </p>
-            <DonutChart
-              data={valorPorRecebedorData}
-              centerValue={formatCurrency(valorTotalNotas)}
-              centerLabel="Total"
-              valueFormatter={formatCurrency}
-              emptyText="Nenhuma nota com valor nesse período."
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="card">
-              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Registros por mês</h3>
-              <p className="text-xs text-ink-400 mb-4">
-                Quantidade de notas por mês de referência (emissão), peças x implementos, últimos meses.
-              </p>
-              <GroupedBarChart
-                data={registrosPorMesChartData}
-                series={tipoSeries}
-                valueFormatter={(v) => String(v)}
-                emptyText="Nenhuma nota registrada ainda."
-              />
-            </div>
-
-            <div className="card">
-              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Valores do mês</h3>
-              <p className="text-xs text-ink-400 mb-4">
-                Soma do valor das notas por mês de referência (emissão), peças x implementos, últimos meses.
-              </p>
-              <GroupedBarChart
-                data={valoresPorMesChartData}
-                series={tipoSeries}
-                valueFormatter={formatCurrency}
-                emptyText="Nenhuma nota registrada ainda."
-              />
-            </div>
-          </div>
-        </>
-      )}
-
-      <div className="card">
         <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Registro de Notas</h2>
-        <p className="text-sm text-ink-400 mb-5">Acompanhamento de notas — por enquanto só visível pra você.</p>
+        <p className="text-sm text-ink-400 mb-5">
+          Acompanhamento de notas — por enquanto só visível pra você. O dashboard com os gráficos fica em Visão
+          geral › Notas fiscais.
+        </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <TextField label="Número da NF-e" value={form.numeroNfe} onChange={(v) => patch({ numeroNfe: v })} />
