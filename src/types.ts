@@ -56,6 +56,13 @@ export interface NotaFiscalStatusChange {
   changedAt: number
 }
 
+export type NotaFiscalTipo = 'PECAS' | 'IMPLEMENTOS'
+
+export const NOTA_FISCAL_TIPOS: { value: NotaFiscalTipo; label: string }[] = [
+  { value: 'PECAS', label: 'Peças' },
+  { value: 'IMPLEMENTOS', label: 'Implementos' },
+]
+
 export interface NotaFiscal {
   id: string
   numeroNfe: string
@@ -64,6 +71,9 @@ export interface NotaFiscal {
   transportadora: string
   valorNota: number
   valorFrete: number
+  /** Data em que a nota foi emitida (YYYY-MM-DD) — pode ser anterior à data de registro no sistema. */
+  dataEmissao: string
+  tipo: NotaFiscalTipo
   status: NotaFiscalStatus
   statusHistory: NotaFiscalStatusChange[]
   criadoPor: string
@@ -77,6 +87,8 @@ export const DEFAULT_NOTA_FISCAL: Omit<NotaFiscal, 'id' | 'criadoPor' | 'created
   transportadora: '',
   valorNota: 0,
   valorFrete: 0,
+  dataEmissao: '',
+  tipo: 'PECAS',
 }
 
 // ---------------------------------------------------------------------------

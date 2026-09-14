@@ -44,6 +44,22 @@ export function TextField({ label, value, onChange, onBlur, placeholder, hint, c
   )
 }
 
+interface DateFieldProps {
+  label: string
+  value: string
+  onChange: (value: string) => void
+  hint?: string
+  className?: string
+}
+
+export function DateField({ label, value, onChange, hint, className }: DateFieldProps) {
+  return (
+    <FieldWrapper label={label} hint={hint} className={className}>
+      <input type="date" className="field-input" value={value} onChange={(e) => onChange(e.target.value)} />
+    </FieldWrapper>
+  )
+}
+
 interface AutocompleteOption {
   value: string
   label: string
