@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { TextField, AutocompleteField, NumberField } from '../components/ui/Field'
 import { Button } from '../components/ui/Basics'
+import { DonutChart, type DonutDatum } from '../components/DonutChart'
+import { StatTile } from '../components/StatTile'
 import { deleteNotaFiscal, listNotasFiscais, saveNotaFiscal, updateNotaFiscalStatus } from '../db/notasFiscaisRepo'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { getStatusColors } from '../db/configRepo'
-import { corPadraoDoStatus, corTexto } from '../statusColors'
+import { corPadraoDoStatus } from '../statusColors'
 import { formatCurrency, formatDate } from '../utils'
+import { PERIODOS, inicioPeriodo, type Periodo } from '../periodo'
 import { DEFAULT_NOTA_FISCAL, NOTA_FISCAL_STATUSES, RECEBEDORES, TRANSPORTADORAS } from '../types'
 import type { Fornecedor, NotaFiscal, NotaFiscalStatus } from '../types'
 
@@ -21,6 +24,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
   const [editingId, setEditingId] = useState<string | undefined>(undefined)
   const [saving, setSaving] = useState(false)
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
+  const [periodo, setPeriodo] = useState<Periodo>('mes')
 
   async function refresh() {
     setLoading(true)
@@ -114,6 +118,25 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
 
   const fornecedorSuggestions = useMemo(() => fornecedores.map((f) => ({ value: f.id, label: f.nome })), [fornecedores])
 
+  const notasDoPeriodo = useMemo(() => {
+    const inicio = inicioPeriodo(periodo)
+    return notas.filter((n) => n.createdAt >= inicio)
+  }, [notas, periodo])
+
+  const statusData: DonutDatum[] = useMemo(
+    () =>
+      NOTA_FISCAL_STATUSES.map((status) => ({
+        label: status,
+        value: notasDoPeriodo.filter((n) => n.status === status).length,
+        color: corDoStatus(status),
+      })).filter((d) => d.value > 0),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [notasDoPeriodo, coresStatus],
+  )
+
+  const valorTotalNotas = notasDoPeriodo.reduce((s, n) => s + n.valorNota, 0)
+  const valorTotalFrete = notasDoPeriodo.reduce((s, n) => s + n.valorFrete, 0)
+
   const filtradas = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return notas
@@ -128,6 +151,49 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
 
   return (
     <div className="space-y-6">
+      <div className="card">
+        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Dashboard</h2>
+        <p className="text-sm text-ink-400 mb-4">Visão geral das notas fiscais no período selecionado.</p>
+        <div className="flex flex-wrap gap-2">
+          {PERIODOS.map((p) => (
+            <button
+              key={p.value}
+              type="button"
+              onClick={() => setPeriodo(p.value)}
+              className={`pill-tab border ${
+                periodo === p.value
+                  ? 'bg-ink-950 border-ink-950 text-white'
+                  : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {!loading && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <StatTile label="Notas no período" value={String(notasDoPeriodo.length)} />
+            <StatTile label="Valor total das notas" value={formatCurrency(valorTotalNotas)} />
+            <StatTile label="Valor total de frete" value={formatCurrency(valorTotalFrete)} />
+          </div>
+
+          <div className="card">
+            <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Status das notas</h3>
+            <p className="text-xs text-ink-400 mb-4">Quantidade de notas em cada status, no período selecionado.</p>
+            <DonutChart
+              data={statusData}
+              centerValue={String(notasDoPeriodo.length)}
+              centerLabel="Notas"
+              valueFormatter={(v) => String(v)}
+              emptyText="Nenhuma nota nesse período."
+            />
+          </div>
+        </>
+      )}
+
       <div className="card">
         <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Registro de Notas</h2>
         <p className="text-sm text-ink-400 mb-5">Acompanhamento de notas — por enquanto só visível pra você.</p>
