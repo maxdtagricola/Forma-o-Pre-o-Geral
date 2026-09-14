@@ -6,7 +6,7 @@ import { StatTile } from '../components/StatTile'
 import { deleteNotaFiscal, listNotasFiscais, saveNotaFiscal, updateNotaFiscalStatus } from '../db/notasFiscaisRepo'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { getStatusColors } from '../db/configRepo'
-import { corPadraoDoStatus } from '../statusColors'
+import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency, formatDate } from '../utils'
 import { PERIODOS, inicioPeriodo, type Periodo } from '../periodo'
 import { DEFAULT_NOTA_FISCAL, NOTA_FISCAL_STATUSES, RECEBEDORES, TRANSPORTADORAS } from '../types'
@@ -149,6 +149,15 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
     )
   }, [notas, query])
 
+  // agrupa por status — dá pra ver de cara o que já foi concluído, o que tá em
+  // processo e o que ainda falta, em vez de uma lista única misturada
+  const grupos = useMemo(() => {
+    return NOTA_FISCAL_STATUSES.map((status) => ({
+      status,
+      itens: filtradas.filter((n) => n.status === status).sort((a, b) => b.createdAt - a.createdAt),
+    })).filter((g) => g.itens.length > 0)
+  }, [filtradas])
+
   return (
     <div className="space-y-6">
       <div className="card">
@@ -266,67 +275,85 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
             {notas.length === 0 ? 'Nenhuma nota fiscal registrada ainda.' : 'Nada encontrado.'}
           </p>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-ink-100">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-ink-400 border-b border-ink-100">
-                  <th className="py-2 px-3 font-medium">NF-e</th>
-                  <th className="py-2 px-3 font-medium">Fornecedor</th>
-                  <th className="py-2 px-3 font-medium">Recebedor</th>
-                  <th className="py-2 px-3 font-medium">Transportadora</th>
-                  <th className="py-2 px-3 font-medium text-right">Valor nota</th>
-                  <th className="py-2 px-3 font-medium text-right">Valor frete</th>
-                  <th className="py-2 px-3 font-medium">Status</th>
-                  <th className="py-2 px-3 font-medium">Registrada em</th>
-                  <th className="w-10"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtradas.map((n) => (
-                  <tr
-                    key={n.id}
-                    onClick={() => handleEdit(n)}
-                    className="cursor-pointer border-b border-ink-50 last:border-0 hover:bg-ink-50 group"
+          <div className="space-y-6">
+            {grupos.map((grupo) => (
+              <div key={grupo.status}>
+                <div className="flex items-center gap-2 mb-2">
+                  <span
+                    className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
+                    style={{ backgroundColor: corDoStatus(grupo.status), color: corTexto(corDoStatus(grupo.status)) }}
                   >
-                    <td className="py-2 px-3 font-mono text-ink-800">{n.numeroNfe}</td>
-                    <td className="py-2 px-3 text-ink-800">{n.fornecedor || '—'}</td>
-                    <td className="py-2 px-3 text-ink-600">{n.recebedor || '—'}</td>
-                    <td className="py-2 px-3 text-ink-600">{n.transportadora || '—'}</td>
-                    <td className="py-2 px-3 text-right font-mono tabular-nums text-ink-800">
-                      {formatCurrency(n.valorNota)}
-                    </td>
-                    <td className="py-2 px-3 text-right font-mono tabular-nums text-ink-600">
-                      {formatCurrency(n.valorFrete)}
-                    </td>
-                    <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-2">
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: corDoStatus(n.status) }} />
-                        <select
-                          value={n.status}
-                          onChange={(e) => handleStatusChange(n, e.target.value as NotaFiscalStatus)}
-                          className="field-input text-xs py-1.5"
+                    {grupo.status}
+                  </span>
+                  <span className="text-xs text-ink-400">{grupo.itens.length}</span>
+                </div>
+                <div className="overflow-x-auto rounded-xl border border-ink-100">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-ink-400 border-b border-ink-100">
+                        <th className="py-2 px-3 font-medium">NF-e</th>
+                        <th className="py-2 px-3 font-medium">Fornecedor</th>
+                        <th className="py-2 px-3 font-medium">Recebedor</th>
+                        <th className="py-2 px-3 font-medium">Transportadora</th>
+                        <th className="py-2 px-3 font-medium text-right">Valor nota</th>
+                        <th className="py-2 px-3 font-medium text-right">Valor frete</th>
+                        <th className="py-2 px-3 font-medium">Status</th>
+                        <th className="py-2 px-3 font-medium">Registrada em</th>
+                        <th className="w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {grupo.itens.map((n) => (
+                        <tr
+                          key={n.id}
+                          onClick={() => handleEdit(n)}
+                          className="cursor-pointer border-b border-ink-50 last:border-0 hover:bg-ink-50 group"
                         >
-                          {NOTA_FISCAL_STATUSES.map((s) => (
-                            <option key={s} value={s}>
-                              {s}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </td>
-                    <td className="py-2 px-3 text-ink-400">{formatDate(n.createdAt)}</td>
-                    <td className="py-2 px-3 text-center">
-                      <span
-                        onClick={(e) => handleDelete(n.id, e)}
-                        className="hidden group-hover:inline text-xs font-medium text-rose-600 hover:text-rose-700"
-                      >
-                        Excluir
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                          <td className="py-2 px-3 font-mono text-ink-800">{n.numeroNfe}</td>
+                          <td className="py-2 px-3 text-ink-800">{n.fornecedor || '—'}</td>
+                          <td className="py-2 px-3 text-ink-600">{n.recebedor || '—'}</td>
+                          <td className="py-2 px-3 text-ink-600">{n.transportadora || '—'}</td>
+                          <td className="py-2 px-3 text-right font-mono tabular-nums text-ink-800">
+                            {formatCurrency(n.valorNota)}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono tabular-nums text-ink-600">
+                            {formatCurrency(n.valorFrete)}
+                          </td>
+                          <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: corDoStatus(n.status) }}
+                              />
+                              <select
+                                value={n.status}
+                                onChange={(e) => handleStatusChange(n, e.target.value as NotaFiscalStatus)}
+                                className="field-input text-xs py-1.5"
+                              >
+                                {NOTA_FISCAL_STATUSES.map((s) => (
+                                  <option key={s} value={s}>
+                                    {s}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </td>
+                          <td className="py-2 px-3 text-ink-400">{formatDate(n.createdAt)}</td>
+                          <td className="py-2 px-3 text-center">
+                            <span
+                              onClick={(e) => handleDelete(n.id, e)}
+                              className="hidden group-hover:inline text-xs font-medium text-rose-600 hover:text-rose-700"
+                            >
+                              Excluir
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
