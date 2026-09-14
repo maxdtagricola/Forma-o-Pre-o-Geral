@@ -449,21 +449,14 @@ export function ConfiguracoesPage({
         ) : (
           <div className="mt-4 divide-y divide-ink-100 border-t border-ink-100">
             {empresas.map((e) => (
-              <div key={e.id} className="flex items-center justify-between gap-3 py-3">
-                <button type="button" onClick={() => handleEditEmpresa(e)} className="min-w-0 text-left flex-1 hover:opacity-80">
+              <div key={e.id} className="py-3">
+                <button type="button" onClick={() => handleEditEmpresa(e)} className="w-full min-w-0 text-left hover:opacity-80">
                   <p className="text-sm font-medium text-ink-900 truncate">{e.nome}</p>
                   <p className="text-xs text-ink-400 truncate">
                     CNPJ {e.cnpj || '—'} · {e.endereco || '—'} · {e.municipio || '—'}
                     {e.municipio && e.uf ? ' - ' : ''}
                     {e.uf || ''}
                   </p>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleDeleteEmpresa(e.id)}
-                  className="shrink-0 text-xs font-medium text-rose-600 hover:text-rose-700"
-                >
-                  Excluir
                 </button>
               </div>
             ))}

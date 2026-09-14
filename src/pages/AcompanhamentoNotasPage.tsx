@@ -9,6 +9,7 @@ import { formatCurrency, formatDate } from '../utils'
 import { DEFAULT_NOTA_FISCAL, NOTA_FISCAL_STATUSES, NOTA_FISCAL_TIPOS, RECEBEDORES, TRANSPORTADORAS } from '../types'
 import type { Fornecedor, NotaFiscal, NotaFiscalStatus, NotaFiscalTipo } from '../types'
 import { chaveMes, chaveMesDaNota, labelDoMes, dataLimiteDoMes, corDoTipo, labelDoTipo } from '../notasFiscaisHelpers'
+import { extrairDadosNotaFiscalPdf } from '../pdfNotaFiscal'
 
 const transportadoraSuggestions = TRANSPORTADORAS.map((t) => ({ value: t, label: t }))
 const recebedorSuggestions = RECEBEDORES.map((r) => ({ value: r, label: r }))
@@ -19,13 +20,11 @@ function GrupoStatusTable({
   grupo,
   corDoStatus,
   onEdit,
-  onDelete,
   onStatusChange,
 }: {
   grupo: { status: NotaFiscalStatus; itens: NotaFiscal[] }
   corDoStatus: (status: string) => string
   onEdit: (n: NotaFiscal) => void
-  onDelete: (id: string, e?: MouseEvent) => void
   onStatusChange: (n: NotaFiscal, status: NotaFiscalStatus) => void
 }) {
   return (
@@ -53,7 +52,6 @@ function GrupoStatusTable({
               <th className="py-2 px-3 font-medium">Status</th>
               <th className="py-2 px-3 font-medium">Emitida em</th>
               <th className="py-2 px-3 font-medium">Registrada em</th>
-              <th className="w-10"></th>
             </tr>
           </thead>
           <tbody>
@@ -107,14 +105,6 @@ function GrupoStatusTable({
                   {n.dataEmissao ? new Date(`${n.dataEmissao}T00:00:00`).toLocaleDateString('pt-BR') : '—'}
                 </td>
                 <td className="py-2 px-3 text-ink-400">{formatDate(n.createdAt)}</td>
-                <td className="py-2 px-3 text-center">
-                  <span
-                    onClick={(e) => onDelete(n.id, e)}
-                    className="hidden group-hover:inline text-xs font-medium text-rose-600 hover:text-rose-700"
-                  >
-                    Excluir
-                  </span>
-                </td>
               </tr>
             ))}
           </tbody>
@@ -131,7 +121,6 @@ function PastaMes({
   todasConcluidas,
   corDoStatus,
   onEdit,
-  onDelete,
   onStatusChange,
 }: {
   mesKey: string
@@ -140,7 +129,6 @@ function PastaMes({
   todasConcluidas: boolean
   corDoStatus: (status: string) => string
   onEdit: (n: NotaFiscal) => void
-  onDelete: (id: string, e?: MouseEvent) => void
   onStatusChange: (n: NotaFiscal, status: NotaFiscalStatus) => void
 }) {
   const [aberta, setAberta] = useState(false)
@@ -225,7 +213,6 @@ function PastaMes({
                     grupo={grupo}
                     corDoStatus={corDoStatus}
                     onEdit={onEdit}
-                    onDelete={onDelete}
                     onStatusChange={onStatusChange}
                   />
                 ))}
@@ -249,6 +236,8 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
   const [saving, setSaving] = useState(false)
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
   const [mostrarArquivadas, setMostrarArquivadas] = useState(false)
+  const [formRecolhido, setFormRecolhido] = useState(false)
+  const [importandoPdf, setImportandoPdf] = useState(false)
 
   async function refresh() {
     setLoading(true)
@@ -291,6 +280,35 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
 
   function patch(p: Partial<typeof form>) {
     setForm((prev) => ({ ...prev, ...p }))
+  }
+
+  async function handleImportarPdf(file: File) {
+    setImportandoPdf(true)
+    try {
+      const dados = await extrairDadosNotaFiscalPdf(file, {
+        fornecedoresConhecidos: fornecedores.map((f) => f.nome),
+        recebedoresConhecidos: RECEBEDORES,
+        transportadorasConhecidas: TRANSPORTADORAS,
+      })
+      if (Object.keys(dados).length === 0) {
+        alert('Não consegui reconhecer os dados dessa nota — confira se é o PDF da NF-e e preencha manualmente.')
+        return
+      }
+      patch({
+        ...(dados.numeroNfe ? { numeroNfe: dados.numeroNfe } : {}),
+        ...(dados.dataEmissao ? { dataEmissao: dados.dataEmissao } : {}),
+        ...(dados.valorNota !== undefined ? { valorNota: dados.valorNota } : {}),
+        ...(dados.valorFrete !== undefined ? { valorFrete: dados.valorFrete } : {}),
+        ...(dados.fornecedor ? { fornecedor: dados.fornecedor } : {}),
+        ...(dados.recebedor ? { recebedor: dados.recebedor } : {}),
+        ...(dados.transportadora ? { transportadora: dados.transportadora } : {}),
+      })
+      setFormRecolhido(false)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao ler o PDF da nota fiscal.')
+    } finally {
+      setImportandoPdf(false)
+    }
   }
 
   function handleCancelEdit() {
@@ -337,6 +355,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
       tipo: n.tipo ?? 'PECAS',
     })
     setEditingId(n.id)
+    setFormRecolhido(false)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -409,76 +428,117 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
   return (
     <div className="space-y-6">
       <div className="card">
-        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Registro de Notas</h2>
-        <p className="text-sm text-ink-400 mb-5">
-          Acompanhamento de notas — por enquanto só visível pra você. O dashboard com os gráficos fica em Visão
-          geral › Notas fiscais.
-        </p>
+        <button
+          type="button"
+          onClick={() => setFormRecolhido((v) => !v)}
+          className="w-full flex items-center justify-between gap-3 text-left"
+        >
+          <div>
+            <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">
+              Registro de Notas
+              {editingId && <span className="ml-2 text-xs font-medium text-brand-700">(editando)</span>}
+            </h2>
+            {!formRecolhido && (
+              <p className="text-sm text-ink-400">
+                Acompanhamento de notas — por enquanto só visível pra você. O dashboard com os gráficos fica em
+                Visão geral › Notas fiscais.
+              </p>
+            )}
+          </div>
+          <span
+            aria-hidden
+            className={`shrink-0 text-ink-400 transition-transform ${formRecolhido ? '' : 'rotate-180'}`}
+          >
+            ▾
+          </span>
+        </button>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <TextField label="Número da NF-e" value={form.numeroNfe} onChange={(v) => patch({ numeroNfe: v })} />
-          <DateField label="Data de emissão" value={form.dataEmissao} onChange={(v) => patch({ dataEmissao: v })} />
-          <AutocompleteField
-            label="Fornecedor"
-            value={form.fornecedor}
-            onChange={(v) => patch({ fornecedor: v })}
-            suggestions={fornecedorSuggestions}
-            onSelectSuggestion={(s) => patch({ fornecedor: s.label })}
-          />
-          <AutocompleteField
-            label="Recebedor"
-            value={form.recebedor}
-            onChange={(v) => patch({ recebedor: v })}
-            suggestions={recebedorSuggestions}
-          />
-          <AutocompleteField
-            label="Transportadora"
-            value={form.transportadora}
-            onChange={(v) => patch({ transportadora: v })}
-            suggestions={transportadoraSuggestions}
-          />
-          <NumberField
-            label="Valor da nota fiscal"
-            value={form.valorNota}
-            onChange={(v) => patch({ valorNota: v })}
-            prefix="R$"
-            step={0.01}
-            min={0}
-          />
-          <NumberField
-            label="Valor do frete"
-            value={form.valorFrete}
-            onChange={(v) => patch({ valorFrete: v })}
-            prefix="R$"
-            step={0.01}
-            min={0}
-          />
-          <SelectField
-            label="Tipo"
-            value={form.tipo}
-            onChange={(v) => patch({ tipo: v as NotaFiscalTipo })}
-            options={tipoOptions.map((t) => ({ value: t.value, label: t.label }))}
-          />
-          {!editingId && (
-            <SelectField
-              label="Status inicial"
-              value={statusInicial}
-              onChange={(v) => setStatusInicial(v as NotaFiscalStatus)}
-              options={statusOptions}
-            />
-          )}
-        </div>
+        {!formRecolhido && (
+          <>
+            <div className="mt-5 rounded-xl border border-dashed border-ink-200 p-4">
+              <label className="block">
+                <span className="field-label">Importar PDF da nota (preenche os campos automaticamente)</span>
+                <input
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  disabled={importandoPdf}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) handleImportarPdf(file)
+                    e.target.value = ''
+                  }}
+                  className="field-input"
+                />
+              </label>
+              {importandoPdf && <p className="text-xs text-ink-400 mt-2">Lendo o PDF…</p>}
+            </div>
 
-        <div className="mt-5 flex gap-2">
-          <Button variant="primary" onClick={handleSubmit} disabled={saving}>
-            {editingId ? 'Salvar alterações' : 'Adicionar Novo Registro'}
-          </Button>
-          {editingId && (
-            <Button variant="secondary" onClick={handleCancelEdit}>
-              Cancelar edição
-            </Button>
-          )}
-        </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
+              <TextField label="Número da NF-e" value={form.numeroNfe} onChange={(v) => patch({ numeroNfe: v })} />
+              <DateField label="Data de emissão" value={form.dataEmissao} onChange={(v) => patch({ dataEmissao: v })} />
+              <AutocompleteField
+                label="Fornecedor"
+                value={form.fornecedor}
+                onChange={(v) => patch({ fornecedor: v })}
+                suggestions={fornecedorSuggestions}
+                onSelectSuggestion={(s) => patch({ fornecedor: s.label })}
+              />
+              <AutocompleteField
+                label="Recebedor"
+                value={form.recebedor}
+                onChange={(v) => patch({ recebedor: v })}
+                suggestions={recebedorSuggestions}
+              />
+              <AutocompleteField
+                label="Transportadora"
+                value={form.transportadora}
+                onChange={(v) => patch({ transportadora: v })}
+                suggestions={transportadoraSuggestions}
+              />
+              <NumberField
+                label="Valor da nota fiscal"
+                value={form.valorNota}
+                onChange={(v) => patch({ valorNota: v })}
+                prefix="R$"
+                step={0.01}
+                min={0}
+              />
+              <NumberField
+                label="Valor do frete"
+                value={form.valorFrete}
+                onChange={(v) => patch({ valorFrete: v })}
+                prefix="R$"
+                step={0.01}
+                min={0}
+              />
+              <SelectField
+                label="Tipo"
+                value={form.tipo}
+                onChange={(v) => patch({ tipo: v as NotaFiscalTipo })}
+                options={tipoOptions.map((t) => ({ value: t.value, label: t.label }))}
+              />
+              {!editingId && (
+                <SelectField
+                  label="Status inicial"
+                  value={statusInicial}
+                  onChange={(v) => setStatusInicial(v as NotaFiscalStatus)}
+                  options={statusOptions}
+                />
+              )}
+            </div>
+
+            <div className="mt-5 flex gap-2">
+              <Button variant="primary" onClick={handleSubmit} disabled={saving}>
+                {editingId ? 'Salvar alterações' : 'Adicionar Novo Registro'}
+              </Button>
+              {editingId && (
+                <Button variant="secondary" onClick={handleCancelEdit}>
+                  Cancelar edição
+                </Button>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card">
@@ -510,7 +570,6 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
                     grupo={grupo}
                     corDoStatus={corDoStatus}
                     onEdit={handleEdit}
-                    onDelete={handleDelete}
                     onStatusChange={handleStatusChange}
                   />
                 ))}
@@ -538,7 +597,6 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
                 todasConcluidas={p.todasConcluidas}
                 corDoStatus={corDoStatus}
                 onEdit={handleEdit}
-                onDelete={handleDelete}
                 onStatusChange={handleStatusChange}
               />
             ))}
@@ -566,7 +624,6 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
                   todasConcluidas={p.todasConcluidas}
                   corDoStatus={corDoStatus}
                   onEdit={handleEdit}
-                  onDelete={handleDelete}
                   onStatusChange={handleStatusChange}
                 />
               ))}

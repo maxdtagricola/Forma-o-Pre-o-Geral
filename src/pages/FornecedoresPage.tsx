@@ -332,7 +332,7 @@ export function FornecedoresPage() {
                 key={f.id}
                 type="button"
                 onClick={() => handleEdit(f)}
-                className="w-full text-left py-3 flex items-center justify-between gap-3 hover:bg-ink-50 -mx-2 px-2 rounded-lg transition group"
+                className="w-full text-left py-3 flex items-center justify-between gap-3 hover:bg-ink-50 -mx-2 px-2 rounded-lg transition"
               >
                 <div className="min-w-0">
                   <p className="font-medium text-ink-900 truncate">{f.nome}</p>
@@ -343,12 +343,6 @@ export function FornecedoresPage() {
                     {f.estado || ''}
                   </p>
                 </div>
-                <span
-                  onClick={(e) => handleDelete(f.id, e)}
-                  className="hidden group-hover:inline text-xs font-medium text-rose-600 hover:text-rose-700 shrink-0"
-                >
-                  Excluir
-                </span>
               </button>
             ))}
           </div>
