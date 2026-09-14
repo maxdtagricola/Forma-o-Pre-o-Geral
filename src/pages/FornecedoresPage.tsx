@@ -3,6 +3,7 @@ import { TextField, SelectField } from '../components/ui/Field'
 import { Button } from '../components/ui/Basics'
 import { ESTADOS } from '../data/estados'
 import { deleteFornecedor, listFornecedores, saveFornecedor } from '../db/fornecedoresRepo'
+import { lerPlanilhaFornecedores, type FornecedorImportado } from '../fornecedoresImport'
 import { DEFAULT_FORNECEDOR } from '../types'
 import type { Fornecedor } from '../types'
 
@@ -15,6 +16,11 @@ export function FornecedoresPage() {
   const [form, setForm] = useState(DEFAULT_FORNECEDOR)
   const [editingId, setEditingId] = useState<string | undefined>(undefined)
   const [saving, setSaving] = useState(false)
+
+  // --- importar planilha de fornecedores -------------------------------------
+  const [lendoArquivo, setLendoArquivo] = useState(false)
+  const [itensImportados, setItensImportados] = useState<FornecedorImportado[]>([])
+  const [confirmandoImport, setConfirmandoImport] = useState(false)
 
   async function refresh() {
     setLoading(true)
@@ -75,6 +81,57 @@ export function FornecedoresPage() {
     }
   }
 
+  async function handleArquivoSelecionado(file: File) {
+    setLendoArquivo(true)
+    try {
+      const resultado = await lerPlanilhaFornecedores(file)
+      setItensImportados(resultado)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
+    } finally {
+      setLendoArquivo(false)
+    }
+  }
+
+  function handlePatchItemImportado(index: number, patch: Partial<FornecedorImportado>) {
+    setItensImportados((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)))
+  }
+  function handleRemoveItemImportado(index: number) {
+    setItensImportados((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  async function handleConfirmarImportacao() {
+    setConfirmandoImport(true)
+    try {
+      for (const item of itensImportados) {
+        const cnpjAlvo = item.cnpj.trim()
+        const existente = fornecedores.find((f) =>
+          cnpjAlvo ? f.cnpj.trim() === cnpjAlvo : f.nome.trim().toLowerCase() === item.nome.trim().toLowerCase(),
+        )
+        await saveFornecedor(
+          {
+            cnpj: item.cnpj,
+            nome: item.nome,
+            cep: item.cep,
+            rua: item.rua,
+            numero: item.numero,
+            cidade: item.cidade,
+            estado: item.estado,
+          },
+          existente?.id,
+        )
+      }
+      const total = itensImportados.length
+      setItensImportados([])
+      await refresh()
+      alert(`${total} fornecedor(es) importado(s).`)
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao importar fornecedores.')
+    } finally {
+      setConfirmandoImport(false)
+    }
+  }
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     if (!q) return fornecedores
@@ -114,6 +171,106 @@ export function FornecedoresPage() {
             </Button>
           )}
         </div>
+      </div>
+
+      <div className="card">
+        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Importar planilha</h2>
+        <p className="text-sm text-ink-400 mb-4">
+          Envie uma planilha com os fornecedores — a linha com "Nome" (ou "Fornecedor") é o cabeçalho, e as colunas
+          CNPJ, CEP, Rua, Número, Cidade e Estado são lidas pelo texto do cabeçalho (todas opcionais, menos o nome).
+          Quem já tiver o mesmo CNPJ (ou o mesmo nome, se não houver CNPJ) é atualizado em vez de duplicado.
+        </p>
+        <label className="block mb-4">
+          <span className="field-label">Arquivo (.xlsx)</span>
+          <input
+            type="file"
+            accept=".xlsx"
+            className="field-input"
+            disabled={lendoArquivo}
+            onChange={(e) => {
+              const file = e.target.files?.[0]
+              if (file) handleArquivoSelecionado(file)
+              e.target.value = ''
+            }}
+          />
+        </label>
+
+        {lendoArquivo && <p className="text-sm text-ink-400">Lendo planilha…</p>}
+
+        {itensImportados.length > 0 && (
+          <div className="space-y-4">
+            <div className="overflow-x-auto rounded-xl border border-ink-100">
+              <table className="w-full text-sm border-collapse">
+                <thead>
+                  <tr className="bg-ink-50 text-left text-ink-400">
+                    <th className="py-2 px-2 font-medium w-10">#</th>
+                    <th className="py-2 px-2 font-medium min-w-[12rem]">Nome</th>
+                    <th className="py-2 px-2 font-medium min-w-[9rem]">CNPJ</th>
+                    <th className="py-2 px-2 font-medium min-w-[9rem]">Cidade</th>
+                    <th className="py-2 px-2 font-medium w-16">UF</th>
+                    <th className="w-10"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {itensImportados.map((item, index) => (
+                    <tr key={index}>
+                      <td className="px-2 py-1 border-t border-ink-100 text-ink-400 text-xs text-center">
+                        {index + 1}
+                      </td>
+                      <td className="px-1 py-1 border-t border-ink-100">
+                        <input
+                          className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                          value={item.nome}
+                          onChange={(e) => handlePatchItemImportado(index, { nome: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-1 py-1 border-t border-ink-100">
+                        <input
+                          className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-brand-400"
+                          value={item.cnpj}
+                          onChange={(e) => handlePatchItemImportado(index, { cnpj: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-1 py-1 border-t border-ink-100">
+                        <input
+                          className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                          value={item.cidade}
+                          onChange={(e) => handlePatchItemImportado(index, { cidade: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-1 py-1 border-t border-ink-100">
+                        <input
+                          className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 uppercase focus:outline-none focus:ring-1 focus:ring-brand-400"
+                          value={item.estado}
+                          onChange={(e) => handlePatchItemImportado(index, { estado: e.target.value.toUpperCase() })}
+                        />
+                      </td>
+                      <td className="px-1 py-1 border-t border-ink-100 text-center">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItemImportado(index)}
+                          aria-label="Remover fornecedor"
+                          className="h-6 w-6 rounded-full text-xs leading-none text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
+                        >
+                          ×
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setItensImportados([])}>
+                Cancelar
+              </Button>
+              <Button variant="primary" onClick={handleConfirmarImportacao} disabled={confirmandoImport}>
+                Importar {itensImportados.length} fornecedor{itensImportados.length === 1 ? '' : 'es'}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="card">
