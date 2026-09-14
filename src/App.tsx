@@ -469,6 +469,7 @@ export default function App() {
           onRemoveCotacao={handleRemoveCotacaoFornecedor}
           onSalvar={handleSalvarPreRegistro}
           onGoToCotacoes={() => setTab('cotacoes')}
+          onGoToPreRegistro={() => setTab('preregistro')}
         />
       )}
       {tab === 'dashboard' && (
