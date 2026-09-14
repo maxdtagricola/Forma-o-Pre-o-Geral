@@ -20,7 +20,7 @@ import { aplicarTema, getTema, type Tema } from '../theme'
 import { formatDate } from '../utils'
 import { gerarPreviaPlanilha, type PreviaPlanilha } from '../xlsxSheetUtil'
 import { ESTADOS } from '../data/estados'
-import { DEFAULT_EMPRESA, ESTADOS_DESTINO, QUOTE_STATUSES } from '../types'
+import { DEFAULT_EMPRESA, ESTADOS_DESTINO, NOTA_FISCAL_STATUSES, QUOTE_STATUSES } from '../types'
 import type { Empresa, EstadoDestino } from '../types'
 import type { PricingGlobal } from '../db/configRepo'
 
@@ -336,7 +336,7 @@ export function ConfiguracoesPage({
       </div>
 
       <div className="card">
-        <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Cores dos status</h3>
+        <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Cores dos status de cotação</h3>
         <p className="text-xs text-ink-400 mb-4">Usadas no Dashboard e na aba Cotações — vale pra todos os admins.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
           {QUOTE_STATUSES.map((status) => (
@@ -347,6 +347,27 @@ export function ConfiguracoesPage({
               <input
                 type="color"
                 value={coresStatus[status] || corPadraoDoStatus(status)}
+                onChange={(e) => handleCorStatusChange(status, e.target.value)}
+                className="h-6 w-8 shrink-0 cursor-pointer rounded border border-ink-200 p-0"
+              />
+              <span className="truncate">{status}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="card">
+        <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Cores dos status de cotação do frete</h3>
+        <p className="text-xs text-ink-400 mb-4">Usadas no Acompanhamento de notas — vale pra todos os admins.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+          {NOTA_FISCAL_STATUSES.map((status) => (
+            <label
+              key={status}
+              className="flex items-center gap-2 rounded-lg border border-ink-100 px-3 py-2 text-xs text-ink-700"
+            >
+              <input
+                type="color"
+                value={coresStatus[status] || corPadraoDoStatus(status, NOTA_FISCAL_STATUSES)}
                 onChange={(e) => handleCorStatusChange(status, e.target.value)}
                 className="h-6 w-8 shrink-0 cursor-pointer rounded border border-ink-200 p-0"
               />
