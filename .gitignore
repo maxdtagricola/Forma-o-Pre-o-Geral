@@ -10,3 +10,4 @@ vite.config.d.ts
 
 # planilhas de referência/teste com dados reais de cliente — nunca versionar
 *.xlsx
+*.xlsm

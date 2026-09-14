@@ -21,6 +21,7 @@ export function PreRegistroPage({
   onIrParaPrecificacao,
   onEncaminharFornecedores,
   onGoToCotacoes,
+  onGoToComparar,
 }: {
   currentAdmin: string
   isEditing: boolean
@@ -37,6 +38,7 @@ export function PreRegistroPage({
   onIrParaPrecificacao: () => Promise<void>
   onEncaminharFornecedores: () => Promise<void>
   onGoToCotacoes: () => void
+  onGoToComparar: () => void
 }) {
   const [salvando, setSalvando] = useState(false)
   const [indo, setIndo] = useState(false)
@@ -214,6 +216,9 @@ export function PreRegistroPage({
         </div>
 
         <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+          <Button variant="secondary" onClick={onGoToComparar} disabled={itens.length === 0}>
+            Comparar fornecedores
+          </Button>
           <Button variant="secondary" onClick={handleSalvar} disabled={travadaPorOutro || salvando}>
             Salvar
           </Button>

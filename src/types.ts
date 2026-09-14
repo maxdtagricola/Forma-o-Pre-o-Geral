@@ -239,6 +239,14 @@ export interface PedidoCompraInfo {
 // Pré-registro — lista rápida (Interno, Referência, Quantidade) dos itens que
 // ainda precisam ser cotados, preenchida antes de ir pra precificação.
 // ---------------------------------------------------------------------------
+/** Uma cotação de preço devolvida por um fornecedor, pra comparar e escolher a melhor. */
+export interface CotacaoFornecedorItem {
+  id: string
+  fornecedor: string
+  marca: string
+  valorUnitario: number
+}
+
 export interface PreRegistroItem {
   id: string
   interno: string
@@ -246,6 +254,8 @@ export interface PreRegistroItem {
   /** Preenchida quando o item vem de uma planilha importada — ajuda a identificar o item mesmo sem Interno. */
   descricao?: string
   quantidade: number
+  /** Cotações de fornecedores devolvidas pra esse item — a mais barata vira o valor/fornecedor ao ir pra precificação. */
+  cotacoesFornecedores?: CotacaoFornecedorItem[]
 }
 
 // ---------------------------------------------------------------------------

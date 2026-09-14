@@ -39,6 +39,14 @@ export function selecionarTudoAoFocar(e: { target: HTMLInputElement }): void {
   e.target.select()
 }
 
+/** A cotação de menor valor unitário entre as devolvidas por fornecedores, ou undefined se não houver nenhuma. */
+export function melhorCotacaoFornecedor<T extends { valorUnitario: number }>(
+  cotacoes: T[] | undefined,
+): T | undefined {
+  if (!cotacoes || cotacoes.length === 0) return undefined
+  return cotacoes.reduce((menor, atual) => (atual.valorUnitario < menor.valorUnitario ? atual : menor))
+}
+
 export function makeId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID()

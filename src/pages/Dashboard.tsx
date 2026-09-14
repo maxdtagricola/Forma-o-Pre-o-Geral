@@ -45,6 +45,7 @@ export function Dashboard({
   onNew,
   onGoToCotacoes,
   onGoToPreRegistro,
+  onGoToComparar,
   temPlanilhaCliente,
   onVerPlanilhaCliente,
 }: {
@@ -78,6 +79,7 @@ export function Dashboard({
   onNew: () => void
   onGoToCotacoes: () => void
   onGoToPreRegistro: () => void
+  onGoToComparar: () => void
   temPlanilhaCliente: boolean
   onVerPlanilhaCliente: () => void
 }) {
@@ -126,6 +128,9 @@ export function Dashboard({
             )}
             <Button variant="ghost" onClick={onGoToPreRegistro}>
               Ver itens a cotar
+            </Button>
+            <Button variant="ghost" onClick={onGoToComparar}>
+              Comparar fornecedores
             </Button>
           </div>
         </div>

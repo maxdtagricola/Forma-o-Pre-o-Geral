@@ -6,6 +6,7 @@ import { AnalyticsPage } from './pages/AnalyticsPage'
 import { ConfiguracoesPage } from './pages/ConfiguracoesPage'
 import { Dashboard } from './pages/Dashboard'
 import { PreRegistroPage } from './pages/PreRegistroPage'
+import { CompararFornecedoresPage } from './pages/CompararFornecedoresPage'
 import { MarginAnalysisPage } from './pages/MarginAnalysisPage'
 import { ProdutosPage } from './pages/ProdutosPage'
 import { FornecedoresPage } from './pages/FornecedoresPage'
@@ -30,10 +31,11 @@ import {
 } from './db/configRepo'
 import { clearCurrentAdmin, getCurrentAdmin, setCurrentAdmin } from './currentAdmin'
 import { createQuoteItem } from './types'
-import { makeId } from './utils'
+import { makeId, melhorCotacaoFornecedor } from './utils'
 import type { ItemCotacaoImportado } from './quoteImport'
 import type {
   AdminName,
+  CotacaoFornecedorItem,
   EstadoDestino,
   PreRegistroItem,
   PricingConfig,
@@ -142,13 +144,35 @@ export default function App() {
   }
 
   function handleAddPreRegistroItem() {
-    setPreRegistroItems((prev) => [...prev, { id: makeId(), interno: '', referencia: '', descricao: '', quantidade: 1 }])
+    setPreRegistroItems((prev) => [
+      ...prev,
+      { id: makeId(), interno: '', referencia: '', descricao: '', quantidade: 1, cotacoesFornecedores: [] },
+    ])
   }
   function handleRemovePreRegistroItem(id: string) {
     setPreRegistroItems((prev) => prev.filter((item) => item.id !== id))
   }
   function handlePatchPreRegistroItem(id: string, patch: Partial<PreRegistroItem>) {
     setPreRegistroItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+  }
+
+  function handleAddCotacaoFornecedor(itemId: string, cotacao: Omit<CotacaoFornecedorItem, 'id'>) {
+    setPreRegistroItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId
+          ? { ...item, cotacoesFornecedores: [...(item.cotacoesFornecedores ?? []), { ...cotacao, id: makeId() }] }
+          : item,
+      ),
+    )
+  }
+  function handleRemoveCotacaoFornecedor(itemId: string, cotacaoId: string) {
+    setPreRegistroItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId
+          ? { ...item, cotacoesFornecedores: (item.cotacoesFornecedores ?? []).filter((c) => c.id !== cotacaoId) }
+          : item,
+      ),
+    )
   }
 
   async function handleSalvarPreRegistro() {
@@ -168,6 +192,7 @@ export default function App() {
           preRegistroItems.map(async (pre) => {
             const item = criarItemComGlobais()
             const encontrado = await findByInterno(pre.interno)
+            const melhorCotacao = melhorCotacaoFornecedor(pre.cotacoesFornecedores)
             return {
               ...item,
               product: {
@@ -177,6 +202,13 @@ export default function App() {
                 referencia: pre.referencia || encontrado?.referencia || '',
                 descricao: pre.descricao || encontrado?.descricao || '',
                 qtd: pre.quantidade || 1,
+                ...(melhorCotacao
+                  ? {
+                      valorUnt: melhorCotacao.valorUnitario,
+                      fornecedor: melhorCotacao.fornecedor,
+                      marca: melhorCotacao.marca,
+                    }
+                  : {}),
               },
             }
           }),
@@ -347,6 +379,20 @@ export default function App() {
           onIrParaPrecificacao={handleGoToPrecificacao}
           onEncaminharFornecedores={handleEncaminharFornecedores}
           onGoToCotacoes={() => setTab('cotacoes')}
+          onGoToComparar={() => setTab('comparar')}
+        />
+      )}
+      {tab === 'comparar' && (
+        <CompararFornecedoresPage
+          currentAdmin={currentAdmin}
+          isEditing={!!editingQuoteId}
+          activeStatus={activeStatus}
+          activeResponsavel={activeResponsavel}
+          itens={preRegistroItems}
+          onAddCotacao={handleAddCotacaoFornecedor}
+          onRemoveCotacao={handleRemoveCotacaoFornecedor}
+          onSalvar={handleSalvarPreRegistro}
+          onGoToCotacoes={() => setTab('cotacoes')}
         />
       )}
       {tab === 'dashboard' && (
@@ -381,6 +427,7 @@ export default function App() {
           onNew={handleNew}
           onGoToCotacoes={() => setTab('cotacoes')}
           onGoToPreRegistro={() => setTab('preregistro')}
+          onGoToComparar={() => setTab('comparar')}
           temPlanilhaCliente={!!planilhaOriginal}
           onVerPlanilhaCliente={() => setMostrarPlanilhaCliente(true)}
         />
