@@ -88,6 +88,7 @@ export function ConfiguracoesPage({
   const [carregandoEmpresas, setCarregandoEmpresas] = useState(true)
   const [formEmpresa, setFormEmpresa] = useState(DEFAULT_EMPRESA)
   const [editingEmpresaId, setEditingEmpresaId] = useState<string | undefined>(undefined)
+  const [senhaEmpresa, setSenhaEmpresa] = useState('')
   const [salvandoEmpresa, setSalvandoEmpresa] = useState(false)
 
   async function refreshEmpresas() {
@@ -112,11 +113,16 @@ export function ConfiguracoesPage({
   function handleCancelEditEmpresa() {
     setFormEmpresa(DEFAULT_EMPRESA)
     setEditingEmpresaId(undefined)
+    setSenhaEmpresa('')
   }
 
   async function handleSubmitEmpresa() {
     if (!formEmpresa.nome.trim()) {
       alert('Informe pelo menos o nome da empresa.')
+      return
+    }
+    if (senhaEmpresa !== SENHA_IMPORTACAO) {
+      alert('Senha incorreta.')
       return
     }
     setSalvandoEmpresa(true)
@@ -364,6 +370,16 @@ export function ConfiguracoesPage({
           <TextField label="Município" value={formEmpresa.municipio} onChange={(v) => patchEmpresa({ municipio: v })} />
           <SelectField label="UF" value={formEmpresa.uf} onChange={(v) => patchEmpresa({ uf: v })} options={estadoOptions} />
         </div>
+
+        <label className="block mt-4 max-w-[12rem]">
+          <span className="field-label">Senha pra salvar</span>
+          <input
+            type="password"
+            className="field-input"
+            value={senhaEmpresa}
+            onChange={(e) => setSenhaEmpresa(e.target.value)}
+          />
+        </label>
 
         <div className="mt-4 flex gap-2">
           <Button variant="primary" onClick={handleSubmitEmpresa} disabled={salvandoEmpresa}>
