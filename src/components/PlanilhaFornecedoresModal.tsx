@@ -17,11 +17,13 @@ export function PlanilhaFornecedoresModal({
   cliente,
   maquina,
   onClose,
+  onEncaminhado,
 }: {
   itens: PreRegistroItem[]
   cliente: string
   maquina: string
   onClose: () => void
+  onEncaminhado: () => void
 }) {
   const [compartilhando, setCompartilhando] = useState(false)
   const podeCompartilharArquivo = useMemo(() => suportaCompartilharArquivo(), [])
@@ -43,8 +45,9 @@ export function PlanilhaFornecedoresModal({
     setCompartilhando(true)
     try {
       await compartilharArquivo(workbookParaBlob(resultado.workbook), nomeArquivo, titulo, mensagem)
+      onEncaminhado()
     } catch {
-      // usuário cancelou o compartilhamento — não é um erro real
+      // usuário cancelou o compartilhamento — não é um erro real, não marca como encaminhado
     } finally {
       setCompartilhando(false)
     }
@@ -86,17 +89,25 @@ export function PlanilhaFornecedoresModal({
         </div>
 
         <div className="border-t border-ink-100 pt-3">
-          <p className="field-label mb-2">Encaminhar</p>
+          <p className="field-label mb-1">Encaminhar aos fornecedores</p>
+          <p className="text-[11px] text-ink-400 mb-2">
+            Ao encaminhar, o status da cotação muda pra "AGUARDANDO FORNECEDOR".
+          </p>
           <div className="flex flex-wrap gap-2">
             <a
               href={linkWhatsApp(mensagem)}
               target="_blank"
               rel="noreferrer"
+              onClick={onEncaminhado}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 transition"
+            >
+              Encaminhar por WhatsApp
+            </a>
+            <a
+              href={linkEmail(titulo, mensagem)}
+              onClick={onEncaminhado}
               className="pill-tab border border-ink-200 text-ink-600 hover:bg-ink-50"
             >
-              WhatsApp
-            </a>
-            <a href={linkEmail(titulo, mensagem)} className="pill-tab border border-ink-200 text-ink-600 hover:bg-ink-50">
               E-mail
             </a>
           </div>

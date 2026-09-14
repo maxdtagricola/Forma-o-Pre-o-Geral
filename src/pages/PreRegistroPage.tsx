@@ -17,6 +17,7 @@ export function PreRegistroPage({
   onPatchItem,
   onSalvar,
   onIrParaPrecificacao,
+  onEncaminharFornecedores,
   onGoToCotacoes,
 }: {
   currentAdmin: string
@@ -31,6 +32,7 @@ export function PreRegistroPage({
   onPatchItem: (id: string, patch: Partial<PreRegistroItem>) => void
   onSalvar: () => Promise<void>
   onIrParaPrecificacao: () => Promise<void>
+  onEncaminharFornecedores: () => Promise<void>
   onGoToCotacoes: () => void
 }) {
   const [salvando, setSalvando] = useState(false)
@@ -79,6 +81,14 @@ export function PreRegistroPage({
       alert(err instanceof Error ? err.message : 'Erro ao ir para a precificação.')
     } finally {
       setIndo(false)
+    }
+  }
+
+  async function handleEncaminhado() {
+    try {
+      await onEncaminharFornecedores()
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao atualizar o status da cotação.')
     }
   }
 
@@ -213,6 +223,7 @@ export function PreRegistroPage({
           cliente={cliente}
           maquina={maquina}
           onClose={() => setMostrarPlanilhaFornecedores(false)}
+          onEncaminhado={handleEncaminhado}
         />
       )}
     </div>

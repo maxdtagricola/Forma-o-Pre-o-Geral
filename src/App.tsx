@@ -197,6 +197,15 @@ export default function App() {
     setTab('dashboard')
   }
 
+  async function handleEncaminharFornecedores() {
+    if (!editingQuoteId || !currentAdmin) return
+    if (activeStatus !== 'PENDENTE') return
+    await updateQuoteStatus(editingQuoteId, 'AGUARDANDO FORNECEDOR', currentAdmin)
+    setActiveStatus('AGUARDANDO FORNECEDOR')
+    setActiveResponsavel(currentAdmin)
+    setHistoryRefreshKey((k) => k + 1)
+  }
+
   function handleAddItem() {
     const item = criarItemComGlobais()
     setItems((prev) => [...prev, item])
@@ -331,6 +340,7 @@ export default function App() {
           onPatchItem={handlePatchPreRegistroItem}
           onSalvar={handleSalvarPreRegistro}
           onIrParaPrecificacao={handleGoToPrecificacao}
+          onEncaminharFornecedores={handleEncaminharFornecedores}
           onGoToCotacoes={() => setTab('cotacoes')}
         />
       )}

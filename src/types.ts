@@ -132,6 +132,8 @@ export interface CalculationResult {
   classificacaoIcms: ClassificacaoIcms
   classificacaoPisCofins: ClassificacaoPisCofins
   isRbcElegivel: boolean
+  /** Falso quando o NCM não aparece em nenhuma das tabelas da planilha de MARKUP (RBC, ICMS-ST, PIS/COFINS). */
+  ncmCadastrado: boolean
 
   vlrProduto: number // X
   freteCalculado: number // T

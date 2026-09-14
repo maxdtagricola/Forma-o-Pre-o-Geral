@@ -35,6 +35,15 @@ export function ResultPanel({ result, qtd }: { result: CalculationResult; qtd: n
 
   return (
     <div className="card">
+      {!result.ncmCadastrado && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <p className="text-sm text-amber-800">
+            Este NCM não está vinculado à planilha de MARKUP — confira se foi digitado corretamente ou se falta
+            cadastrar esse NCM.
+          </p>
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <Badge tone={CLASS_TONE[result.classificacaoIcms]}>ICMS: {result.classificacaoIcms}</Badge>
         <Badge tone={result.classificacaoPisCofins === 'Mono' ? 'brand' : 'neutral'}>

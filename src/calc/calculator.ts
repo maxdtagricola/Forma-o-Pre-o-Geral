@@ -86,6 +86,8 @@ export interface NcmInfo {
   isRbcElegivel: boolean
   isSTemRO: boolean
   isMonoPisCofins: boolean
+  /** Falso quando o NCM não aparece em nenhuma das tabelas (RBC, ICMS-ST, PIS/COFINS) da planilha de MARKUP do perfil. */
+  cadastrado: boolean
   stInfo: StInfo | null
 }
 
@@ -93,11 +95,15 @@ export interface NcmInfo {
 export function getNcmInfo(ncmRaw: string, perfil: EstadoDestino = 'RO'): NcmInfo {
   const ncm = normalizeNcm(ncmRaw)
   const stInfo = getIcmsStData(perfil)[ncm] ?? null
+  const isRbcElegivel = getRbcNcmSet(perfil).has(ncm)
+  const isSTemRO = !!stInfo
+  const isMonoPisCofins = !!pisCofinsMono[ncm]
   return {
     ncm,
-    isRbcElegivel: getRbcNcmSet(perfil).has(ncm),
-    isSTemRO: !!stInfo,
-    isMonoPisCofins: !!pisCofinsMono[ncm],
+    isRbcElegivel,
+    isSTemRO,
+    isMonoPisCofins,
+    cadastrado: !ncm || isRbcElegivel || isSTemRO || isMonoPisCofins,
     stInfo,
   }
 }
@@ -233,6 +239,7 @@ export function calculateItem(product: ProductInput, pricing: PricingConfig): Ca
     classificacaoIcms,
     classificacaoPisCofins,
     isRbcElegivel: info.isRbcElegivel,
+    ncmCadastrado: info.cadastrado,
     vlrProduto: X,
     freteCalculado: T,
     baseSubstituicao,
