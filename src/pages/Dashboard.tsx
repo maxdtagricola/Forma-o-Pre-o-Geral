@@ -16,6 +16,7 @@ const tipoReferenciaOptions = TIPOS_REFERENCIA.map((t) => ({ value: t.value, lab
 
 export function Dashboard({
   currentAdmin,
+  codigo,
   activeStatus,
   activeResponsavel,
   vendedor,
@@ -48,6 +49,7 @@ export function Dashboard({
   onVerPlanilhaCliente,
 }: {
   currentAdmin: string
+  codigo: string
   activeStatus: QuoteStatus
   activeResponsavel: string
   vendedor: string
@@ -113,7 +115,9 @@ export function Dashboard({
 
       <div className="card">
         <div className="flex items-center justify-between gap-3 mb-1">
-          <h2 className="font-display text-lg font-semibold text-ink-900">Dados da cotação</h2>
+          <h2 className="font-display text-lg font-semibold text-ink-900">
+            Dados da cotação{codigo && <span className="ml-2 font-mono text-sm text-ink-400">{codigo}</span>}
+          </h2>
           <div className="flex gap-2 shrink-0">
             {temPlanilhaCliente && (
               <Button variant="ghost" onClick={onVerPlanilhaCliente}>

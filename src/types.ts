@@ -15,6 +15,12 @@ export const ADMINS: AdminName[] = ['Maicon', 'Gouvêa', 'Max']
 export const VENDEDORES: string[] = ['EDSON', 'GABRIEL', 'SHELTON', 'BRUNO', 'JOAO', 'JOSE', 'THIAGO']
 
 // ---------------------------------------------------------------------------
+// Transportadoras cadastradas na aba Frete — lista inicial, cada uma com seu
+// próprio espaço na aba.
+// ---------------------------------------------------------------------------
+export const TRANSPORTADORAS: string[] = ['CARVALIMA', 'EUCATUR', 'RODONAVES', 'VAPTLOG', 'GRANEXPRESS']
+
+// ---------------------------------------------------------------------------
 // Estado de destino (perfil de cálculo) — cada planilha original (RBC, ICMS
 // ST e alíquotas) foi construída para um estado de destino específico.
 // ---------------------------------------------------------------------------
@@ -248,6 +254,8 @@ export interface PreRegistroItem {
 // ---------------------------------------------------------------------------
 export interface QuoteRecord {
   id: string
+  /** Código sequencial (ex.: "COT-0001") pra facilitar o acompanhamento — registros antigos podem não ter. */
+  codigo: string
   /** Quem criou a cotação — só um identificador, não controla permissão. */
   criadoPor: string
   /** Vendedor a quem a cotação se refere — usado pra organizar o histórico em pastas. */

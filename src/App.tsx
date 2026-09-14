@@ -9,6 +9,7 @@ import { PreRegistroPage } from './pages/PreRegistroPage'
 import { MarginAnalysisPage } from './pages/MarginAnalysisPage'
 import { ProdutosPage } from './pages/ProdutosPage'
 import { FornecedoresPage } from './pages/FornecedoresPage'
+import { FretePage } from './pages/FretePage'
 import { HistoryPage } from './pages/HistoryPage'
 import { PlanilhaClienteModal } from './components/PlanilhaClienteModal'
 import { calculateItem, definirTabelasCustomizadas } from './calc/calculator'
@@ -53,6 +54,7 @@ export default function App() {
   const [items, setItems] = useState<QuoteItem[]>(() => [createQuoteItem()])
   const [activeItemId, setActiveItemId] = useState<string>(() => items[0].id)
   const [editingQuoteId, setEditingQuoteId] = useState<string | undefined>(undefined)
+  const [codigoCotacao, setCodigoCotacao] = useState('')
   const [activeStatus, setActiveStatus] = useState<QuoteStatus>('PENDENTE')
   const [activeResponsavel, setActiveResponsavel] = useState('')
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
@@ -255,6 +257,7 @@ export default function App() {
     setItems([fresh])
     setActiveItemId(fresh.id)
     setEditingQuoteId(undefined)
+    setCodigoCotacao('')
     setActiveStatus('PENDENTE')
     setActiveResponsavel('')
     setPreRegistroItems([])
@@ -270,6 +273,7 @@ export default function App() {
     setItems(loadedItems)
     setActiveItemId(loadedItems[0]?.id ?? '')
     setEditingQuoteId(record.id)
+    setCodigoCotacao(record.codigo)
     setActiveStatus(record.status)
     setActiveResponsavel(record.responsavelStatus)
     setPreRegistroItems(record.itensPreRegistro ?? [])
@@ -330,6 +334,7 @@ export default function App() {
         <PreRegistroPage
           currentAdmin={currentAdmin}
           isEditing={!!editingQuoteId}
+          codigo={codigoCotacao}
           activeStatus={activeStatus}
           activeResponsavel={activeResponsavel}
           cliente={cliente}
@@ -347,6 +352,7 @@ export default function App() {
       {tab === 'dashboard' && (
         <Dashboard
           currentAdmin={currentAdmin}
+          codigo={codigoCotacao}
           activeStatus={activeStatus}
           activeResponsavel={activeResponsavel}
           vendedor={vendedor}
@@ -382,6 +388,7 @@ export default function App() {
       {tab === 'margins' && <MarginAnalysisPage product={activeItem.product} pricing={activeItem.pricing} />}
       {tab === 'produtos' && <ProdutosPage currentAdmin={currentAdmin} />}
       {tab === 'fornecedores' && <FornecedoresPage />}
+      {tab === 'frete' && <FretePage />}
       {tab === 'configuracoes' && (
         <ConfiguracoesPage
           currentAdmin={currentAdmin}

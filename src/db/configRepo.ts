@@ -8,6 +8,7 @@ const STORE_PLANILHAS = 'planilhas'
 const DOC_STATUS_COLORS = 'statusColors'
 const DOC_PRICING_GLOBAL = 'formacaoPrecoGlobal'
 const DOC_PLANILHA_ATIVA = 'planilhaAtiva'
+const DOC_CONTADOR_COTACAO = 'contadorCotacao'
 
 interface StatusColorsDoc {
   id: string
@@ -97,4 +98,22 @@ export async function setPlanilhaAtivaId(perfil: EstadoDestino, planilhaId: stri
   const atuais = await getPlanilhaAtivaIds()
   const porPerfil = { ...atuais, [perfil]: planilhaId }
   await dbPut(STORE_CONFIG, { id: DOC_PLANILHA_ATIVA, porPerfil })
+}
+
+// ---------------------------------------------------------------------------
+// Código sequencial da cotação (ex.: "COT-0001") — só pra facilitar o
+// acompanhamento no dia a dia; a identidade real do registro continua sendo
+// o id interno. Não é atômico (lê e grava em duas chamadas), mas com poucos
+// admins criando cotação ao mesmo tempo o risco de colisão é desprezível.
+// ---------------------------------------------------------------------------
+interface ContadorCotacaoDoc {
+  id: string
+  valor: number
+}
+
+export async function proximoCodigoCotacao(): Promise<string> {
+  const doc = await dbGet<ContadorCotacaoDoc>(STORE_CONFIG, DOC_CONTADOR_COTACAO)
+  const proximo = (doc?.valor ?? 0) + 1
+  await dbPut(STORE_CONFIG, { id: DOC_CONTADOR_COTACAO, valor: proximo })
+  return `COT-${String(proximo).padStart(4, '0')}`
 }

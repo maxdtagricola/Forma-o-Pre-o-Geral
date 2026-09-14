@@ -1,5 +1,6 @@
 import { calculateItem } from '../calc/calculator'
 import { dbDelete, dbGet, dbGetAll, dbPut, STORE_ANALISES } from './db'
+import { proximoCodigoCotacao } from './configRepo'
 import { makeId } from '../utils'
 import type {
   PedidoCompraInfo,
@@ -31,6 +32,7 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
     const result = calculateItem(record.product, record.pricing)
     return {
       id: record.id,
+      codigo: '',
       criadoPor: '',
       vendedor: '',
       tipoReferencia: 'itens',
@@ -52,6 +54,7 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
   // preenche campos que não existiam em versões anteriores do registro
   return {
     ...record,
+    codigo: record.codigo ?? '',
     criadoPor: record.criadoPor ?? '',
     vendedor: record.vendedor ?? '',
     tipoReferencia: record.tipoReferencia ?? 'itens',
@@ -97,8 +100,11 @@ export async function saveQuote(
     )
   }
 
+  const codigo = base?.codigo || (await proximoCodigoCotacao())
+
   const record: QuoteRecord = {
     id: existingId ?? makeId(),
+    codigo,
     criadoPor: base?.criadoPor || atorAdmin,
     vendedor,
     tipoReferencia,

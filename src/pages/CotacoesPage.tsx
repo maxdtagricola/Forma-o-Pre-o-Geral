@@ -484,6 +484,7 @@ export function CotacoesPage({
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="text-left text-ink-400 border-b border-ink-100">
+                        <th className="py-2 px-3 font-medium">Código</th>
                         <th className="py-2 px-3 font-medium">Nome</th>
                         <th className="py-2 px-3 font-medium">Data criada</th>
                         <th className="py-2 px-3 font-medium">Status</th>
@@ -498,9 +499,15 @@ export function CotacoesPage({
                           <tr key={r.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
                             <td
                               onClick={() => onOpenQuote(r)}
+                              className="cursor-pointer py-2 px-3 font-mono text-ink-500"
+                            >
+                              {r.codigo || '—'}
+                            </td>
+                            <td
+                              onClick={() => onOpenQuote(r)}
                               className="cursor-pointer py-2 px-3 text-ink-800"
                             >
-                              COTAÇÃO | {r.vendedor || '—'} | {r.cliente || '(sem cliente)'}
+                              {r.vendedor || '—'} | {r.cliente || '(sem cliente)'}
                             </td>
                             <td onClick={() => onOpenQuote(r)} className="cursor-pointer py-2 px-3 text-ink-500">
                               {formatDate(r.createdAt)}

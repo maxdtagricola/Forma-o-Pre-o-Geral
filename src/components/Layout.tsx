@@ -8,6 +8,7 @@ export type TabKey =
   | 'margins'
   | 'produtos'
   | 'fornecedores'
+  | 'frete'
   | 'configuracoes'
   | 'history'
 
@@ -34,6 +35,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: 'produtos', label: 'Produtos' },
       { key: 'fornecedores', label: 'Fornecedores' },
+      { key: 'frete', label: 'Frete' },
     ],
   },
   {

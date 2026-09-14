@@ -7,6 +7,7 @@ import type { PreRegistroItem, QuoteStatus } from '../types'
 export function PreRegistroPage({
   currentAdmin,
   isEditing,
+  codigo,
   activeStatus,
   activeResponsavel,
   cliente,
@@ -22,6 +23,7 @@ export function PreRegistroPage({
 }: {
   currentAdmin: string
   isEditing: boolean
+  codigo: string
   activeStatus: QuoteStatus
   activeResponsavel: string
   cliente: string
@@ -110,7 +112,9 @@ export function PreRegistroPage({
       <div className="card">
         <div className="flex items-center justify-between gap-3 mb-1">
           <div>
-            <h2 className="font-display text-lg font-semibold text-ink-900">Itens a cotar</h2>
+            <h2 className="font-display text-lg font-semibold text-ink-900">
+              Itens a cotar{codigo && <span className="ml-2 font-mono text-sm text-ink-400">{codigo}</span>}
+            </h2>
             <p className="text-sm text-ink-400">
               Informe o código Interno e a quantidade de cada item — se o Interno já existir numa cotação salva, a
               Referência é carregada sozinha. Confira a lista e siga pra precificação quando estiver pronta.
