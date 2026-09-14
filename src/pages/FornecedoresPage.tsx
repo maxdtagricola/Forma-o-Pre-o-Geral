@@ -71,6 +71,7 @@ export function FornecedoresPage() {
   function handleEdit(f: Fornecedor) {
     setForm({ cnpj: f.cnpj, nome: f.nome, cep: f.cep, rua: f.rua, numero: f.numero, cidade: f.cidade, estado: f.estado })
     setEditingId(f.id)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function handleDelete(id: string, e: MouseEvent) {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Button } from '../components/ui/Basics'
 import { PercentField, SelectField, TextField } from '../components/ui/Field'
 import { PreviaImportacao } from '../components/PreviaImportacao'
@@ -85,6 +85,7 @@ export function ConfiguracoesPage({
   }
 
   // --- empresas que recebem os materiais (destino do frete automático) --------
+  const cardEmpresasRef = useRef<HTMLDivElement>(null)
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [carregandoEmpresas, setCarregandoEmpresas] = useState(true)
   const [formEmpresa, setFormEmpresa] = useState(DEFAULT_EMPRESA)
@@ -141,6 +142,7 @@ export function ConfiguracoesPage({
   function handleEditEmpresa(e: Empresa) {
     setFormEmpresa({ nome: e.nome, cnpj: e.cnpj, endereco: e.endereco, bairro: e.bairro, cep: e.cep, municipio: e.municipio, uf: e.uf })
     setEditingEmpresaId(e.id)
+    cardEmpresasRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   async function handleDeleteEmpresa(id: string) {
@@ -381,7 +383,7 @@ export function ConfiguracoesPage({
         </Button>
       </div>
 
-      <div className="card">
+      <div className="card" ref={cardEmpresasRef}>
         <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Empresas que recebem os materiais</h3>
         <p className="text-xs text-ink-400 mb-4">
           Dados completos de cada empresa do grupo — vão ser usados na aba Frete como destino, pra gerar o frete
