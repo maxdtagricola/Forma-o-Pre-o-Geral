@@ -34,10 +34,13 @@ function CardTransportadora({
           <p className="font-medium text-ink-800">{empresa.nome}</p>
           <p>CNPJ {empresa.cnpj || '—'}</p>
           <p>
-            {empresa.rua || '—'}
-            {empresa.numero ? `, ${empresa.numero}` : ''} · {empresa.cidade || '—'}
-            {empresa.cidade && empresa.estado ? ' - ' : ''}
-            {empresa.estado || ''}
+            {empresa.endereco || '—'}
+            {empresa.bairro ? ` · ${empresa.bairro}` : ''}
+          </p>
+          <p>
+            {empresa.cep || '—'} · {empresa.municipio || '—'}
+            {empresa.municipio && empresa.uf ? ' - ' : ''}
+            {empresa.uf || ''}
           </p>
           <p className="mt-2 text-ink-400">Frete automático por destino em breve.</p>
         </div>

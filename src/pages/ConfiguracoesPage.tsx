@@ -132,7 +132,7 @@ export function ConfiguracoesPage({
   }
 
   function handleEditEmpresa(e: Empresa) {
-    setFormEmpresa({ cnpj: e.cnpj, nome: e.nome, cep: e.cep, rua: e.rua, numero: e.numero, cidade: e.cidade, estado: e.estado })
+    setFormEmpresa({ nome: e.nome, cnpj: e.cnpj, endereco: e.endereco, bairro: e.bairro, cep: e.cep, municipio: e.municipio, uf: e.uf })
     setEditingEmpresaId(e.id)
   }
 
@@ -356,13 +356,13 @@ export function ConfiguracoesPage({
         </p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <TextField label="CNPJ" value={formEmpresa.cnpj} onChange={(v) => patchEmpresa({ cnpj: v })} placeholder="00.000.000/0000-00" />
-          <TextField label="Nome" value={formEmpresa.nome} onChange={(v) => patchEmpresa({ nome: v })} />
+          <TextField label="Nome / Razão social" value={formEmpresa.nome} onChange={(v) => patchEmpresa({ nome: v })} />
+          <TextField label="CNPJ / CPF" value={formEmpresa.cnpj} onChange={(v) => patchEmpresa({ cnpj: v })} placeholder="00.000.000/0000-00" />
+          <TextField label="Endereço" value={formEmpresa.endereco} onChange={(v) => patchEmpresa({ endereco: v })} className="sm:col-span-2" />
+          <TextField label="Bairro / Distrito" value={formEmpresa.bairro} onChange={(v) => patchEmpresa({ bairro: v })} />
           <TextField label="CEP" value={formEmpresa.cep} onChange={(v) => patchEmpresa({ cep: v })} placeholder="00000-000" />
-          <TextField label="Rua" value={formEmpresa.rua} onChange={(v) => patchEmpresa({ rua: v })} />
-          <TextField label="Número" value={formEmpresa.numero} onChange={(v) => patchEmpresa({ numero: v })} />
-          <TextField label="Cidade" value={formEmpresa.cidade} onChange={(v) => patchEmpresa({ cidade: v })} />
-          <SelectField label="Estado" value={formEmpresa.estado} onChange={(v) => patchEmpresa({ estado: v })} options={estadoOptions} />
+          <TextField label="Município" value={formEmpresa.municipio} onChange={(v) => patchEmpresa({ municipio: v })} />
+          <SelectField label="UF" value={formEmpresa.uf} onChange={(v) => patchEmpresa({ uf: v })} options={estadoOptions} />
         </div>
 
         <div className="mt-4 flex gap-2">
@@ -387,10 +387,9 @@ export function ConfiguracoesPage({
                 <button type="button" onClick={() => handleEditEmpresa(e)} className="min-w-0 text-left flex-1 hover:opacity-80">
                   <p className="text-sm font-medium text-ink-900 truncate">{e.nome}</p>
                   <p className="text-xs text-ink-400 truncate">
-                    CNPJ {e.cnpj || '—'} · {e.rua || '—'}
-                    {e.numero ? `, ${e.numero}` : ''} · {e.cidade || '—'}
-                    {e.cidade && e.estado ? ' - ' : ''}
-                    {e.estado || ''}
+                    CNPJ {e.cnpj || '—'} · {e.endereco || '—'} · {e.municipio || '—'}
+                    {e.municipio && e.uf ? ' - ' : ''}
+                    {e.uf || ''}
                   </p>
                 </button>
                 <button

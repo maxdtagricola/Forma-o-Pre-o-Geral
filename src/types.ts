@@ -378,23 +378,24 @@ export const DEFAULT_FORNECEDOR: Omit<Fornecedor, 'id'> = {
 // no cálculo de frete automático da aba Frete. Endereço completo, igual ao
 // fornecedor.
 // ---------------------------------------------------------------------------
+// Campos espelham exatamente o quadro "Destinatário/Remetente" da NF-e (DANFE).
 export interface Empresa {
   id: string
-  cnpj: string
   nome: string
+  cnpj: string
+  endereco: string
+  bairro: string
   cep: string
-  rua: string
-  numero: string
-  cidade: string
-  estado: string
+  municipio: string
+  uf: string
 }
 
 export const DEFAULT_EMPRESA: Omit<Empresa, 'id'> = {
-  cnpj: '',
   nome: '',
+  cnpj: '',
+  endereco: '',
+  bairro: '',
   cep: '',
-  rua: '',
-  numero: '',
-  cidade: '',
-  estado: 'RO',
+  municipio: '',
+  uf: 'RO',
 }
