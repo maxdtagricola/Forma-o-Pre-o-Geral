@@ -34,6 +34,11 @@ export function fractionToPct(value: number): number {
   return Math.round(value * 10000) / 100
 }
 
+/** Seleciona todo o conteúdo do campo ao focar — assim, digitar substitui o "0" em vez de grudar do lado. */
+export function selecionarTudoAoFocar(e: { target: HTMLInputElement }): void {
+  e.target.select()
+}
+
 export function makeId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID()

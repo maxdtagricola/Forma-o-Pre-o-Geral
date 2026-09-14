@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Button } from '../components/ui/Basics'
 import { PlanilhaFornecedoresModal } from '../components/PlanilhaFornecedoresModal'
 import { findByInterno } from '../db/analysesRepo'
+import { selecionarTudoAoFocar } from '../utils'
 import type { PreRegistroItem, QuoteStatus } from '../types'
 
 export function PreRegistroPage({
@@ -191,6 +192,7 @@ export function PreRegistroPage({
                         value={item.quantidade}
                         disabled={travadaPorOutro}
                         onChange={(e) => onPatchItem(item.id, { quantidade: Number(e.target.value) || 0 })}
+                        onFocus={selecionarTudoAoFocar}
                       />
                     </td>
                     <td className={`${cellCls} text-center`}>

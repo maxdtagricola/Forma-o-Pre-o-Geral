@@ -61,7 +61,8 @@ export function Layout({
   onSwitchAdmin: () => void
   children: ReactNode
 }) {
-  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') === '1')
+  // recolhido por padrão (igual ao menu do celular, que começa fechado) — só fica expandido se o usuário escolher
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') !== '0')
   const [mobileOpen, setMobileOpen] = useState(false)
 
   useEffect(() => {

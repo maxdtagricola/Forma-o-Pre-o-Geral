@@ -6,7 +6,7 @@ import { SelectField, TextField } from '../components/ui/Field'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { lerPlanilhaCotacao, type ItemCotacaoImportado } from '../quoteImport'
 import { arquivoParaBase64 } from '../planilhaCliente'
-import { formatCurrency, formatDate } from '../utils'
+import { formatCurrency, formatDate, selecionarTudoAoFocar } from '../utils'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { QUOTE_STATUSES, TIPOS_REFERENCIA, VENDEDORES } from '../types'
 import type { PedidoCompraInfo, QuoteRecord, QuoteStatus, TipoReferencia } from '../types'
@@ -426,6 +426,7 @@ export function CotacoesPage({
                                   onChange={(e) =>
                                     handlePatchItemImportado(index, { quantidade: Number(e.target.value) || 0 })
                                   }
+                                  onFocus={selecionarTudoAoFocar}
                                 />
                               </td>
                               <td className="px-1 py-1 border-t border-ink-100 text-center">

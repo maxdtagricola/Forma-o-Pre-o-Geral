@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { selecionarTudoAoFocar } from '../../utils'
 
 interface WrapperProps {
   label: string
@@ -158,6 +159,7 @@ export function NumberField({ label, value, onChange, hint, className, min, step
           min={min}
           step={step}
           onChange={(e) => onChange(e.target.valueAsNumber || 0)}
+          onFocus={selecionarTudoAoFocar}
         />
       </div>
     </FieldWrapper>
@@ -184,6 +186,7 @@ export function PercentField({ label, value, onChange, hint, className }: Percen
           value={Number.isFinite(displayValue) ? displayValue : 0}
           step={0.1}
           onChange={(e) => onChange((e.target.valueAsNumber || 0) / 100)}
+          onFocus={selecionarTudoAoFocar}
         />
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-ink-400 text-sm">
           %

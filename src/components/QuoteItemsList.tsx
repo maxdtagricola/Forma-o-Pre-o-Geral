@@ -1,6 +1,6 @@
 import { useState, type MouseEvent } from 'react'
 import { calculateItem } from '../calc/calculator'
-import { formatCurrency } from '../utils'
+import { formatCurrency, selecionarTudoAoFocar } from '../utils'
 import type { ProductInput, QuoteItem } from '../types'
 
 export function QuoteItemsList({
@@ -146,6 +146,7 @@ export function QuoteItemsList({
                       value={item.product.qtd}
                       onChange={(e) => onPatchItem(item.id, { qtd: Number(e.target.value) || 0 })}
                       onClick={stop}
+                      onFocus={selecionarTudoAoFocar}
                     />
                   </td>
                   <td className={cellCls}>
@@ -157,6 +158,7 @@ export function QuoteItemsList({
                       value={item.product.valorUnt}
                       onChange={(e) => onPatchItem(item.id, { valorUnt: Number(e.target.value) || 0 })}
                       onClick={stop}
+                      onFocus={selecionarTudoAoFocar}
                     />
                   </td>
                   <td className={cellCls}>
@@ -168,6 +170,7 @@ export function QuoteItemsList({
                       value={item.product.peso}
                       onChange={(e) => onPatchItem(item.id, { peso: Number(e.target.value) || 0 })}
                       onClick={stop}
+                      onFocus={selecionarTudoAoFocar}
                     />
                   </td>
                   <td className={cellCls}>
