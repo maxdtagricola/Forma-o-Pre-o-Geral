@@ -5,6 +5,7 @@ import { Button } from '../components/ui/Basics'
 import { SelectField, TextField } from '../components/ui/Field'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { PreviaImportacao } from '../components/PreviaImportacao'
+import { AvisoImportacaoCotar } from '../components/AvisoImportacaoCotar'
 import { lerPlanilhaCotacao, type ItemCotacaoImportado } from '../quoteImport'
 import { arquivoParaBase64 } from '../planilhaCliente'
 import { gerarPreviaPlanilha, type PreviaPlanilha } from '../xlsxSheetUtil'
@@ -56,6 +57,7 @@ export function CotacoesPage({
   const [records, setRecords] = useState<QuoteRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [modoNovo, setModoNovo] = useState<'manual' | 'importar'>('manual')
+  const [mostrarAvisoCotar, setMostrarAvisoCotar] = useState(false)
   const [vendedor, setVendedor] = useState('')
   const [cliente, setCliente] = useState('')
   const [maquina, setMaquina] = useState('')
@@ -289,7 +291,10 @@ export function CotacoesPage({
             </button>
             <button
               type="button"
-              onClick={() => setModoNovo('importar')}
+              onClick={() => {
+                setModoNovo('importar')
+                setMostrarAvisoCotar(true)
+              }}
               className={`pill-tab border ${
                 modoNovo === 'importar' ? 'bg-ink-950 border-ink-950 text-white' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
               }`}
@@ -591,6 +596,8 @@ export function CotacoesPage({
           onCancel={() => setPedidoModalRecord(undefined)}
         />
       )}
+
+      {mostrarAvisoCotar && <AvisoImportacaoCotar onFechar={() => setMostrarAvisoCotar(false)} />}
     </div>
   )
 }
