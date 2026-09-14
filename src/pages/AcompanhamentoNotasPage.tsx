@@ -97,6 +97,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
       valorFrete: n.valorFrete,
     })
     setEditingId(n.id)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   async function handleDelete(id: string, e: MouseEvent) {
