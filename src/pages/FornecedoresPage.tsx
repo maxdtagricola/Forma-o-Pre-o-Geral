@@ -74,8 +74,8 @@ export function FornecedoresPage() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
-  async function handleDelete(id: string, e: MouseEvent) {
-    e.stopPropagation()
+  async function handleDelete(id: string, e?: MouseEvent) {
+    e?.stopPropagation()
     if (!confirm('Excluir este fornecedor? Essa ação não pode ser desfeita.')) return
     try {
       await deleteFornecedor(id)
@@ -353,6 +353,27 @@ export function FornecedoresPage() {
             ))}
           </div>
         )}
+      </div>
+
+      <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
+        {editingId && (
+          <button
+            type="button"
+            onClick={() => handleDelete(editingId)}
+            className="h-10 px-4 rounded-full bg-rose-600 text-white text-sm font-medium shadow-lg hover:bg-rose-700 transition"
+          >
+            Excluir
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          aria-label="Voltar ao topo"
+          title="Voltar ao topo"
+          className="h-11 w-11 rounded-full bg-ink-950 text-white text-lg shadow-lg hover:bg-ink-800 transition flex items-center justify-center"
+        >
+          ↑
+        </button>
       </div>
     </div>
   )

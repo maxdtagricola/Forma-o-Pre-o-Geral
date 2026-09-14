@@ -14,14 +14,16 @@ export async function saveNotaFiscal(
   data: Omit<NotaFiscal, 'id' | 'criadoPor' | 'createdAt' | 'status' | 'statusHistory'>,
   criadoPor: string,
   existingId?: string,
+  statusInicial?: NotaFiscalStatus,
 ): Promise<NotaFiscal> {
   const existente = existingId ? await dbGet<NotaFiscal>(STORE_NOTAS_FISCAIS, existingId) : undefined
   const now = Date.now()
+  const status = existente?.status ?? statusInicial ?? NOTA_FISCAL_STATUSES[0]
   const nota: NotaFiscal = {
     id: existingId ?? makeId(),
     ...data,
-    status: existente?.status ?? NOTA_FISCAL_STATUSES[0],
-    statusHistory: existente?.statusHistory ?? [{ status: NOTA_FISCAL_STATUSES[0], changedAt: now }],
+    status,
+    statusHistory: existente?.statusHistory ?? [{ status, changedAt: now }],
     criadoPor: existente?.criadoPor ?? criadoPor,
     createdAt: existente?.createdAt ?? now,
   }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
-import { TextField, AutocompleteField, NumberField } from '../components/ui/Field'
+import { TextField, AutocompleteField, NumberField, SelectField } from '../components/ui/Field'
 import { Button } from '../components/ui/Basics'
 import { DonutChart, limitarComOutros, type DonutDatum } from '../components/DonutChart'
 import { StatTile } from '../components/StatTile'
@@ -14,6 +14,7 @@ import type { Fornecedor, NotaFiscal, NotaFiscalStatus } from '../types'
 
 const transportadoraSuggestions = TRANSPORTADORAS.map((t) => ({ value: t, label: t }))
 const recebedorSuggestions = RECEBEDORES.map((r) => ({ value: r, label: r }))
+const statusOptions = NOTA_FISCAL_STATUSES.map((s) => ({ value: s, label: s }))
 
 export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string }) {
   const [notas, setNotas] = useState<NotaFiscal[]>([])
@@ -21,6 +22,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [form, setForm] = useState(DEFAULT_NOTA_FISCAL)
+  const [statusInicial, setStatusInicial] = useState<NotaFiscalStatus>(NOTA_FISCAL_STATUSES[0])
   const [editingId, setEditingId] = useState<string | undefined>(undefined)
   const [saving, setSaving] = useState(false)
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
@@ -71,6 +73,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
 
   function handleCancelEdit() {
     setForm(DEFAULT_NOTA_FISCAL)
+    setStatusInicial(NOTA_FISCAL_STATUSES[0])
     setEditingId(undefined)
   }
 
@@ -81,7 +84,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
     }
     setSaving(true)
     try {
-      await saveNotaFiscal(form, currentAdmin, editingId)
+      await saveNotaFiscal(form, currentAdmin, editingId, statusInicial)
       handleCancelEdit()
       await refresh()
     } catch (err) {
@@ -271,6 +274,14 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
             step={0.01}
             min={0}
           />
+          {!editingId && (
+            <SelectField
+              label="Status inicial"
+              value={statusInicial}
+              onChange={(v) => setStatusInicial(v as NotaFiscalStatus)}
+              options={statusOptions}
+            />
+          )}
         </div>
 
         <div className="mt-5 flex gap-2">
