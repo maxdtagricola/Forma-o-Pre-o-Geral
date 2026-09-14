@@ -129,9 +129,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
   return (
     <div className="space-y-6">
       <div className="card">
-        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">
-          {editingId ? 'Editar nota fiscal' : 'Nova nota fiscal'}
-        </h2>
+        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Registro de Notas</h2>
         <p className="text-sm text-ink-400 mb-5">Acompanhamento de notas — por enquanto só visível pra você.</p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -175,7 +173,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
 
         <div className="mt-5 flex gap-2">
           <Button variant="primary" onClick={handleSubmit} disabled={saving}>
-            {editingId ? 'Salvar alterações' : 'Adicionar nota fiscal'}
+            {editingId ? 'Salvar alterações' : 'Adicionar Novo Registro'}
           </Button>
           {editingId && (
             <Button variant="secondary" onClick={handleCancelEdit}>
