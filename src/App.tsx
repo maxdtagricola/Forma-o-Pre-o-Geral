@@ -13,6 +13,8 @@ import { FornecedoresPage } from './pages/FornecedoresPage'
 import { FretePage } from './pages/FretePage'
 import { HistoryPage } from './pages/HistoryPage'
 import { PlanilhaClienteModal } from './components/PlanilhaClienteModal'
+import { RecuperarRascunhoModal } from './components/RecuperarRascunhoModal'
+import { lerRascunho, limparRascunho, salvarRascunho, type RascunhoCotacao } from './rascunhoCotacao'
 import { calculateItem, definirTabelasCustomizadas } from './calc/calculator'
 import {
   findByInterno,
@@ -67,6 +69,49 @@ export default function App() {
     { nomeArquivo: string; conteudoBase64: string } | undefined
   >(undefined)
   const [mostrarPlanilhaCliente, setMostrarPlanilhaCliente] = useState(false)
+  const [rascunhoDisponivel, setRascunhoDisponivel] = useState<RascunhoCotacao | undefined>(undefined)
+
+  // ao abrir o app, verifica se sobrou algum rascunho de uma queda/fechamento anterior
+  useEffect(() => {
+    const rascunho = lerRascunho()
+    if (rascunho) setRascunhoDisponivel(rascunho)
+  }, [])
+
+  // salva o estado da cotação aberta a cada mudança (com um pequeno atraso), pra não perder
+  // nada se a página fechar/travar antes do próximo "Salvar" manual
+  useEffect(() => {
+    if (!editingQuoteId) return
+    const timer = setTimeout(() => {
+      salvarRascunho({
+        editingQuoteId,
+        codigo: codigoCotacao,
+        vendedor,
+        tipoReferencia,
+        cliente,
+        maquina,
+        items,
+        activeItemId,
+        activeStatus,
+        activeResponsavel,
+        preRegistroItems,
+        planilhaOriginal,
+      })
+    }, 1500)
+    return () => clearTimeout(timer)
+  }, [
+    editingQuoteId,
+    codigoCotacao,
+    vendedor,
+    tipoReferencia,
+    cliente,
+    maquina,
+    items,
+    activeItemId,
+    activeStatus,
+    activeResponsavel,
+    preRegistroItems,
+    planilhaOriginal,
+  ])
 
   // formação de preço global — carrega do servidor e mantém os itens sincronizados
   useEffect(() => {
@@ -125,6 +170,30 @@ export default function App() {
     setCurrentAdminState(null)
   }
 
+  function handleRecuperarRascunho() {
+    if (!rascunhoDisponivel) return
+    const r = rascunhoDisponivel
+    setVendedor(r.vendedor)
+    setTipoReferencia(r.tipoReferencia)
+    setCliente(r.cliente)
+    setMaquina(r.maquina)
+    setItems(r.items)
+    setActiveItemId(r.activeItemId)
+    setEditingQuoteId(r.editingQuoteId)
+    setCodigoCotacao(r.codigo)
+    setActiveStatus(r.activeStatus)
+    setActiveResponsavel(r.activeResponsavel)
+    setPreRegistroItems(r.preRegistroItems)
+    setPlanilhaOriginalState(r.planilhaOriginal)
+    setTab('preregistro')
+    setRascunhoDisponivel(undefined)
+  }
+
+  function handleDescartarRascunho() {
+    limparRascunho()
+    setRascunhoDisponivel(undefined)
+  }
+
   async function handleSavePricingGlobal(valores: PricingGlobal) {
     await setPricingGlobal(valores)
     setPricingGlobalState(valores)
@@ -179,6 +248,7 @@ export default function App() {
     if (!editingQuoteId || !currentAdmin) return
     await updateItensPreRegistro(editingQuoteId, preRegistroItems, currentAdmin)
     setHistoryRefreshKey((k) => k + 1)
+    limparRascunho()
   }
 
   async function handleGoToPrecificacao() {
@@ -229,6 +299,7 @@ export default function App() {
       setHistoryRefreshKey((k) => k + 1)
     }
     setTab('dashboard')
+    limparRascunho()
   }
 
   async function handleEncaminharFornecedores() {
@@ -238,6 +309,7 @@ export default function App() {
     setActiveStatus('AGUARDANDO FORNECEDOR')
     setActiveResponsavel(currentAdmin)
     setHistoryRefreshKey((k) => k + 1)
+    limparRascunho()
   }
 
   function handleAddItem() {
@@ -275,6 +347,7 @@ export default function App() {
       const record = await saveQuote(currentAdmin, vendedor, tipoReferencia, cliente, maquina, items, editingQuoteId)
       setEditingQuoteId(record.id)
       setHistoryRefreshKey((k) => k + 1)
+      limparRascunho()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Erro ao salvar a cotação no servidor.')
     }
@@ -294,9 +367,11 @@ export default function App() {
     setActiveResponsavel('')
     setPreRegistroItems([])
     setPlanilhaOriginalState(undefined)
+    limparRascunho()
   }
 
   function handleLoad(record: QuoteRecord) {
+    limparRascunho()
     const loadedItems = record.items.map((item) => ({ ...item, pricing: { ...item.pricing, ...pricingGlobal } }))
     setVendedor(record.vendedor)
     setTipoReferencia(record.tipoReferencia)
@@ -455,6 +530,14 @@ export default function App() {
           cliente={cliente}
           maquina={maquina}
           onClose={() => setMostrarPlanilhaCliente(false)}
+        />
+      )}
+
+      {rascunhoDisponivel && (
+        <RecuperarRascunhoModal
+          rascunho={rascunhoDisponivel}
+          onRecuperar={handleRecuperarRascunho}
+          onDescartar={handleDescartarRascunho}
         />
       )}
     </Layout>
