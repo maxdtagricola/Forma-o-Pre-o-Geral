@@ -33,6 +33,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'cotacoes', label: 'Cotações' },
       { key: 'dashboard', label: 'Precificação' },
       { key: 'margins', label: 'Análise de Margens' },
+      { key: 'acompanhamentoNotas', label: 'Acompanhamento de notas', somenteAdmin: 'Max' },
     ],
   },
   {
@@ -53,10 +54,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     label: 'Sistema',
-    items: [
-      { key: 'configuracoes', label: 'Configurações' },
-      { key: 'acompanhamentoNotas', label: 'Acompanhamento de notas', somenteAdmin: 'Max' },
-    ],
+    items: [{ key: 'configuracoes', label: 'Configurações' }],
   },
 ]
 
