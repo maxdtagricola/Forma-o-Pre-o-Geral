@@ -83,11 +83,7 @@ export function AnalyticsPage() {
   return (
     <div className="space-y-6">
       <div className="card">
-        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Dashboard</h2>
-        <p className="text-sm text-ink-400 mb-4">
-          Visão geral das cotações no período selecionado. As cores de cada status são configuráveis na aba
-          Configurações.
-        </p>
+        <h2 className="font-display text-lg font-semibold text-ink-900 mb-4">Dashboard</h2>
         <div className="flex flex-wrap gap-2">
           {PERIODOS.map((p) => (
             <button

@@ -108,10 +108,7 @@ export function NotasFiscaisDashboardPage() {
   return (
     <div className="space-y-6">
       <div className="card">
-        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Dashboard de notas fiscais</h2>
-        <p className="text-sm text-ink-400 mb-4">
-          Visão geral das notas fiscais no período selecionado — por enquanto só visível pra você.
-        </p>
+        <h2 className="font-display text-lg font-semibold text-ink-900 mb-4">Dashboard de notas fiscais</h2>
         <div className="flex flex-wrap gap-2 mb-3">
           {PERIODOS.map((p) => (
             <button

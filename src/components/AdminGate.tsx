@@ -52,8 +52,6 @@ export function AdminGate({
         </div>
 
         <div className="mt-6 pt-5 border-t border-ink-100">
-          <p className="text-xs font-medium text-ink-400 mb-3">Ou entre só pra jogar xadrez (sem acesso ao resto do app)</p>
-
           {jogadoresExistentes.length > 0 && (
             <div className="flex flex-wrap justify-center gap-2 mb-3">
               {jogadoresExistentes.map((nome) => (

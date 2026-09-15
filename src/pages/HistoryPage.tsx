@@ -327,10 +327,7 @@ export function HistoryPage({
   return (
     <div className="space-y-5">
       <div className="card">
-        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Histórico</h2>
-        <p className="text-sm text-ink-400 mb-4">
-          Organizado por admin → vendedor → mês. Clique numa pasta pra entrar, ou busque direto abaixo.
-        </p>
+        <h2 className="font-display text-lg font-semibold text-ink-900 mb-4">Histórico</h2>
 
         {!buscando && (verTudo || adminSel) && (
           <div className="flex flex-wrap items-center gap-1 mb-4 text-sm">

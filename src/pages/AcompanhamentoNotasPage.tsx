@@ -501,16 +501,10 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
           className="w-full flex items-center justify-between gap-3 text-left"
         >
           <div>
-            <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">
+            <h2 className="font-display text-lg font-semibold text-ink-900">
               Registro de Notas
               {editingId && <span className="ml-2 text-xs font-medium text-brand-700">(editando)</span>}
             </h2>
-            {!formRecolhido && (
-              <p className="text-sm text-ink-400">
-                Acompanhamento de notas — por enquanto só visível pra você. O dashboard com os gráficos fica em
-                Visão geral › Notas fiscais.
-              </p>
-            )}
           </div>
           <span
             className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border border-ink-300 bg-ink-50 px-3 py-1.5 text-xs font-semibold text-ink-700 hover:bg-ink-100 hover:border-ink-400 transition`}
