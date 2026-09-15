@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 
 export type TabKey =
+  | 'telaInicial'
   | 'cotacoes'
   | 'analytics'
   | 'dashboard'
@@ -28,6 +29,10 @@ interface NavGroup {
 }
 
 const NAV_GROUPS: NavGroup[] = [
+  {
+    label: 'Início',
+    items: [{ key: 'telaInicial', label: 'Tela Inicial' }],
+  },
   {
     label: 'Cotações',
     items: [

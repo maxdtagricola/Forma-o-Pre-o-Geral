@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Layout, type TabKey } from './components/Layout'
 import { AdminGate } from './components/AdminGate'
+import { TelaInicialPage } from './pages/TelaInicialPage'
 import { CotacoesPage } from './pages/CotacoesPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 import { ConfiguracoesPage } from './pages/ConfiguracoesPage'
@@ -52,7 +53,7 @@ import type {
 
 export default function App() {
   const [currentAdmin, setCurrentAdminState] = useState<AdminName | null>(() => getCurrentAdmin())
-  const [tab, setTab] = useState<TabKey>('cotacoes')
+  const [tab, setTab] = useState<TabKey>('telaInicial')
   const [vendedor, setVendedor] = useState('')
   const [tipoReferencia, setTipoReferencia] = useState<TipoReferencia>('itens')
   const [cliente, setCliente] = useState('')
@@ -429,6 +430,7 @@ export default function App() {
 
   return (
     <Layout active={tab} onChangeTab={setTab} currentAdmin={currentAdmin} onSwitchAdmin={handleSwitchAdmin}>
+      {tab === 'telaInicial' && <TelaInicialPage />}
       {tab === 'cotacoes' && (
         <CotacoesPage
           refreshKey={historyRefreshKey}

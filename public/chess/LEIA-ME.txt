@@ -1,0 +1,12 @@
+Coloque aqui o arquivo de partidas de referência com o nome exato:
+
+  games.pgn
+
+Formato esperado: PGN padrão, podendo conter várias partidas seguidas (cada
+uma começando com as tags [Event "..."], [White "..."], etc.), como um
+arquivo exportado do lichess.org, chess.com ou de uma base como a PGN Mentor.
+
+Assim que o arquivo "public/chess/games.pgn" existir, o tabuleiro na Tela
+Inicial passa a usar essas partidas como referência pras jogadas da máquina
+automaticamente — não precisa mexer em nenhum código. Sem o arquivo, a
+máquina joga só com uma busca própria (mais fraca).
