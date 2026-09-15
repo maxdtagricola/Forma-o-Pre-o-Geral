@@ -5,6 +5,8 @@ import { Chess, type Square } from 'chess.js'
 import { Button } from './ui/Basics'
 import { carregarLivroDeAberturas, type LivroDeAberturas } from '../chess/pgnBook'
 import { escolherJogadaDaMaquina } from '../chess/engine'
+import { getJogadorAtual, limparJogadorAtual, setJogadorAtual } from '../chess/jogadorAtual'
+import { listPartidasDoJogador, novaPartida, salvarPartida, type PartidaXadrez } from '../db/xadrezRepo'
 
 const COR_CASA_CLARA = 0xe8d9b8
 const COR_CASA_ESCURA = 0x8a5a3b
@@ -272,8 +274,10 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
 const LARGURA_FULL_HD = 1920
 const ALTURA_FULL_HD = 1080
 
-/** Duração do deslocamento de cada lance — mais lenta e cadenciada, pra dar tempo de acompanhar o movimento. */
-const DURACAO_LANCE_MS = 700
+/** Duração do deslocamento de cada lance — bem mais lenta e cadenciada, pra dar tempo de acompanhar o movimento. */
+const DURACAO_LANCE_MS = 1300
+/** Pausa "pensando" da máquina antes de mover, pro ritmo geral ficar mais compassado. */
+const PAUSA_MAQUINA_MS = 700
 
 /** Calcula o pixel ratio necessário pra garantir que o canvas renderize em pelo menos Full HD (1920x1080), mesmo quando o card exibido na tela é menor — limitado a 3x pra não sobrecarregar a GPU em telas muito pequenas. */
 function pixelRatioParaFullHD(larguraCss: number, alturaCss: number): number {
@@ -325,12 +329,27 @@ export function ChessBoard3D() {
   const containerRef = useRef<HTMLDivElement>(null)
   const chessRef = useRef(new Chess())
   const livroRef = useRef<LivroDeAberturas>(new Map())
-  const acoesRef = useRef<{ novoJogo: () => void } | null>(null)
+  const partidaAtualRef = useRef<PartidaXadrez | null>(null)
+  const jogadorRef = useRef<string | null>(null)
+  const mostrarPedidoNomeRef = useRef<() => void>(() => {})
+  const acoesRef = useRef<{ carregarPgn: (pgn: string) => void } | null>(null)
 
   const [statusTexto, setStatusTexto] = useState('Carregando o tabuleiro…')
   const [livroInfo, setLivroInfo] = useState<string | null>(null)
   const [historico, setHistorico] = useState<string[]>([])
-  const [historicoAberto, setHistoricoAberto] = useState(true)
+  const [historicoAberto, setHistoricoAberto] = useState(false)
+  const [jogador, setJogadorState] = useState<string | null>(() => getJogadorAtual())
+  const [nomeInput, setNomeInput] = useState('')
+  const [pedindoNome, setPedindoNome] = useState(false)
+  const [partidasEmAndamento, setPartidasEmAndamento] = useState<PartidaXadrez[]>([])
+
+  useEffect(() => {
+    jogadorRef.current = jogador
+  }, [jogador])
+
+  useEffect(() => {
+    mostrarPedidoNomeRef.current = () => setPedindoNome(true)
+  }, [])
 
   useEffect(() => {
     carregarLivroDeAberturas().then((livro) => {
@@ -342,6 +361,41 @@ export function ChessBoard3D() {
       )
     })
   }, [])
+
+  // assim que sabe quem é o jogador, retoma a partida em andamento mais recente dele
+  // (ou cria uma nova) — o progresso nunca é perdido, fica salvo no servidor por jogador
+  useEffect(() => {
+    if (!jogador) return
+    let cancelado = false
+    listPartidasDoJogador(jogador)
+      .then(async (partidas) => {
+        if (cancelado) return
+        const emAndamento = partidas.filter((p) => p.status === 'EM_ANDAMENTO')
+        let ativa = emAndamento[0]
+        if (!ativa) {
+          ativa = novaPartida(jogador)
+          try {
+            await salvarPartida(ativa)
+          } catch {
+            // sem servidor por enquanto — segue com a partida só localmente
+          }
+          emAndamento.unshift(ativa)
+        }
+        if (cancelado) return
+        partidaAtualRef.current = ativa
+        setPartidasEmAndamento(emAndamento)
+        acoesRef.current?.carregarPgn(ativa.pgn)
+      })
+      .catch(() => {
+        const ativa = novaPartida(jogador)
+        partidaAtualRef.current = ativa
+        setPartidasEmAndamento([ativa])
+        acoesRef.current?.carregarPgn('')
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [jogador])
 
   useEffect(() => {
     const container = containerRef.current
@@ -509,10 +563,43 @@ export function ChessBoard3D() {
       }
     }
 
+    // salva o progresso da partida atual (PGN + status) depois de cada lance — assim o jogo
+    // nunca se perde, mesmo fechando a aba no meio de uma partida
+    function salvarProgresso() {
+      const partida = partidaAtualRef.current
+      if (!partida) return
+      const chess = chessRef.current
+      partida.pgn = chess.pgn()
+      partida.atualizadaEm = Date.now()
+      if (chess.isCheckmate()) {
+        partida.status = 'FINALIZADA'
+        partida.resultado = chess.turn() === 'w' ? 'Você venceu (xeque-mate)' : 'A máquina venceu (xeque-mate)'
+      } else if (chess.isStalemate()) {
+        partida.status = 'FINALIZADA'
+        partida.resultado = 'Empate por afogamento'
+      } else if (chess.isDraw()) {
+        partida.status = 'FINALIZADA'
+        partida.resultado = 'Empate'
+      }
+      const finalizouAgora = partida.status === 'FINALIZADA'
+      salvarPartida(partida)
+        .then(() => {
+          if (finalizouAgora) {
+            setPartidasEmAndamento((prev) => prev.filter((p) => p.id !== partida.id))
+          }
+        })
+        .catch(() => {
+          // sem servidor no momento — a partida segue salva só localmente até o próximo lance
+        })
+    }
+
     function atualizarStatusTexto() {
       const chess = chessRef.current
       setHistorico(chess.history())
-      if (chess.isCheckmate()) {
+      salvarProgresso()
+      if (!jogadorRef.current) {
+        setStatusTexto('Modo demonstração — clique numa peça pra registrar seu nome e começar a jogar.')
+      } else if (chess.isCheckmate()) {
         const vencedor = chess.turn() === 'w' ? 'A máquina (pretas)' : 'Você (brancas)'
         setStatusTexto(`Xeque-mate — ${vencedor} venceu!`)
       } else if (chess.isStalemate()) {
@@ -598,7 +685,7 @@ export function ChessBoard3D() {
           vezDaMaquinaRef.current = false
           atualizarStatusTexto()
         })
-      }, 450)
+      }, PAUSA_MAQUINA_MS)
     }
 
     function tentarSelecionar(square: Square) {
@@ -646,6 +733,14 @@ export function ChessBoard3D() {
       raycaster.setFromCamera(mouse, camera)
       const hits = raycaster.intersectObjects(squareMeshes)
       if (hits.length === 0) return
+
+      // sem jogador registrado ainda, o tabuleiro fica só em modo demonstrativo (dá pra girar/
+      // aproximar, mas não pra jogar) — a primeira tentativa de interação é que pede o nome
+      if (!jogadorRef.current) {
+        mostrarPedidoNomeRef.current()
+        return
+      }
+
       const square = hits[0].object.userData.square as Square
       if (selecionadaRef.current) {
         tentarMover(square)
@@ -656,14 +751,26 @@ export function ChessBoard3D() {
     renderer.domElement.addEventListener('click', onClick)
 
     acoesRef.current = {
-      novoJogo() {
-        chessRef.current.reset()
+      // carrega uma partida salva (PGN) ou começa uma nova (pgn vazio) — usado tanto pra
+      // retomar a partida do jogador ao abrir quanto pra trocar de partida/jogador depois
+      carregarPgn(pgn: string) {
+        const chess = chessRef.current
+        if (pgn) {
+          try {
+            chess.loadPgn(pgn)
+          } catch {
+            chess.reset()
+          }
+        } else {
+          chess.reset()
+        }
         selecionadaRef.current = null
         destinosRef.current = []
         vezDaMaquinaRef.current = false
         sincronizarPecas()
         limparDestaques()
         atualizarStatusTexto()
+        if (!chess.isGameOver() && chess.turn() === 'b') jogarLanceDaMaquina()
       },
     }
 
@@ -706,14 +813,78 @@ export function ChessBoard3D() {
     return pares
   }, [historico])
 
+  function confirmarNome() {
+    const nome = nomeInput.trim()
+    if (!nome) return
+    setJogadorAtual(nome)
+    setJogadorState(nome)
+    setNomeInput('')
+    setPedindoNome(false)
+  }
+
+  function handleTrocarJogador() {
+    limparJogadorAtual()
+    setJogadorState(null)
+    partidaAtualRef.current = null
+    setPartidasEmAndamento([])
+  }
+
+  async function handleNovoJogo() {
+    if (!jogador) return
+    const nova = novaPartida(jogador)
+    try {
+      await salvarPartida(nova)
+    } catch {
+      // sem servidor — segue mesmo assim, só não fica persistido até a conexão voltar
+    }
+    partidaAtualRef.current = nova
+    setPartidasEmAndamento((prev) => [nova, ...prev])
+    acoesRef.current?.carregarPgn('')
+  }
+
+  function handleRetomarPartida(partida: PartidaXadrez) {
+    partidaAtualRef.current = partida
+    acoesRef.current?.carregarPgn(partida.pgn)
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm font-medium text-ink-700">{statusTexto}</p>
-        <Button variant="secondary" onClick={() => acoesRef.current?.novoJogo()}>
+        <div>
+          <p className="text-sm font-medium text-ink-700">{statusTexto}</p>
+          {jogador && (
+            <p className="text-xs text-ink-400">
+              Jogando como <span className="font-medium text-ink-600">{jogador}</span> ·{' '}
+              <button type="button" onClick={handleTrocarJogador} className="underline hover:text-ink-600">
+                trocar jogador
+              </button>
+            </p>
+          )}
+        </div>
+        <Button variant="secondary" onClick={handleNovoJogo} disabled={!jogador}>
           Novo jogo
         </Button>
       </div>
+
+      {partidasEmAndamento.length > 1 && (
+        <div className="flex flex-wrap gap-2">
+          {partidasEmAndamento.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => handleRetomarPartida(p)}
+              className={`pill-tab border ${
+                partidaAtualRef.current?.id === p.id
+                  ? 'bg-ink-950 border-ink-950 text-white'
+                  : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+              }`}
+            >
+              Partida de {new Date(p.criadaEm).toLocaleDateString('pt-BR')}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="relative">
         <div
           ref={containerRef}
@@ -739,14 +910,47 @@ export function ChessBoard3D() {
                 paresLances.map((p) => (
                   <div key={p.numero} className="flex gap-2 tabular-nums">
                     <span className="w-4 text-ink-400">{p.numero}.</span>
-                    <span className="flex-1 font-mono">{p.branco}</span>
-                    <span className="flex-1 font-mono">{p.preto ?? ''}</span>
+                    <span className="flex-1 font-mono">{p.branco.toUpperCase()}</span>
+                    <span className="flex-1 font-mono">{p.preto?.toUpperCase() ?? ''}</span>
                   </div>
                 ))
               )}
             </div>
           )}
         </div>
+
+        {pedindoNome && !jogador && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-ink-950/70 backdrop-blur-sm rounded-xl p-4">
+            <div className="w-full max-w-xs rounded-xl bg-white p-4 shadow-xl">
+              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Como você quer ser chamado?</h3>
+              <p className="text-xs text-ink-400 mb-3">
+                Pra começar a jogar, registre seu nome — suas partidas ficam salvas separadas por jogador, e retomam
+                sozinhas da próxima vez.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  className="field-input flex-1"
+                  placeholder="Seu nome"
+                  value={nomeInput}
+                  onChange={(e) => setNomeInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && confirmarNome()}
+                  autoFocus
+                />
+                <Button variant="primary" onClick={confirmarNome} disabled={!nomeInput.trim()}>
+                  Entrar
+                </Button>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPedindoNome(false)}
+                className="mt-3 text-xs text-ink-400 underline hover:text-ink-600"
+              >
+                Continuar só olhando
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       <p className="text-xs text-ink-400">{livroInfo ?? 'Carregando arquivo de referência…'}</p>
     </div>
