@@ -6,6 +6,7 @@ import { Button } from './ui/Basics'
 import { carregarLivroDeAberturas, type LivroDeAberturas } from '../chess/pgnBook'
 import { escolherJogadaDaMaquina } from '../chess/engine'
 import { listPartidasDoJogador, novaPartida, salvarPartida, type PartidaXadrez } from '../db/xadrezRepo'
+import { registrarAprendizadoDaPartida, type ResultadoPartida as ResultadoPartidaXadrez } from '../db/xadrezAprendizadoRepo'
 
 const COR_CASA_CLARA = 0xe8d9b8
 const COR_CASA_ESCURA = 0x8a5a3b
@@ -558,8 +559,15 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       }
     }
 
+    // BRANCAS/PRETAS venceram, ou EMPATE — só chamar quando chess.isGameOver() for true
+    function resultadoAtual(chess: Chess): ResultadoPartidaXadrez {
+      if (chess.isCheckmate()) return chess.turn() === 'w' ? 'PRETAS' : 'BRANCAS'
+      return 'EMPATE'
+    }
+
     // salva o progresso da partida atual (PGN + status) depois de cada lance — assim o jogo
-    // nunca se perde, mesmo fechando a aba no meio de uma partida
+    // nunca se perde, mesmo fechando a aba no meio de uma partida. Quando a partida termina,
+    // também alimenta o aprendizado da máquina com o que ela jogou nessa partida.
     function salvarProgresso() {
       const partida = partidaAtualRef.current
       if (!partida) return
@@ -587,6 +595,10 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         .catch(() => {
           // sem servidor no momento — a partida segue salva só localmente até o próximo lance
         })
+      if (finalizouAgora) {
+        const corMaquina: 'w' | 'b' = corHumanoRef.current === 'w' ? 'b' : 'w'
+        registrarAprendizadoDaPartida(chess.history({ verbose: true }), resultadoAtual(chess), [corMaquina])
+      }
     }
 
     function atualizarStatusTexto() {
@@ -681,8 +693,8 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       if (chess.isGameOver() || chess.turn() === corHumanoRef.current) return
       vezDaMaquinaRef.current = true
       atualizarStatusTexto()
-      window.setTimeout(() => {
-        const lance = escolherJogadaDaMaquina(chess, livroRef.current)
+      window.setTimeout(async () => {
+        const lance = await escolherJogadaDaMaquina(chess, livroRef.current)
         if (!lance) {
           vezDaMaquinaRef.current = false
           atualizarStatusTexto()
@@ -714,10 +726,12 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       demoTimeoutId = window.setTimeout(jogarLanceDemo, atrasoDemoAleatorio())
     }
 
-    function jogarLanceDemo() {
+    async function jogarLanceDemo() {
       if (partidaAtualRef.current) return // uma partida de verdade começou nesse meio-tempo
       const chess = chessRef.current
       if (chess.isGameOver()) {
+        // partida demonstrativa terminou — as duas cores aprendem com ela, já que as duas são a máquina
+        registrarAprendizadoDaPartida(chess.history({ verbose: true }), resultadoAtual(chess), ['w', 'b'])
         demoTimeoutId = window.setTimeout(() => {
           if (partidaAtualRef.current) return
           chess.reset()
@@ -728,7 +742,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         }, 3000)
         return
       }
-      const lance = escolherJogadaDaMaquina(chess, livroRef.current)
+      const lance = await escolherJogadaDaMaquina(chess, livroRef.current)
       if (!lance) {
         agendarProximoLanceDemo()
         return

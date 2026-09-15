@@ -8,7 +8,7 @@ export interface LivroEntrada {
 export type LivroDeAberturas = Map<string, LivroEntrada[]>
 
 /** Chave de posição — ignora o contador de lances (últimos dois campos do FEN), só compara tabuleiro/vez/roque/en passant. */
-function chavePosicao(fen: string): string {
+export function chavePosicao(fen: string): string {
   return fen.split(' ').slice(0, 4).join(' ')
 }
 
