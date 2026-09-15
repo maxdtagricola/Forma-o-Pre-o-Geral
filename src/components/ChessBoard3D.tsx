@@ -104,6 +104,16 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
   return grupo
 }
 
+const LARGURA_FULL_HD = 1920
+const ALTURA_FULL_HD = 1080
+
+/** Calcula o pixel ratio necessário pra garantir que o canvas renderize em pelo menos Full HD (1920x1080), mesmo quando o card exibido na tela é menor — limitado a 3x pra não sobrecarregar a GPU em telas muito pequenas. */
+function pixelRatioParaFullHD(larguraCss: number, alturaCss: number): number {
+  const dpr = window.devicePixelRatio || 1
+  const fatorParaFullHD = Math.max(LARGURA_FULL_HD / Math.max(larguraCss, 1), ALTURA_FULL_HD / Math.max(alturaCss, 1))
+  return Math.min(Math.max(dpr, fatorParaFullHD), 3)
+}
+
 /** Anima suavemente a posição (x/z) de um objeto, com ease-out cúbico. */
 function animarPosicao(
   mesh: THREE.Object3D,
@@ -163,7 +173,7 @@ export function ChessBoard3D() {
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
     renderer.setSize(container.clientWidth, container.clientHeight)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    renderer.setPixelRatio(pixelRatioParaFullHD(container.clientWidth, container.clientHeight))
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.outputColorSpace = THREE.SRGBColorSpace
@@ -183,7 +193,7 @@ export function ChessBoard3D() {
     const dirLight = new THREE.DirectionalLight(0xfff3e0, 0.95)
     dirLight.position.set(4, 10, 6)
     dirLight.castShadow = true
-    dirLight.shadow.mapSize.set(1024, 1024)
+    dirLight.shadow.mapSize.set(2048, 2048)
     dirLight.shadow.camera.left = -6
     dirLight.shadow.camera.right = 6
     dirLight.shadow.camera.top = 6
@@ -458,6 +468,7 @@ export function ChessBoard3D() {
       if (!el) return
       camera.aspect = el.clientWidth / Math.max(el.clientHeight, 1)
       camera.updateProjectionMatrix()
+      renderer.setPixelRatio(pixelRatioParaFullHD(el.clientWidth, el.clientHeight))
       renderer.setSize(el.clientWidth, el.clientHeight)
     }
     window.addEventListener('resize', onResize)
