@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { Chess, type Square } from 'chess.js'
@@ -43,6 +43,24 @@ function criarContorno(geo: THREE.BufferGeometry): THREE.Mesh {
   return mesh
 }
 
+/** Desenha um texto curto num canvas pra usar como textura — usado nas coordenadas (a-h, 1-8) ao redor do tabuleiro. */
+function criarTexturaTexto(texto: string): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 64
+  canvas.height = 64
+  const ctx = canvas.getContext('2d')!
+  ctx.fillStyle = '#3a2a1a'
+  ctx.font = 'bold 42px system-ui, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(texto, 32, 34)
+  const textura = new THREE.CanvasTexture(canvas)
+  textura.needsUpdate = true
+  return textura
+}
+
+const LETRAS_COLUNAS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
+
 // ---------------------------------------------------------------------------
 // Peças-personagem — dois exércitos com visual distinto (Reino, claro/azul, x
 // Horda, escuro/vermelho), em vez das peças geométricas clássicas. Cada peça é
@@ -72,75 +90,106 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
 
   let partes: ParteGeom[] = []
   switch (tipo) {
-    // peão — soldado raso, elmo simples com ponta
+    // peão — soldado raso, elmo simples com ponta (tronco acima do quadril/pernas articulados)
     case 'p':
       partes = [
-        { geo: new THREE.ConeGeometry(0.16, 0.28, 18), y: 0.14, papel: 'armadura' },
-        { geo: new THREE.CylinderGeometry(0.11, 0.13, 0.14, 18), y: 0.35, papel: 'armadura' },
-        { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.5, papel: 'armadura' },
-        { geo: new THREE.ConeGeometry(0.06, 0.12, 14), y: 0.62, papel: 'detalhe' },
-        { geo: new THREE.BoxGeometry(0.09, 0.02, 0.02), y: 0.51, z: 0.095, papel: 'brilho' },
+        { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
+        { geo: new THREE.CylinderGeometry(0.11, 0.13, 0.2, 18), y: 0.48, papel: 'armadura' },
+        { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.68, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.055, 0.11, 14), y: 0.79, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.08, 0.02, 0.02), y: 0.685, z: 0.09, papel: 'brilho' },
       ]
       break
     // torre — guardião pesado, ombreiras largas e "ameia" no topo (lembrando torre)
     case 'r':
       partes = [
-        { geo: new THREE.CylinderGeometry(0.24, 0.26, 0.3, 20), y: 0.15, papel: 'armadura' },
-        { geo: new THREE.BoxGeometry(0.4, 0.34, 0.28), y: 0.47, papel: 'armadura' },
-        { geo: new THREE.BoxGeometry(0.1, 0.16, 0.1), x: -0.24, y: 0.5, papel: 'detalhe' },
-        { geo: new THREE.BoxGeometry(0.1, 0.16, 0.1), x: 0.24, y: 0.5, papel: 'detalhe' },
-        { geo: new THREE.SphereGeometry(0.11, 18, 14), y: 0.75, papel: 'armadura' },
-        { geo: new THREE.BoxGeometry(0.34, 0.08, 0.34), y: 0.87, papel: 'detalhe' },
-        { geo: new THREE.BoxGeometry(0.09, 0.02, 0.02), y: 0.76, z: 0.1, papel: 'brilho' },
+        { geo: new THREE.BoxGeometry(0.24, 0.09, 0.16), y: 0.36, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.34, 0.22, 0.24), y: 0.5, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.09, 0.13, 0.09), x: -0.2, y: 0.53, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.09, 0.13, 0.09), x: 0.2, y: 0.53, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.7, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.3, 0.07, 0.3), y: 0.8, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.09, 0.02, 0.02), y: 0.705, z: 0.095, papel: 'brilho' },
       ]
       break
     // cavalo — batedor ágil, capuz e capa inclinados
     case 'n':
       partes = [
-        { geo: new THREE.ConeGeometry(0.17, 0.3, 18), y: 0.15, papel: 'armadura' },
-        { geo: new THREE.CylinderGeometry(0.12, 0.14, 0.18, 18), y: 0.39, papel: 'armadura' },
-        { geo: new THREE.BoxGeometry(0.16, 0.28, 0.03), y: 0.34, z: -0.1, rotX: 0.15, papel: 'detalhe' },
-        { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.56, z: 0.02, rotX: -0.25, papel: 'armadura' },
-        { geo: new THREE.ConeGeometry(0.05, 0.16, 12), x: -0.04, y: 0.7, rotZ: 0.35, papel: 'detalhe' },
-        { geo: new THREE.BoxGeometry(0.1, 0.02, 0.02), y: 0.57, z: 0.1, papel: 'brilho' },
+        { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
+        { geo: new THREE.CylinderGeometry(0.11, 0.13, 0.2, 18), y: 0.48, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.16, 0.26, 0.03), y: 0.44, z: -0.1, rotX: 0.15, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.68, z: 0.02, rotX: -0.2, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.05, 0.15, 12), x: -0.04, y: 0.8, rotZ: 0.35, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.09, 0.02, 0.02), y: 0.685, z: 0.095, papel: 'brilho' },
       ]
       break
     // bispo — místico com chapéu pontudo e cajado
     case 'b':
       partes = [
-        { geo: new THREE.ConeGeometry(0.19, 0.42, 20), y: 0.21, papel: 'detalhe' },
-        { geo: new THREE.CylinderGeometry(0.13, 0.15, 0.08, 20), y: 0.44, papel: 'armadura' },
-        { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.6, papel: 'armadura' },
-        { geo: new THREE.ConeGeometry(0.11, 0.32, 18), y: 0.86, papel: 'detalhe' },
-        { geo: new THREE.CylinderGeometry(0.015, 0.015, 0.5, 8), x: 0.17, y: 0.5, papel: 'armadura' },
-        { geo: new THREE.SphereGeometry(0.05, 14, 14), x: 0.17, y: 0.78, papel: 'brilho' },
+        { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.16, 0.26, 18), y: 0.5, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.7, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.1, 0.3, 16), y: 0.94, papel: 'detalhe' },
+        { geo: new THREE.CylinderGeometry(0.014, 0.014, 0.46, 8), x: 0.19, y: 0.52, papel: 'armadura' },
+        { geo: new THREE.SphereGeometry(0.045, 14, 14), x: 0.19, y: 0.77, papel: 'brilho' },
       ]
       break
     // dama — elegante, coroa dourada com joia
     case 'q':
       partes = [
-        { geo: new THREE.ConeGeometry(0.2, 0.46, 22), y: 0.23, papel: 'detalhe' },
-        { geo: new THREE.CylinderGeometry(0.13, 0.16, 0.1, 22), y: 0.51, papel: 'armadura' },
-        { geo: new THREE.SphereGeometry(0.1, 20, 16), y: 0.68, papel: 'armadura' },
-        { geo: new THREE.TorusGeometry(0.1, 0.025, 10, 22), y: 0.82, rotX: Math.PI / 2, papel: 'coroa' },
-        { geo: new THREE.SphereGeometry(0.045, 14, 14), y: 0.9, papel: 'brilho' },
+        { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.16, 0.28, 20), y: 0.5, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.72, papel: 'armadura' },
+        { geo: new THREE.TorusGeometry(0.09, 0.022, 10, 20), y: 0.85, rotX: Math.PI / 2, papel: 'coroa' },
+        { geo: new THREE.SphereGeometry(0.04, 14, 14), y: 0.92, papel: 'brilho' },
       ]
       break
     // rei — o mais alto, coroa + cruz, capa
     case 'k':
       partes = [
-        { geo: new THREE.ConeGeometry(0.21, 0.5, 22), y: 0.25, papel: 'detalhe' },
-        { geo: new THREE.CylinderGeometry(0.14, 0.17, 0.12, 22), y: 0.56, papel: 'armadura' },
-        { geo: new THREE.BoxGeometry(0.22, 0.42, 0.04), y: 0.4, z: -0.12, rotX: 0.1, papel: 'detalhe' },
-        { geo: new THREE.SphereGeometry(0.11, 20, 16), y: 0.74, papel: 'armadura' },
-        { geo: new THREE.TorusGeometry(0.11, 0.025, 10, 22), y: 0.88, rotX: Math.PI / 2, papel: 'coroa' },
-        { geo: new THREE.BoxGeometry(0.04, 0.16, 0.04), y: 1.0, papel: 'coroa' },
-        { geo: new THREE.BoxGeometry(0.12, 0.04, 0.04), y: 1.02, papel: 'coroa' },
+        { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.17, 0.3, 20), y: 0.51, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.2, 0.34, 0.04), y: 0.46, z: -0.11, rotX: 0.1, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.74, papel: 'armadura' },
+        { geo: new THREE.TorusGeometry(0.1, 0.024, 10, 20), y: 0.88, rotX: Math.PI / 2, papel: 'coroa' },
+        { geo: new THREE.BoxGeometry(0.035, 0.15, 0.035), y: 0.99, papel: 'coroa' },
+        { geo: new THREE.BoxGeometry(0.11, 0.035, 0.035), y: 1.01, papel: 'coroa' },
       ]
       break
   }
   geometriasPorTipo.set(tipo, partes)
   return partes
+}
+
+// ---------------------------------------------------------------------------
+// Braços e pernas — mesma geometria pra todas as peças, com o pivô na
+// articulação (quadril/ombro) em vez do centro da peça, pra poder balançar
+// como uma caminhada de verdade durante a animação do lance.
+// ---------------------------------------------------------------------------
+const geoPerna = new THREE.CylinderGeometry(0.045, 0.055, 0.32, 14)
+const geoBraco = new THREE.CylinderGeometry(0.035, 0.045, 0.26, 14)
+
+interface ConfigMembro {
+  geo: THREE.BufferGeometry
+  comprimento: number
+  pivotX: number
+  pivotY: number
+  papel: Papel
+}
+
+const CONFIG_PERNA_ESQ: ConfigMembro = { geo: geoPerna, comprimento: 0.32, pivotX: -0.075, pivotY: 0.32, papel: 'armadura' }
+const CONFIG_PERNA_DIR: ConfigMembro = { geo: geoPerna, comprimento: 0.32, pivotX: 0.075, pivotY: 0.32, papel: 'armadura' }
+const CONFIG_BRACO_ESQ: ConfigMembro = { geo: geoBraco, comprimento: 0.26, pivotX: -0.17, pivotY: 0.52, papel: 'armadura' }
+const CONFIG_BRACO_DIR: ConfigMembro = { geo: geoBraco, comprimento: 0.26, pivotX: 0.17, pivotY: 0.52, papel: 'armadura' }
+
+/** Escala geral por tipo — só pra dar hierarquia de tamanho (rei/dama maiores, torre mais robusta). */
+const ESCALA_POR_TIPO: Record<string, number> = { p: 1, n: 1, b: 1.05, r: 1.1, q: 1.08, k: 1.15 }
+
+interface MembrosPersonagem {
+  pernaEsq: THREE.Group
+  pernaDir: THREE.Group
+  bracoEsq: THREE.Group
+  bracoDir: THREE.Group
 }
 
 interface MateriaisFaccao {
@@ -170,6 +219,23 @@ function materialDaParte(papel: Papel, cor: 'w' | 'b'): THREE.Material {
   return papel === 'coroa' ? materialCoroa : materiaisPorFaccao[cor][papel]
 }
 
+/** Monta um braço ou perna: um grupo-pivô na articulação, com o membro pendurado abaixo dele — girar o pivô move o membro inteiro, como uma dobradiça. */
+function criarMembro(cfg: ConfigMembro, cor: 'w' | 'b'): THREE.Group {
+  const pivot = new THREE.Group()
+  pivot.position.set(cfg.pivotX, cfg.pivotY, 0)
+
+  const mesh = new THREE.Mesh(cfg.geo, materialDaParte(cfg.papel, cor))
+  mesh.position.y = -cfg.comprimento / 2
+  mesh.castShadow = true
+  pivot.add(mesh)
+
+  const contorno = criarContorno(cfg.geo)
+  contorno.position.y = -cfg.comprimento / 2
+  pivot.add(contorno)
+
+  return pivot
+}
+
 function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
   const grupo = new THREE.Group()
   for (const parte of geometriasDoTipo(tipo)) {
@@ -188,6 +254,18 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
       grupo.add(contorno)
     }
   }
+
+  const membros: MembrosPersonagem = {
+    pernaEsq: criarMembro(CONFIG_PERNA_ESQ, cor),
+    pernaDir: criarMembro(CONFIG_PERNA_DIR, cor),
+    bracoEsq: criarMembro(CONFIG_BRACO_ESQ, cor),
+    bracoDir: criarMembro(CONFIG_BRACO_DIR, cor),
+  }
+  grupo.add(membros.pernaEsq, membros.pernaDir, membros.bracoEsq, membros.bracoDir)
+  grupo.userData.membros = membros
+
+  grupo.scale.setScalar(ESCALA_POR_TIPO[tipo] ?? 1)
+
   return grupo
 }
 
@@ -202,6 +280,7 @@ function pixelRatioParaFullHD(larguraCss: number, alturaCss: number): number {
 }
 
 /** Anima suavemente a posição (x/z) de um objeto, com ease-out cúbico. */
+/** Anima a posição x/z (ease-out) e, se a peça tiver braços/pernas, balança os membros como uma caminhada durante o trajeto — voltando à pose neutra ao terminar. */
 function animarPosicao(
   mesh: THREE.Object3D,
   de: { x: number; z: number },
@@ -209,14 +288,33 @@ function animarPosicao(
   duracaoMs: number,
   aoTerminar: () => void,
 ) {
+  const membros = mesh.userData.membros as MembrosPersonagem | undefined
   const inicio = performance.now()
   function passo(agora: number) {
     const t = Math.min(1, (agora - inicio) / duracaoMs)
     const suave = 1 - Math.pow(1 - t, 3)
     mesh.position.x = de.x + (para.x - de.x) * suave
     mesh.position.z = de.z + (para.z - de.z) * suave
-    if (t < 1) requestAnimationFrame(passo)
-    else aoTerminar()
+
+    if (membros) {
+      const balanco = Math.sin(t * Math.PI * 4) * 0.55 * Math.sin(t * Math.PI)
+      membros.pernaEsq.rotation.x = balanco
+      membros.pernaDir.rotation.x = -balanco
+      membros.bracoEsq.rotation.x = -balanco
+      membros.bracoDir.rotation.x = balanco
+    }
+
+    if (t < 1) {
+      requestAnimationFrame(passo)
+    } else {
+      if (membros) {
+        membros.pernaEsq.rotation.x = 0
+        membros.pernaDir.rotation.x = 0
+        membros.bracoEsq.rotation.x = 0
+        membros.bracoDir.rotation.x = 0
+      }
+      aoTerminar()
+    }
   }
   requestAnimationFrame(passo)
 }
@@ -229,6 +327,8 @@ export function ChessBoard3D() {
 
   const [statusTexto, setStatusTexto] = useState('Carregando o tabuleiro…')
   const [livroInfo, setLivroInfo] = useState<string | null>(null)
+  const [historico, setHistorico] = useState<string[]>([])
+  const [historicoAberto, setHistoricoAberto] = useState(true)
 
   useEffect(() => {
     carregarLivroDeAberturas().then((livro) => {
@@ -324,6 +424,28 @@ export function ChessBoard3D() {
     }
     scene.add(boardGroup)
 
+    // coordenadas padrão do xadrez — colunas a-h na borda de trás (lado das brancas) e
+    // linhas 1-8 na borda esquerda, deitadas no tabuleiro como os destaques de destino
+    const labelsGroup = new THREE.Group()
+    const labelGeo = new THREE.PlaneGeometry(0.32, 0.32)
+    for (let f = 0; f < 8; f++) {
+      const mat = new THREE.MeshBasicMaterial({ map: criarTexturaTexto(LETRAS_COLUNAS[f]), transparent: true })
+      const mesh = new THREE.Mesh(labelGeo, mat)
+      mesh.rotation.x = -Math.PI / 2
+      const { x } = squareToPos(`${LETRAS_COLUNAS[f]}1`)
+      mesh.position.set(x, 0.011, 4.15)
+      labelsGroup.add(mesh)
+    }
+    for (let r = 0; r < 8; r++) {
+      const mat = new THREE.MeshBasicMaterial({ map: criarTexturaTexto(String(r + 1)), transparent: true })
+      const mesh = new THREE.Mesh(labelGeo, mat)
+      mesh.rotation.x = -Math.PI / 2
+      const { z } = squareToPos(`a${r + 1}`)
+      mesh.position.set(-4.15, 0.011, z)
+      labelsGroup.add(mesh)
+    }
+    scene.add(labelsGroup)
+
     const piecesGroup = new THREE.Group()
     scene.add(piecesGroup)
     const highlightGroup = new THREE.Group()
@@ -387,6 +509,7 @@ export function ChessBoard3D() {
 
     function atualizarStatusTexto() {
       const chess = chessRef.current
+      setHistorico(chess.history())
       if (chess.isCheckmate()) {
         const vencedor = chess.turn() === 'w' ? 'A máquina (pretas)' : 'Você (brancas)'
         setStatusTexto(`Xeque-mate — ${vencedor} venceu!`)
@@ -573,6 +696,14 @@ export function ChessBoard3D() {
     }
   }, [])
 
+  const paresLances = useMemo(() => {
+    const pares: { numero: number; branco: string; preto?: string }[] = []
+    for (let i = 0; i < historico.length; i += 2) {
+      pares.push({ numero: i / 2 + 1, branco: historico[i], preto: historico[i + 1] })
+    }
+    return pares
+  }, [historico])
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -581,10 +712,40 @@ export function ChessBoard3D() {
           Novo jogo
         </Button>
       </div>
-      <div
-        ref={containerRef}
-        className="w-full aspect-[4/3] sm:aspect-video rounded-xl overflow-hidden border border-ink-100 touch-none"
-      />
+      <div className="relative">
+        <div
+          ref={containerRef}
+          className="w-full aspect-[4/3] sm:aspect-video rounded-xl overflow-hidden border border-ink-100 touch-none"
+        />
+
+        <div className="absolute top-3 right-3 z-10 w-40 max-w-[48%] rounded-lg border border-ink-200 bg-white/90 backdrop-blur-sm shadow-lg overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setHistoricoAberto((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-50"
+          >
+            Lances
+            <span aria-hidden className={`transition-transform ${historicoAberto ? 'rotate-180' : ''}`}>
+              ▾
+            </span>
+          </button>
+          {historicoAberto && (
+            <div className="max-h-48 overflow-y-auto px-3 pb-2 text-xs text-ink-600 space-y-0.5 border-t border-ink-100 pt-2">
+              {paresLances.length === 0 ? (
+                <p className="text-ink-400">Nenhum lance ainda.</p>
+              ) : (
+                paresLances.map((p) => (
+                  <div key={p.numero} className="flex gap-2 tabular-nums">
+                    <span className="w-4 text-ink-400">{p.numero}.</span>
+                    <span className="flex-1 font-mono">{p.branco}</span>
+                    <span className="flex-1 font-mono">{p.preto ?? ''}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      </div>
       <p className="text-xs text-ink-400">{livroInfo ?? 'Carregando arquivo de referência…'}</p>
     </div>
   )
