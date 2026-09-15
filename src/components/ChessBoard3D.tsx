@@ -9,8 +9,6 @@ import { escolherJogadaDaMaquina } from '../chess/engine'
 const COR_CASA_CLARA = 0xe8d9b8
 const COR_CASA_ESCURA = 0x8a5a3b
 const COR_BASE = 0x4a3323
-const COR_PECA_BRANCA = 0xf4f0e6
-const COR_PECA_PRETA = 0x232323
 const COR_SELECIONADA = 0x2a9d5f
 const COR_DESTINO = 0x2a78d6
 
@@ -21,16 +19,24 @@ function squareToPos(square: string): { x: number; z: number } {
 }
 
 // ---------------------------------------------------------------------------
-// Geometria das peças — montada uma única vez por tipo (não por peça) e
-// reaproveitada pra sempre. Isso evita recriar ~30 buffers de geometria a
-// cada lance, que é o que deixava o tabuleiro engasgado a cada movimento.
+// Peças-personagem — dois exércitos com visual distinto (Reino, claro/azul, x
+// Horda, escuro/vermelho), em vez das peças geométricas clássicas. Cada peça é
+// montada com formas simples (corpo, cabeça, elmo/capuz, acessório) só que com
+// um "papel" por parte (armadura / detalhe / coroa / brilho) que decide qual
+// material usar — a geometria em si é montada uma única vez por tipo e
+// reaproveitada pra sempre, então trocar de facção não recria nada.
 // ---------------------------------------------------------------------------
+type Papel = 'armadura' | 'detalhe' | 'coroa' | 'brilho'
+
 interface ParteGeom {
   geo: THREE.BufferGeometry
   x?: number
   y: number
   z?: number
   rotX?: number
+  rotY?: number
+  rotZ?: number
+  papel: Papel
 }
 
 const geometriasPorTipo = new Map<string, ParteGeom[]>()
@@ -41,44 +47,70 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
 
   let partes: ParteGeom[] = []
   switch (tipo) {
+    // peão — soldado raso, elmo simples com ponta
     case 'p':
       partes = [
-        { geo: new THREE.CylinderGeometry(0.16, 0.2, 0.22, 24), y: 0.11 },
-        { geo: new THREE.SphereGeometry(0.14, 24, 20), y: 0.3 },
+        { geo: new THREE.ConeGeometry(0.16, 0.28, 18), y: 0.14, papel: 'armadura' },
+        { geo: new THREE.CylinderGeometry(0.11, 0.13, 0.14, 18), y: 0.35, papel: 'armadura' },
+        { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.5, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.06, 0.12, 14), y: 0.62, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.09, 0.02, 0.02), y: 0.51, z: 0.095, papel: 'brilho' },
       ]
       break
+    // torre — guardião pesado, ombreiras largas e "ameia" no topo (lembrando torre)
     case 'r':
       partes = [
-        { geo: new THREE.CylinderGeometry(0.22, 0.24, 0.5, 24), y: 0.25 },
-        { geo: new THREE.BoxGeometry(0.32, 0.12, 0.32), y: 0.56 },
+        { geo: new THREE.CylinderGeometry(0.24, 0.26, 0.3, 20), y: 0.15, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.4, 0.34, 0.28), y: 0.47, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.1, 0.16, 0.1), x: -0.24, y: 0.5, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.1, 0.16, 0.1), x: 0.24, y: 0.5, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.11, 18, 14), y: 0.75, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.34, 0.08, 0.34), y: 0.87, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.09, 0.02, 0.02), y: 0.76, z: 0.1, papel: 'brilho' },
       ]
       break
+    // cavalo — batedor ágil, capuz e capa inclinados
     case 'n':
       partes = [
-        { geo: new THREE.CylinderGeometry(0.2, 0.24, 0.35, 24), y: 0.175 },
-        { geo: new THREE.BoxGeometry(0.18, 0.3, 0.34), y: 0.5, z: 0.04, rotX: -0.3 },
+        { geo: new THREE.ConeGeometry(0.17, 0.3, 18), y: 0.15, papel: 'armadura' },
+        { geo: new THREE.CylinderGeometry(0.12, 0.14, 0.18, 18), y: 0.39, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.16, 0.28, 0.03), y: 0.34, z: -0.1, rotX: 0.15, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.56, z: 0.02, rotX: -0.25, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.05, 0.16, 12), x: -0.04, y: 0.7, rotZ: 0.35, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.1, 0.02, 0.02), y: 0.57, z: 0.1, papel: 'brilho' },
       ]
       break
+    // bispo — místico com chapéu pontudo e cajado
     case 'b':
       partes = [
-        { geo: new THREE.CylinderGeometry(0.2, 0.22, 0.4, 24), y: 0.2 },
-        { geo: new THREE.ConeGeometry(0.16, 0.35, 24), y: 0.58 },
-        { geo: new THREE.SphereGeometry(0.06, 16, 16), y: 0.8 },
+        { geo: new THREE.ConeGeometry(0.19, 0.42, 20), y: 0.21, papel: 'detalhe' },
+        { geo: new THREE.CylinderGeometry(0.13, 0.15, 0.08, 20), y: 0.44, papel: 'armadura' },
+        { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.6, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.11, 0.32, 18), y: 0.86, papel: 'detalhe' },
+        { geo: new THREE.CylinderGeometry(0.015, 0.015, 0.5, 8), x: 0.17, y: 0.5, papel: 'armadura' },
+        { geo: new THREE.SphereGeometry(0.05, 14, 14), x: 0.17, y: 0.78, papel: 'brilho' },
       ]
       break
+    // dama — elegante, coroa dourada com joia
     case 'q':
       partes = [
-        { geo: new THREE.CylinderGeometry(0.24, 0.26, 0.5, 24), y: 0.25 },
-        { geo: new THREE.SphereGeometry(0.22, 24, 20), y: 0.58 },
-        { geo: new THREE.ConeGeometry(0.07, 0.16, 12), y: 0.85 },
+        { geo: new THREE.ConeGeometry(0.2, 0.46, 22), y: 0.23, papel: 'detalhe' },
+        { geo: new THREE.CylinderGeometry(0.13, 0.16, 0.1, 22), y: 0.51, papel: 'armadura' },
+        { geo: new THREE.SphereGeometry(0.1, 20, 16), y: 0.68, papel: 'armadura' },
+        { geo: new THREE.TorusGeometry(0.1, 0.025, 10, 22), y: 0.82, rotX: Math.PI / 2, papel: 'coroa' },
+        { geo: new THREE.SphereGeometry(0.045, 14, 14), y: 0.9, papel: 'brilho' },
       ]
       break
+    // rei — o mais alto, coroa + cruz, capa
     case 'k':
       partes = [
-        { geo: new THREE.CylinderGeometry(0.24, 0.26, 0.55, 24), y: 0.275 },
-        { geo: new THREE.BoxGeometry(0.3, 0.3, 0.1), y: 0.65 },
-        { geo: new THREE.BoxGeometry(0.06, 0.24, 0.06), y: 0.78 },
-        { geo: new THREE.BoxGeometry(0.18, 0.06, 0.06), y: 0.78 },
+        { geo: new THREE.ConeGeometry(0.21, 0.5, 22), y: 0.25, papel: 'detalhe' },
+        { geo: new THREE.CylinderGeometry(0.14, 0.17, 0.12, 22), y: 0.56, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.22, 0.42, 0.04), y: 0.4, z: -0.12, rotX: 0.1, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.11, 20, 16), y: 0.74, papel: 'armadura' },
+        { geo: new THREE.TorusGeometry(0.11, 0.025, 10, 22), y: 0.88, rotX: Math.PI / 2, papel: 'coroa' },
+        { geo: new THREE.BoxGeometry(0.04, 0.16, 0.04), y: 1.0, papel: 'coroa' },
+        { geo: new THREE.BoxGeometry(0.12, 0.04, 0.04), y: 1.02, papel: 'coroa' },
       ]
       break
   }
@@ -86,18 +118,51 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
   return partes
 }
 
-const materialPorCor: Record<'w' | 'b', THREE.MeshStandardMaterial> = {
-  w: new THREE.MeshStandardMaterial({ color: COR_PECA_BRANCA, roughness: 0.4, metalness: 0.12 }),
-  b: new THREE.MeshStandardMaterial({ color: COR_PECA_PRETA, roughness: 0.4, metalness: 0.12 }),
+interface MateriaisFaccao {
+  armadura: THREE.MeshStandardMaterial
+  detalhe: THREE.MeshStandardMaterial
+  brilho: THREE.MeshStandardMaterial
+}
+
+// Reino (brancas) — armadura clara, detalhes em azul-real, olhos ciano
+// Horda (pretas) — armadura escura, detalhes em vermelho-sangue, olhos vermelhos
+const materiaisPorFaccao: Record<'w' | 'b', MateriaisFaccao> = {
+  w: {
+    armadura: new THREE.MeshStandardMaterial({ color: 0xd9d9dd, roughness: 0.35, metalness: 0.55 }),
+    detalhe: new THREE.MeshStandardMaterial({ color: 0x2a4d8f, roughness: 0.55, metalness: 0.1 }),
+    brilho: new THREE.MeshStandardMaterial({
+      color: 0x8fd8ff,
+      emissive: 0x2a9dc9,
+      emissiveIntensity: 0.9,
+      roughness: 0.4,
+    }),
+  },
+  b: {
+    armadura: new THREE.MeshStandardMaterial({ color: 0x34343b, roughness: 0.35, metalness: 0.55 }),
+    detalhe: new THREE.MeshStandardMaterial({ color: 0x7a1f1f, roughness: 0.55, metalness: 0.1 }),
+    brilho: new THREE.MeshStandardMaterial({
+      color: 0xff6b5a,
+      emissive: 0xb33324,
+      emissiveIntensity: 0.9,
+      roughness: 0.4,
+    }),
+  },
+}
+
+const materialCoroa = new THREE.MeshStandardMaterial({ color: 0xd8b23a, roughness: 0.3, metalness: 0.75 })
+
+function materialDaParte(papel: Papel, cor: 'w' | 'b'): THREE.Material {
+  return papel === 'coroa' ? materialCoroa : materiaisPorFaccao[cor][papel]
 }
 
 function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
   const grupo = new THREE.Group()
-  const material = materialPorCor[cor]
   for (const parte of geometriasDoTipo(tipo)) {
-    const mesh = new THREE.Mesh(parte.geo, material)
+    const mesh = new THREE.Mesh(parte.geo, materialDaParte(parte.papel, cor))
     mesh.position.set(parte.x ?? 0, parte.y, parte.z ?? 0)
     if (parte.rotX) mesh.rotation.x = parte.rotX
+    if (parte.rotY) mesh.rotation.y = parte.rotY
+    if (parte.rotZ) mesh.rotation.z = parte.rotZ
     mesh.castShadow = true
     grupo.add(mesh)
   }
