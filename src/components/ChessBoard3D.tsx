@@ -277,6 +277,12 @@ const ALTURA_FULL_HD = 1080
 const DURACAO_LANCE_MS = 1300
 /** Pausa "pensando" da máquina antes de mover, pro ritmo geral ficar mais compassado. */
 const PAUSA_MAQUINA_MS = 700
+/** Intervalo entre lances no modo demonstração (máquina x máquina) — de 15 a 30s por lance. */
+const DEMO_INTERVALO_MIN_MS = 15000
+const DEMO_INTERVALO_MAX_MS = 30000
+function atrasoDemoAleatorio(): number {
+  return DEMO_INTERVALO_MIN_MS + Math.random() * (DEMO_INTERVALO_MAX_MS - DEMO_INTERVALO_MIN_MS)
+}
 
 /** Calcula o pixel ratio necessário pra garantir que o canvas renderize em pelo menos Full HD (1920x1080), mesmo quando o card exibido na tela é menor — limitado a 3x pra não sobrecarregar a GPU em telas muito pequenas. */
 function pixelRatioParaFullHD(larguraCss: number, alturaCss: number): number {
@@ -330,7 +336,11 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
   const livroRef = useRef<LivroDeAberturas>(new Map())
   const partidaAtualRef = useRef<PartidaXadrez | null>(null)
   const corHumanoRef = useRef<'w' | 'b'>('w')
-  const acoesRef = useRef<{ carregarPgn: (pgn: string, corHumano: 'w' | 'b') => void } | null>(null)
+  const acoesRef = useRef<{
+    carregarPgn: (pgn: string, corHumano: 'w' | 'b') => void
+    entrarEmDemo: () => void
+    pararDemo: () => void
+  } | null>(null)
 
   const [statusTexto, setStatusTexto] = useState('Carregando o tabuleiro…')
   const [livroInfo, setLivroInfo] = useState<string | null>(null)
@@ -365,11 +375,12 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
           setPartidasEmAndamento(emAndamento)
           acoesRef.current?.carregarPgn(emAndamento[0].pgn, emAndamento[0].corJogador)
         } else {
-          setEscolhendoCor(true)
+          // sem partida salva — fica em modo demonstração (só olhando) até clicar em "Novo jogo"
+          acoesRef.current?.entrarEmDemo()
         }
       })
       .catch(() => {
-        setEscolhendoCor(true)
+        acoesRef.current?.entrarEmDemo()
       })
     return () => {
       cancelado = true
@@ -579,7 +590,9 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       salvarProgresso()
       const corHumano = corHumanoRef.current
       const labelCor = (c: 'w' | 'b') => (c === 'w' ? 'brancas' : 'pretas')
-      if (chess.isCheckmate()) {
+      if (!partidaAtualRef.current) {
+        setStatusTexto('Modo demonstração — partida entre máquinas. Clique em "Novo jogo" pra jogar.')
+      } else if (chess.isCheckmate()) {
         const vencedor =
           chess.turn() === corHumano
             ? `A máquina (${labelCor(corHumano === 'w' ? 'b' : 'w')})`
@@ -673,7 +686,52 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       }, PAUSA_MAQUINA_MS)
     }
 
+    // ---------------------------------------------------------------------
+    // Modo demonstração — sem partida do jogador ativa, o tabuleiro fica
+    // jogando sozinho (máquina x máquina), um lance a cada 15-30s, só pra
+    // exibição/aprendizado. Para assim que uma partida de verdade começa.
+    // ---------------------------------------------------------------------
+    let demoTimeoutId: number | undefined
+
+    function pararDemo() {
+      if (demoTimeoutId !== undefined) {
+        window.clearTimeout(demoTimeoutId)
+        demoTimeoutId = undefined
+      }
+    }
+
+    function agendarProximoLanceDemo() {
+      pararDemo()
+      demoTimeoutId = window.setTimeout(jogarLanceDemo, atrasoDemoAleatorio())
+    }
+
+    function jogarLanceDemo() {
+      if (partidaAtualRef.current) return // uma partida de verdade começou nesse meio-tempo
+      const chess = chessRef.current
+      if (chess.isGameOver()) {
+        demoTimeoutId = window.setTimeout(() => {
+          if (partidaAtualRef.current) return
+          chess.reset()
+          sincronizarPecas()
+          limparDestaques()
+          atualizarStatusTexto()
+          agendarProximoLanceDemo()
+        }, 3000)
+        return
+      }
+      const lance = escolherJogadaDaMaquina(chess, livroRef.current)
+      if (!lance) {
+        agendarProximoLanceDemo()
+        return
+      }
+      executarLanceComAnimacao(lance, () => {
+        atualizarStatusTexto()
+        agendarProximoLanceDemo()
+      })
+    }
+
     function tentarSelecionar(square: Square) {
+      if (!partidaAtualRef.current) return
       const chess = chessRef.current
       if (chess.turn() !== corHumanoRef.current || vezDaMaquinaRef.current || chess.isGameOver()) return
       const peca = chess.get(square)
@@ -732,6 +790,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       // carrega uma partida salva (PGN) ou começa uma nova (pgn vazio) — usado tanto pra
       // retomar a partida em andamento ao abrir quanto pra começar uma partida nova depois
       carregarPgn(pgn: string, corHumano: 'w' | 'b') {
+        pararDemo()
         const chess = chessRef.current
         corHumanoRef.current = corHumano
         if (pgn) {
@@ -751,6 +810,20 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         atualizarStatusTexto()
         if (!chess.isGameOver() && chess.turn() !== corHumanoRef.current) jogarLanceDaMaquina()
       },
+      // sem partida do jogador ativa — o tabuleiro joga sozinho (máquina x máquina) até
+      // clicar em "Novo jogo"
+      entrarEmDemo() {
+        partidaAtualRef.current = null
+        chessRef.current.reset()
+        selecionadaRef.current = null
+        destinosRef.current = []
+        vezDaMaquinaRef.current = false
+        sincronizarPecas()
+        limparDestaques()
+        atualizarStatusTexto()
+        agendarProximoLanceDemo()
+      },
+      pararDemo,
     }
 
     sincronizarPecas()
@@ -775,6 +848,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     window.addEventListener('resize', onResize)
 
     return () => {
+      pararDemo()
       window.removeEventListener('resize', onResize)
       renderer.domElement.removeEventListener('click', onClick)
       cancelAnimationFrame(frameId)
@@ -793,6 +867,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
   }, [historico])
 
   function handleNovoJogo() {
+    acoesRef.current?.pararDemo()
     setEscolhendoCor(true)
   }
 
