@@ -19,6 +19,31 @@ function squareToPos(square: string): { x: number; z: number } {
 }
 
 // ---------------------------------------------------------------------------
+// Visual estilo desenho animado (cel-shading): sombreamento em degraus via
+// MeshToonMaterial + um "gradient map" de poucos tons, combinado com contorno
+// preto nas peças (a técnica clássica do "casco invertido" — um clone da
+// mesma peça, ligeiramente maior e renderizado só por dentro/atrás).
+// ---------------------------------------------------------------------------
+function criarGradienteToon(): THREE.DataTexture {
+  const tons = new Uint8Array([70, 130, 190, 255])
+  const textura = new THREE.DataTexture(tons, tons.length, 1, THREE.RedFormat)
+  textura.needsUpdate = true
+  textura.magFilter = THREE.NearestFilter
+  textura.minFilter = THREE.NearestFilter
+  return textura
+}
+
+const gradienteToon = criarGradienteToon()
+const COR_CONTORNO = 0x1a1410
+const materialContorno = new THREE.MeshBasicMaterial({ color: COR_CONTORNO, side: THREE.BackSide })
+
+function criarContorno(geo: THREE.BufferGeometry): THREE.Mesh {
+  const mesh = new THREE.Mesh(geo, materialContorno)
+  mesh.scale.setScalar(1.06)
+  return mesh
+}
+
+// ---------------------------------------------------------------------------
 // Peças-personagem — dois exércitos com visual distinto (Reino, claro/azul, x
 // Horda, escuro/vermelho), em vez das peças geométricas clássicas. Cada peça é
 // montada com formas simples (corpo, cabeça, elmo/capuz, acessório) só que com
@@ -119,37 +144,27 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
 }
 
 interface MateriaisFaccao {
-  armadura: THREE.MeshStandardMaterial
-  detalhe: THREE.MeshStandardMaterial
-  brilho: THREE.MeshStandardMaterial
+  armadura: THREE.MeshToonMaterial
+  detalhe: THREE.MeshToonMaterial
+  brilho: THREE.MeshBasicMaterial
 }
 
 // Reino (brancas) — armadura clara, detalhes em azul-real, olhos ciano
 // Horda (pretas) — armadura escura, detalhes em vermelho-sangue, olhos vermelhos
 const materiaisPorFaccao: Record<'w' | 'b', MateriaisFaccao> = {
   w: {
-    armadura: new THREE.MeshStandardMaterial({ color: 0xd9d9dd, roughness: 0.35, metalness: 0.55 }),
-    detalhe: new THREE.MeshStandardMaterial({ color: 0x2a4d8f, roughness: 0.55, metalness: 0.1 }),
-    brilho: new THREE.MeshStandardMaterial({
-      color: 0x8fd8ff,
-      emissive: 0x2a9dc9,
-      emissiveIntensity: 0.9,
-      roughness: 0.4,
-    }),
+    armadura: new THREE.MeshToonMaterial({ color: 0xe6e6ea, gradientMap: gradienteToon }),
+    detalhe: new THREE.MeshToonMaterial({ color: 0x2a4d8f, gradientMap: gradienteToon }),
+    brilho: new THREE.MeshBasicMaterial({ color: 0x8fe3ff }),
   },
   b: {
-    armadura: new THREE.MeshStandardMaterial({ color: 0x34343b, roughness: 0.35, metalness: 0.55 }),
-    detalhe: new THREE.MeshStandardMaterial({ color: 0x7a1f1f, roughness: 0.55, metalness: 0.1 }),
-    brilho: new THREE.MeshStandardMaterial({
-      color: 0xff6b5a,
-      emissive: 0xb33324,
-      emissiveIntensity: 0.9,
-      roughness: 0.4,
-    }),
+    armadura: new THREE.MeshToonMaterial({ color: 0x3a3a42, gradientMap: gradienteToon }),
+    detalhe: new THREE.MeshToonMaterial({ color: 0x8a2222, gradientMap: gradienteToon }),
+    brilho: new THREE.MeshBasicMaterial({ color: 0xff7a5c }),
   },
 }
 
-const materialCoroa = new THREE.MeshStandardMaterial({ color: 0xd8b23a, roughness: 0.3, metalness: 0.75 })
+const materialCoroa = new THREE.MeshToonMaterial({ color: 0xe0b93d, gradientMap: gradienteToon })
 
 function materialDaParte(papel: Papel, cor: 'w' | 'b'): THREE.Material {
   return papel === 'coroa' ? materialCoroa : materiaisPorFaccao[cor][papel]
@@ -165,6 +180,13 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
     if (parte.rotZ) mesh.rotation.z = parte.rotZ
     mesh.castShadow = true
     grupo.add(mesh)
+
+    if (parte.papel !== 'brilho') {
+      const contorno = criarContorno(parte.geo)
+      contorno.position.copy(mesh.position)
+      contorno.rotation.copy(mesh.rotation)
+      grupo.add(contorno)
+    }
   }
   return grupo
 }
@@ -242,8 +264,9 @@ export function ChessBoard3D() {
     renderer.shadowMap.enabled = true
     renderer.shadowMap.type = THREE.PCFSoftShadowMap
     renderer.outputColorSpace = THREE.SRGBColorSpace
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.05
+    // sem tone mapping cinematográfico — pro estilo desenho/toon as cores ficam mais
+    // vivas e chapadas sem o ACES "esmaecer" os tons como faria num render realista
+    renderer.toneMapping = THREE.NoToneMapping
     container.appendChild(renderer.domElement)
 
     const controls = new OrbitControls(camera, renderer.domElement)
@@ -254,8 +277,10 @@ export function ChessBoard3D() {
     controls.maxDistance = 14
     controls.maxPolarAngle = Math.PI / 2 - 0.05
 
-    scene.add(new THREE.HemisphereLight(0xfff6e6, 0x3a2a1a, 0.55))
-    const dirLight = new THREE.DirectionalLight(0xfff3e0, 0.95)
+    // luz mais direcional e menos ambiente do que num render realista — é o que faz o
+    // sombreamento em degraus do toon material aparecer, em vez de ficar tudo "lavado"
+    scene.add(new THREE.HemisphereLight(0xfff6e6, 0x3a2a1a, 0.35))
+    const dirLight = new THREE.DirectionalLight(0xfff3e0, 1.15)
     dirLight.position.set(4, 10, 6)
     dirLight.castShadow = true
     dirLight.shadow.mapSize.set(2048, 2048)
@@ -265,13 +290,13 @@ export function ChessBoard3D() {
     dirLight.shadow.camera.bottom = -6
     dirLight.shadow.bias = -0.0015
     scene.add(dirLight)
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.25)
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.15)
     fillLight.position.set(-5, 6, -4)
     scene.add(fillLight)
 
     const base = new THREE.Mesh(
       new THREE.BoxGeometry(8.6, 0.25, 8.6),
-      new THREE.MeshStandardMaterial({ color: COR_BASE, roughness: 0.75 }),
+      new THREE.MeshToonMaterial({ color: COR_BASE, gradientMap: gradienteToon }),
     )
     base.position.y = -0.22
     base.receiveShadow = true
@@ -284,9 +309,9 @@ export function ChessBoard3D() {
       for (let r = 0; r < 8; r++) {
         const square = `${String.fromCharCode(97 + f)}${r + 1}`
         const clara = (f + r) % 2 === 1
-        const mat = new THREE.MeshStandardMaterial({
+        const mat = new THREE.MeshToonMaterial({
           color: clara ? COR_CASA_CLARA : COR_CASA_ESCURA,
-          roughness: 0.7,
+          gradientMap: gradienteToon,
         })
         const mesh = new THREE.Mesh(squareGeo, mat)
         const { x, z } = squareToPos(square)
