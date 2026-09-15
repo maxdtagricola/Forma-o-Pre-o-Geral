@@ -13,6 +13,7 @@ import { formatCurrency, formatDate, selecionarTudoAoFocar } from '../utils'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { QUOTE_STATUSES, TIPOS_REFERENCIA, VENDEDORES } from '../types'
 import type { PedidoCompraInfo, QuoteRecord, QuoteStatus, TipoReferencia } from '../types'
+import { useEstadoPersistente } from '../estadoPersistente'
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
 const tipoOptions = TIPOS_REFERENCIA.map((t) => ({ value: t.value, label: t.label }))
@@ -173,7 +174,7 @@ function GrupoCotacoesCard({
   onOpenQuote: (r: QuoteRecord) => void
   onStatusChange: (r: QuoteRecord, status: QuoteStatus) => void
 }) {
-  const [aberto, setAberto] = useState(false)
+  const [aberto, setAberto] = useEstadoPersistente(`cotacoes:grupoStatusAberto:${grupo.status}`, false)
   return (
     <div>
       <button type="button" onClick={() => setAberto((v) => !v)} className="w-full flex items-center gap-2 mb-2 text-left">

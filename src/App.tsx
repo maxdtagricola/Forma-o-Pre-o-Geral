@@ -34,6 +34,7 @@ import {
   setPricingGlobal,
   type PricingGlobal,
 } from './db/configRepo'
+import { listEmpresas } from './db/empresasRepo'
 import { clearCurrentAdmin, getCurrentAdmin, setCurrentAdmin } from './currentAdmin'
 import { clearCurrentPlayer, getCurrentPlayer, setCurrentPlayer } from './currentPlayer'
 import { getModoSessao, limparModoSessao, setModoSessao } from './session'
@@ -43,6 +44,7 @@ import type { ItemCotacaoImportado } from './quoteImport'
 import type {
   AdminName,
   CotacaoFornecedorItem,
+  Empresa,
   EstadoDestino,
   PreRegistroItem,
   PricingConfig,
@@ -65,6 +67,8 @@ export default function App() {
   const [tipoReferencia, setTipoReferencia] = useState<TipoReferencia>('itens')
   const [cliente, setCliente] = useState('')
   const [maquina, setMaquina] = useState('')
+  const [empresaId, setEmpresaId] = useState('')
+  const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [items, setItems] = useState<QuoteItem[]>(() => [createQuoteItem()])
   const [activeItemId, setActiveItemId] = useState<string>(() => items[0].id)
   const [editingQuoteId, setEditingQuoteId] = useState<string | undefined>(undefined)
@@ -99,6 +103,7 @@ export default function App() {
         tipoReferencia,
         cliente,
         maquina,
+        empresaId,
         items,
         activeItemId,
         activeStatus,
@@ -115,6 +120,7 @@ export default function App() {
     tipoReferencia,
     cliente,
     maquina,
+    empresaId,
     items,
     activeItemId,
     activeStatus,
@@ -129,6 +135,15 @@ export default function App() {
       .then(setPricingGlobalState)
       .catch(() => {
         // se falhar, segue com os valores padrão
+      })
+  }, [])
+
+  // empresas do grupo — usadas no seletor "pra qual empresa é essa cotação" e no frete automático
+  useEffect(() => {
+    listEmpresas()
+      .then(setEmpresas)
+      .catch(() => {
+        // sem servidor no momento — segue sem a lista, o seletor fica vazio até recarregar
       })
   }, [])
 
@@ -201,6 +216,7 @@ export default function App() {
     setTipoReferencia(r.tipoReferencia)
     setCliente(r.cliente)
     setMaquina(r.maquina)
+    setEmpresaId(r.empresaId ?? '')
     setItems(r.items)
     setActiveItemId(r.activeItemId)
     setEditingQuoteId(r.editingQuoteId)
@@ -312,7 +328,7 @@ export default function App() {
       }
       setItems(novosItems)
       setActiveItemId(novosItems[0].id)
-      await saveQuote(currentAdmin, vendedor, tipoReferencia, cliente, maquina, novosItems, editingQuoteId)
+      await saveQuote(currentAdmin, vendedor, tipoReferencia, cliente, maquina, novosItems, editingQuoteId, empresaId)
       setHistoryRefreshKey((k) => k + 1)
     }
 
@@ -368,7 +384,7 @@ export default function App() {
   async function handleSave() {
     if (!currentAdmin) return
     try {
-      const record = await saveQuote(currentAdmin, vendedor, tipoReferencia, cliente, maquina, items, editingQuoteId)
+      const record = await saveQuote(currentAdmin, vendedor, tipoReferencia, cliente, maquina, items, editingQuoteId, empresaId)
       setEditingQuoteId(record.id)
       setHistoryRefreshKey((k) => k + 1)
       limparRascunho()
@@ -383,6 +399,7 @@ export default function App() {
     setTipoReferencia('itens')
     setCliente('')
     setMaquina('')
+    setEmpresaId('')
     setItems([fresh])
     setActiveItemId(fresh.id)
     setEditingQuoteId(undefined)
@@ -401,6 +418,7 @@ export default function App() {
     setTipoReferencia(record.tipoReferencia)
     setCliente(record.cliente)
     setMaquina(record.maquina)
+    setEmpresaId(record.empresaId ?? '')
     setItems(loadedItems)
     setActiveItemId(loadedItems[0]?.id ?? '')
     setEditingQuoteId(record.id)
@@ -524,10 +542,13 @@ export default function App() {
           tipoReferencia={tipoReferencia}
           cliente={cliente}
           maquina={maquina}
+          empresaId={empresaId}
+          empresas={empresas}
           onVendedorChange={setVendedor}
           onTipoReferenciaChange={setTipoReferencia}
           onClienteChange={setCliente}
           onMaquinaChange={setMaquina}
+          onEmpresaIdChange={setEmpresaId}
           items={items}
           activeItemId={activeItem.id}
           activeProduct={activeItem.product}

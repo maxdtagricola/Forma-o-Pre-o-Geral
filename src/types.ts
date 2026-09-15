@@ -346,6 +346,8 @@ export interface QuoteRecord {
   /** Dados iniciais da cotação — quem pediu e pra qual máquina, além dos itens. */
   cliente: string
   maquina: string
+  /** Empresa do grupo (destinatário) pra qual essa cotação está sendo feita — usada pra carregar o frete automaticamente. */
+  empresaId?: string
   items: QuoteItem[]
   /** Itens ainda não precificados — lista rápida preenchida antes da precificação. */
   itensPreRegistro: PreRegistroItem[]

@@ -114,15 +114,25 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
         { geo: new THREE.BoxGeometry(0.09, 0.02, 0.02), y: 0.705, z: 0.095, papel: 'brilho' },
       ]
       break
-    // cavalo — batedor ágil, capuz e capa inclinados
+    // cavalo — batedor ágil e franzino, corpo esguio e inclinado numa postura de corrida (bem
+    // diferente do porte reto do peão), capuz alto cobrindo a cabeça toda, pena longa varrendo pra
+    // trás e um arco nas costas — silhueta reconhecível de longe, não só uma variação do peão
     case 'n':
       partes = [
-        { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
-        { geo: new THREE.CylinderGeometry(0.11, 0.13, 0.2, 18), y: 0.48, papel: 'armadura' },
-        { geo: new THREE.BoxGeometry(0.16, 0.26, 0.03), y: 0.44, z: -0.1, rotX: 0.15, papel: 'detalhe' },
-        { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.68, z: 0.02, rotX: -0.2, papel: 'armadura' },
-        { geo: new THREE.ConeGeometry(0.05, 0.15, 12), x: -0.04, y: 0.8, rotZ: 0.35, papel: 'detalhe' },
-        { geo: new THREE.BoxGeometry(0.09, 0.02, 0.02), y: 0.685, z: 0.095, papel: 'brilho' },
+        { geo: new THREE.BoxGeometry(0.16, 0.07, 0.12), y: 0.35, rotZ: 0.14, papel: 'armadura' },
+        { geo: new THREE.CylinderGeometry(0.075, 0.095, 0.24, 14), y: 0.49, rotZ: 0.18, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.105, 0.26, 16), y: 0.68, rotZ: 0.18, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.07, 16, 12), y: 0.62, z: 0.015, rotX: -0.15, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.03, 0.24, 10), x: -0.07, y: 0.88, z: -0.03, rotZ: 0.55, papel: 'detalhe' },
+        {
+          geo: new THREE.TorusGeometry(0.12, 0.014, 8, 16, Math.PI),
+          y: 0.42,
+          z: -0.11,
+          rotY: Math.PI / 2,
+          rotZ: 0.18,
+          papel: 'detalhe',
+        },
+        { geo: new THREE.BoxGeometry(0.05, 0.015, 0.015), y: 0.605, z: 0.06, rotZ: 0.18, papel: 'brilho' },
       ]
       break
     // bispo — místico com chapéu pontudo e cajado
@@ -221,6 +231,37 @@ function materialDaParte(papel: Papel, cor: 'w' | 'b'): THREE.Material {
   return papel === 'coroa' ? materialCoroa : materiaisPorFaccao[cor][papel]
 }
 
+// ---------------------------------------------------------------------------
+// Espada do peão — mesmo aço/cabo pras duas facções (não segue o material por
+// papel/cor), parentada no pivô da mão direita, pra balançar junto do braço
+// tanto na caminhada durante o lance quanto na pose parada.
+// ---------------------------------------------------------------------------
+const geoLaminaEspada = new THREE.BoxGeometry(0.032, 0.26, 0.065)
+const geoGuardaEspada = new THREE.BoxGeometry(0.1, 0.022, 0.022)
+const geoCaboEspada = new THREE.CylinderGeometry(0.014, 0.014, 0.075, 8)
+const materialLaminaEspada = new THREE.MeshToonMaterial({ color: 0x8a94a3, gradientMap: gradienteToon })
+const materialCaboEspada = new THREE.MeshToonMaterial({ color: 0x4a2f18, gradientMap: gradienteToon })
+
+function criarEspadaDoPeao(): THREE.Group {
+  const espada = new THREE.Group()
+  const partes: { geo: THREE.BufferGeometry; y: number; material: THREE.Material }[] = [
+    { geo: geoCaboEspada, y: -0.035, material: materialCaboEspada },
+    { geo: geoGuardaEspada, y: -0.07, material: materialCaboEspada },
+    { geo: geoLaminaEspada, y: -0.2, material: materialLaminaEspada },
+  ]
+  for (const parte of partes) {
+    const mesh = new THREE.Mesh(parte.geo, parte.material)
+    mesh.position.y = parte.y
+    mesh.castShadow = true
+    espada.add(mesh)
+
+    const contorno = criarContorno(parte.geo)
+    contorno.position.y = parte.y
+    espada.add(contorno)
+  }
+  return espada
+}
+
 /** Monta um braço ou perna: um grupo-pivô na articulação, com o membro pendurado abaixo dele — girar o pivô move o membro inteiro, como uma dobradiça. */
 function criarMembro(cfg: ConfigMembro, cor: 'w' | 'b'): THREE.Group {
   const pivot = new THREE.Group()
@@ -265,6 +306,14 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
   }
   grupo.add(membros.pernaEsq, membros.pernaDir, membros.bracoEsq, membros.bracoDir)
   grupo.userData.membros = membros
+
+  if (tipo === 'p') {
+    const espada = criarEspadaDoPeao()
+    espada.position.y = -CONFIG_BRACO_DIR.comprimento
+    espada.rotation.z = -0.5
+    espada.scale.setScalar(1.8)
+    membros.bracoDir.add(espada)
+  }
 
   grupo.scale.setScalar(ESCALA_POR_TIPO[tipo] ?? 1)
 
@@ -960,12 +1009,14 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-ink-700">{statusTexto}</p>
-          <p className="text-xs text-ink-400">
-            Jogando como <span className="font-medium text-ink-600">{jogador}</span>
-          </p>
-        </div>
+        {!emDemo && (
+          <div>
+            <p className="text-sm font-medium text-ink-700">{statusTexto}</p>
+            <p className="text-xs text-ink-400">
+              Jogando como <span className="font-medium text-ink-600">{jogador}</span>
+            </p>
+          </div>
+        )}
         <div className="flex gap-2">
           {emDemo && (
             <Button
@@ -1009,34 +1060,6 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
           className="w-full aspect-[4/3] sm:aspect-video rounded-xl overflow-hidden border border-ink-100 touch-none"
         />
 
-        <div className="absolute top-3 right-3 z-10 w-40 max-w-[48%] rounded-lg border border-ink-200 bg-white/90 backdrop-blur-sm shadow-lg overflow-hidden">
-          <button
-            type="button"
-            onClick={() => setHistoricoAberto((v) => !v)}
-            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-50"
-          >
-            Lances
-            <span aria-hidden className={`transition-transform ${historicoAberto ? 'rotate-180' : ''}`}>
-              ▾
-            </span>
-          </button>
-          {historicoAberto && (
-            <div className="max-h-48 overflow-y-auto px-3 pb-2 text-xs text-ink-600 space-y-0.5 border-t border-ink-100 pt-2">
-              {paresLances.length === 0 ? (
-                <p className="text-ink-400">Nenhum lance ainda.</p>
-              ) : (
-                paresLances.map((p) => (
-                  <div key={p.numero} className="flex gap-2 tabular-nums">
-                    <span className="w-4 text-ink-400">{p.numero}.</span>
-                    <span className="flex-1 font-mono">{p.branco.toUpperCase()}</span>
-                    <span className="flex-1 font-mono">{p.preto?.toUpperCase() ?? ''}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-
         {escolhendoCor && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-ink-950/70 backdrop-blur-sm rounded-xl p-4">
             <div className="w-full max-w-xs rounded-xl bg-white p-4 shadow-xl text-center">
@@ -1073,6 +1096,35 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
           </div>
         )}
       </div>
+
+      <div className="rounded-xl border border-ink-200 overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setHistoricoAberto((v) => !v)}
+          className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-50"
+        >
+          Lances
+          <span aria-hidden className={`transition-transform ${historicoAberto ? 'rotate-180' : ''}`}>
+            ▾
+          </span>
+        </button>
+        {historicoAberto && (
+          <div className="max-h-48 overflow-y-auto px-3 pb-2 text-xs text-ink-600 space-y-0.5 border-t border-ink-100 pt-2">
+            {paresLances.length === 0 ? (
+              <p className="text-ink-400">Nenhum lance ainda.</p>
+            ) : (
+              paresLances.map((p) => (
+                <div key={p.numero} className="flex gap-2 tabular-nums">
+                  <span className="w-4 text-ink-400">{p.numero}.</span>
+                  <span className="flex-1 font-mono">{p.branco.toUpperCase()}</span>
+                  <span className="flex-1 font-mono">{p.preto?.toUpperCase() ?? ''}</span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+      </div>
+
       <p className="text-xs text-ink-400">{livroInfo ?? 'Carregando arquivo de referência…'}</p>
     </div>
   )

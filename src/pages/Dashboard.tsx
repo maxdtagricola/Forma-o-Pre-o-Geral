@@ -9,7 +9,7 @@ import { SelectField, TextField } from '../components/ui/Field'
 import { calculateItem } from '../calc/calculator'
 import { formatCurrency } from '../utils'
 import { TIPOS_REFERENCIA, VENDEDORES } from '../types'
-import type { CalculationResult, PricingConfig, ProductInput, QuoteItem, QuoteStatus, TipoReferencia } from '../types'
+import type { CalculationResult, Empresa, PricingConfig, ProductInput, QuoteItem, QuoteStatus, TipoReferencia } from '../types'
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
 const tipoReferenciaOptions = TIPOS_REFERENCIA.map((t) => ({ value: t.value, label: t.label }))
@@ -23,10 +23,13 @@ export function Dashboard({
   tipoReferencia,
   cliente,
   maquina,
+  empresaId,
+  empresas,
   onVendedorChange,
   onTipoReferenciaChange,
   onClienteChange,
   onMaquinaChange,
+  onEmpresaIdChange,
   items,
   activeItemId,
   activeProduct,
@@ -57,10 +60,13 @@ export function Dashboard({
   tipoReferencia: TipoReferencia
   cliente: string
   maquina: string
+  empresaId: string
+  empresas: Empresa[]
   onVendedorChange: (value: string) => void
   onTipoReferenciaChange: (value: TipoReferencia) => void
   onClienteChange: (value: string) => void
   onMaquinaChange: (value: string) => void
+  onEmpresaIdChange: (value: string) => void
   items: QuoteItem[]
   activeItemId: string
   activeProduct: ProductInput
@@ -84,6 +90,11 @@ export function Dashboard({
   onVerPlanilhaCliente: () => void
 }) {
   const travadaPorOutro = activeStatus !== 'PENDENTE' && !!activeResponsavel && activeResponsavel !== currentAdmin
+
+  const empresaOptions = [
+    { value: '', label: '— selecione —' },
+    ...empresas.map((e) => ({ value: e.id, label: e.nome })),
+  ]
 
   const totalGeral = useMemo(
     () => items.reduce((sum, item) => sum + calculateItem(item.product, item.pricing).precoVendaTotal, 0),
@@ -145,6 +156,13 @@ export function Dashboard({
           />
           <TextField label="Cliente" value={cliente} onChange={onClienteChange} uppercase />
           <TextField label="Máquina" value={maquina} onChange={onMaquinaChange} />
+          <SelectField
+            label="Empresa (destinatário)"
+            value={empresaId}
+            onChange={onEmpresaIdChange}
+            options={empresaOptions}
+            hint={empresas.length === 0 ? 'Cadastre empresas em Configurações' : 'Usada pra carregar o frete automaticamente'}
+          />
         </div>
       </div>
 

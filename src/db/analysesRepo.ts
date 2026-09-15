@@ -83,6 +83,7 @@ export async function saveQuote(
   maquina: string,
   items: QuoteItem[],
   existingId?: string,
+  empresaId?: string,
 ): Promise<QuoteRecord> {
   const now = Date.now()
   const precoVendaTotalGeral = items.reduce(
@@ -110,6 +111,7 @@ export async function saveQuote(
     tipoReferencia,
     cliente,
     maquina,
+    empresaId: empresaId ?? base?.empresaId,
     items,
     itensPreRegistro: base?.itensPreRegistro ?? [],
     planilhaOriginal: base?.planilhaOriginal,

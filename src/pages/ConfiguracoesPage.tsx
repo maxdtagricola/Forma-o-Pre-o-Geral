@@ -24,10 +24,9 @@ import { ESTADOS } from '../data/estados'
 import { DEFAULT_EMPRESA, ESTADOS_DESTINO, NOTA_FISCAL_STATUSES, QUOTE_STATUSES } from '../types'
 import type { Empresa, EstadoDestino } from '../types'
 import type { PricingGlobal } from '../db/configRepo'
+import { SENHA_PADRAO } from '../senhaPadrao'
 
 const estadoOptions = ESTADOS.map((e) => ({ value: e.uf, label: `${e.uf} — ${e.nome}` }))
-
-const SENHA_IMPORTACAO = '11994044'
 
 export function ConfiguracoesPage({
   currentAdmin,
@@ -124,7 +123,7 @@ export function ConfiguracoesPage({
       alert('Informe pelo menos o nome da empresa.')
       return
     }
-    if (senhaEmpresa !== SENHA_IMPORTACAO) {
+    if (senhaEmpresa !== SENHA_PADRAO) {
       alert('Senha incorreta.')
       return
     }
@@ -183,7 +182,7 @@ export function ConfiguracoesPage({
 
   async function handleConfirmarExcluirPastaXadrez() {
     if (!pastaXadrezParaExcluir) return
-    if (senhaExcluirPastaXadrez !== SENHA_IMPORTACAO) {
+    if (senhaExcluirPastaXadrez !== SENHA_PADRAO) {
       alert('Senha incorreta.')
       return
     }
@@ -249,7 +248,7 @@ export function ConfiguracoesPage({
 
   async function handleImportar() {
     if (!habilitado) return
-    if (senhaImportar !== SENHA_IMPORTACAO) {
+    if (senhaImportar !== SENHA_PADRAO) {
       alert('Senha incorreta.')
       return
     }
@@ -281,7 +280,7 @@ export function ConfiguracoesPage({
 
   async function handleSalvarNovaPlanilha() {
     if (!pendente) return
-    if (senhaSalvar !== SENHA_IMPORTACAO) {
+    if (senhaSalvar !== SENHA_PADRAO) {
       alert('Senha incorreta.')
       return
     }
@@ -325,7 +324,7 @@ export function ConfiguracoesPage({
 
   async function handleConfirmarAcaoPlanilha() {
     if (!acaoPlanilhaPendente) return
-    if (senhaAcaoPlanilha !== SENHA_IMPORTACAO) {
+    if (senhaAcaoPlanilha !== SENHA_PADRAO) {
       alert('Senha incorreta.')
       return
     }

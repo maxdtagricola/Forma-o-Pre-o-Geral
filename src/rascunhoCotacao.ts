@@ -17,6 +17,7 @@ export interface RascunhoCotacao {
   tipoReferencia: TipoReferencia
   cliente: string
   maquina: string
+  empresaId?: string
   items: QuoteItem[]
   activeItemId: string
   activeStatus: QuoteStatus

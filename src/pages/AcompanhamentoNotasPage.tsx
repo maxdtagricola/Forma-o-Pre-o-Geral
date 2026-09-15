@@ -10,6 +10,7 @@ import { DEFAULT_NOTA_FISCAL, NOTA_FISCAL_STATUSES, NOTA_FISCAL_TIPOS, RECEBEDOR
 import type { Fornecedor, NotaFiscal, NotaFiscalStatus, NotaFiscalTipo } from '../types'
 import { chaveMes, chaveMesDaNota, labelDoMes, dataLimiteDoMes, corDoTipo, labelDoTipo } from '../notasFiscaisHelpers'
 import { extrairDadosNotaFiscalPdf } from '../pdfNotaFiscal'
+import { useEstadoPersistente } from '../estadoPersistente'
 
 const transportadoraSuggestions = TRANSPORTADORAS.map((t) => ({ value: t, label: t }))
 const recebedorSuggestions = RECEBEDORES.map((r) => ({ value: r, label: r }))
@@ -146,7 +147,7 @@ function GrupoStatusTable({
   onEdit: (n: NotaFiscal) => void
   onAbrirStatus: (n: NotaFiscal) => void
 }) {
-  const [aberto, setAberto] = useState(false)
+  const [aberto, setAberto] = useEstadoPersistente(`notas:grupoStatusAberto:${grupo.status}`, false)
   return (
     <div>
       <button type="button" onClick={() => setAberto((v) => !v)} className="w-full flex items-center gap-2 mb-2 text-left">
@@ -189,7 +190,7 @@ function PastaMes({
   onEdit: (n: NotaFiscal) => void
   onAbrirStatus: (n: NotaFiscal) => void
 }) {
-  const [aberta, setAberta] = useState(false)
+  const [aberta, setAberta] = useEstadoPersistente(`notas:pastaMesAberta:${mesKey}`, false)
   const [completa, setCompleta] = useState(false)
 
   const valorTotal = itens.reduce((s, n) => s + n.valorNota, 0)
@@ -353,7 +354,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
   const [saving, setSaving] = useState(false)
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
   const [mostrarArquivadas, setMostrarArquivadas] = useState(false)
-  const [formRecolhido, setFormRecolhido] = useState(true)
+  const [formRecolhido, setFormRecolhido] = useEstadoPersistente('notas:formRecolhido', true)
   const [notaParaStatus, setNotaParaStatus] = useState<NotaFiscal | null>(null)
   const [importandoPdf, setImportandoPdf] = useState(false)
 

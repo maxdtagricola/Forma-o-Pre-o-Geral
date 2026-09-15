@@ -205,7 +205,7 @@ export function Layout({
           <h1 className="font-display text-base font-bold text-ink-900">Formação de Preço</h1>
           <div className="w-9" />
         </header>
-        <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">{children}</main>
+        <main className="flex-1 w-full px-4 sm:px-6 py-6 sm:py-8">{children}</main>
       </div>
     </div>
   )
