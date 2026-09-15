@@ -4,7 +4,7 @@ const ChessBoard3D = lazy(() =>
   import('../components/ChessBoard3D').then((m) => ({ default: m.ChessBoard3D })),
 )
 
-export function TelaInicialPage({ currentAdmin }: { currentAdmin: string }) {
+export function TelaInicialPage({ jogador }: { jogador: string }) {
   return (
     <div className="space-y-6">
       <div className="card">
@@ -18,7 +18,7 @@ export function TelaInicialPage({ currentAdmin }: { currentAdmin: string }) {
           Clique numa peça sua pra ver os movimentos possíveis, depois clique na casa de destino.
         </p>
         <Suspense fallback={<p className="text-sm text-ink-400 text-center py-10">Carregando o tabuleiro…</p>}>
-          <ChessBoard3D currentAdmin={currentAdmin} />
+          <ChessBoard3D jogador={jogador} />
         </Suspense>
       </div>
     </div>

@@ -35,6 +35,8 @@ import {
   type PricingGlobal,
 } from './db/configRepo'
 import { clearCurrentAdmin, getCurrentAdmin, setCurrentAdmin } from './currentAdmin'
+import { clearCurrentPlayer, getCurrentPlayer, setCurrentPlayer } from './currentPlayer'
+import { getModoSessao, limparModoSessao, setModoSessao } from './session'
 import { createQuoteItem } from './types'
 import { makeId, melhorCotacaoFornecedor } from './utils'
 import type { ItemCotacaoImportado } from './quoteImport'
@@ -52,7 +54,12 @@ import type {
 } from './types'
 
 export default function App() {
-  const [currentAdmin, setCurrentAdminState] = useState<AdminName | null>(() => getCurrentAdmin())
+  const [currentAdmin, setCurrentAdminState] = useState<AdminName | null>(() =>
+    getModoSessao() === 'admin' ? getCurrentAdmin() : null,
+  )
+  const [currentPlayer, setCurrentPlayerState] = useState<string | null>(() =>
+    getModoSessao() === 'jogador' ? getCurrentPlayer() : null,
+  )
   const [tab, setTab] = useState<TabKey>('telaInicial')
   const [vendedor, setVendedor] = useState('')
   const [tipoReferencia, setTipoReferencia] = useState<TipoReferencia>('itens')
@@ -164,13 +171,27 @@ export default function App() {
   )
 
   function handleSelectAdmin(admin: AdminName) {
+    setModoSessao('admin')
     setCurrentAdmin(admin)
     setCurrentAdminState(admin)
   }
 
   function handleSwitchAdmin() {
     clearCurrentAdmin()
+    limparModoSessao()
     setCurrentAdminState(null)
+  }
+
+  function handleSelectPlayer(nome: string) {
+    setModoSessao('jogador')
+    setCurrentPlayer(nome)
+    setCurrentPlayerState(nome)
+  }
+
+  function handleSairJogador() {
+    clearCurrentPlayer()
+    limparModoSessao()
+    setCurrentPlayerState(null)
   }
 
   function handleRecuperarRascunho() {
@@ -424,13 +445,31 @@ export default function App() {
     handleLoad(registroFinal)
   }
 
+  if (currentPlayer) {
+    return (
+      <div className="min-h-screen bg-ink-50">
+        <header className="flex items-center justify-between gap-3 border-b border-ink-100 bg-surface px-4 py-3">
+          <p className="text-sm font-medium text-ink-700">
+            Olá, <span className="font-semibold">{currentPlayer}</span>
+          </p>
+          <button type="button" onClick={handleSairJogador} className="text-xs text-ink-400 hover:text-ink-600 underline">
+            Sair
+          </button>
+        </header>
+        <main className="max-w-3xl mx-auto px-4 py-6">
+          <TelaInicialPage jogador={currentPlayer} />
+        </main>
+      </div>
+    )
+  }
+
   if (!currentAdmin) {
-    return <AdminGate onSelect={handleSelectAdmin} />
+    return <AdminGate onSelect={handleSelectAdmin} onSelectPlayer={handleSelectPlayer} />
   }
 
   return (
     <Layout active={tab} onChangeTab={setTab} currentAdmin={currentAdmin} onSwitchAdmin={handleSwitchAdmin}>
-      {tab === 'telaInicial' && <TelaInicialPage currentAdmin={currentAdmin} />}
+      {tab === 'telaInicial' && <TelaInicialPage jogador={currentAdmin} />}
       {tab === 'cotacoes' && (
         <CotacoesPage
           refreshKey={historyRefreshKey}

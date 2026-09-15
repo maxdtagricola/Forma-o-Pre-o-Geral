@@ -324,7 +324,7 @@ function animarPosicao(
   requestAnimationFrame(passo)
 }
 
-export function ChessBoard3D({ currentAdmin }: { currentAdmin: string }) {
+export function ChessBoard3D({ jogador }: { jogador: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chessRef = useRef(new Chess())
   const livroRef = useRef<LivroDeAberturas>(new Map())
@@ -356,7 +356,7 @@ export function ChessBoard3D({ currentAdmin }: { currentAdmin: string }) {
   // mais recente dele, ou pede a cor pra começar uma primeira partida se não houver nenhuma
   useEffect(() => {
     let cancelado = false
-    listPartidasDoJogador(currentAdmin)
+    listPartidasDoJogador(jogador)
       .then((partidas) => {
         if (cancelado) return
         const emAndamento = partidas.filter((p) => p.status === 'EM_ANDAMENTO')
@@ -374,7 +374,7 @@ export function ChessBoard3D({ currentAdmin }: { currentAdmin: string }) {
     return () => {
       cancelado = true
     }
-  }, [currentAdmin])
+  }, [jogador])
 
   useEffect(() => {
     const container = containerRef.current
@@ -798,7 +798,7 @@ export function ChessBoard3D({ currentAdmin }: { currentAdmin: string }) {
 
   async function handleEscolherCor(cor: 'w' | 'b') {
     setEscolhendoCor(false)
-    const nova = novaPartida(currentAdmin, cor)
+    const nova = novaPartida(jogador, cor)
     try {
       await salvarPartida(nova)
     } catch {
@@ -820,7 +820,7 @@ export function ChessBoard3D({ currentAdmin }: { currentAdmin: string }) {
         <div>
           <p className="text-sm font-medium text-ink-700">{statusTexto}</p>
           <p className="text-xs text-ink-400">
-            Jogando como <span className="font-medium text-ink-600">{currentAdmin}</span>
+            Jogando como <span className="font-medium text-ink-600">{jogador}</span>
           </p>
         </div>
         <Button variant="secondary" onClick={handleNovoJogo} disabled={escolhendoCor}>
