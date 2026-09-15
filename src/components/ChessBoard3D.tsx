@@ -278,11 +278,22 @@ const ALTURA_FULL_HD = 1080
 const DURACAO_LANCE_MS = 1300
 /** Pausa "pensando" da máquina antes de mover, pro ritmo geral ficar mais compassado. */
 const PAUSA_MAQUINA_MS = 700
-/** Intervalo entre lances no modo demonstração (máquina x máquina) — de 15 a 30s por lance. */
-const DEMO_INTERVALO_MIN_MS = 15000
-const DEMO_INTERVALO_MAX_MS = 30000
-function atrasoDemoAleatorio(): number {
-  return DEMO_INTERVALO_MIN_MS + Math.random() * (DEMO_INTERVALO_MAX_MS - DEMO_INTERVALO_MIN_MS)
+/** Intervalo entre lances no modo demonstração (máquina x máquina) — de 10 a 15s por lance com o tabuleiro cheio. */
+const DEMO_INTERVALO_MIN_MS = 10000
+const DEMO_INTERVALO_MAX_MS = 15000
+/** Nunca fica mais rápido que isso, nem com tabuleiro bem esvaziado e em xeque. */
+const DEMO_INTERVALO_PISO_MS = 3000
+/** Total de peças no início de uma partida — usado como referência pra "quão cheio" o tabuleiro está. */
+const TOTAL_PECAS_INICIAL = 32
+
+/** Acelera o ritmo conforme sobram menos peças (finais tendem a ser mais diretos) e ainda mais quando há um lance de xeque em andamento (padrão de ataque/mate). */
+function atrasoDemoAleatorio(chess: Chess): number {
+  const totalPecas = chess.board().flat().filter(Boolean).length
+  const fatorPecas = Math.max(0.3, totalPecas / TOTAL_PECAS_INICIAL)
+  const fatorCheque = chess.isCheck() ? 0.6 : 1
+  const min = Math.max(DEMO_INTERVALO_PISO_MS, DEMO_INTERVALO_MIN_MS * fatorPecas * fatorCheque)
+  const max = Math.max(min + 500, DEMO_INTERVALO_MAX_MS * fatorPecas * fatorCheque)
+  return min + Math.random() * (max - min)
 }
 
 /** Calcula o pixel ratio necessário pra garantir que o canvas renderize em pelo menos Full HD (1920x1080), mesmo quando o card exibido na tela é menor — limitado a 3x pra não sobrecarregar a GPU em telas muito pequenas. */
@@ -723,7 +734,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
 
     function agendarProximoLanceDemo() {
       pararDemo()
-      demoTimeoutId = window.setTimeout(jogarLanceDemo, atrasoDemoAleatorio())
+      demoTimeoutId = window.setTimeout(jogarLanceDemo, atrasoDemoAleatorio(chessRef.current))
     }
 
     async function jogarLanceDemo() {
