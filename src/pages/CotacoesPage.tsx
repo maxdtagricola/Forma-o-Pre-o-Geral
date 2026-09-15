@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { listQuotes, updateQuoteStatus } from '../db/analysesRepo'
 import { getStatusColors } from '../db/configRepo'
 import { Button } from '../components/ui/Basics'
@@ -33,6 +33,177 @@ function encontrarCorrespondencias(valor: string, conhecidos: string[]): string[
     }
   }
   return resultado
+}
+
+function QuoteCard({
+  r,
+  corDoStatus,
+  currentAdmin,
+  onOpenQuote,
+  onStatusChange,
+}: {
+  r: QuoteRecord
+  corDoStatus: (status: string) => string
+  currentAdmin: string
+  onOpenQuote: (r: QuoteRecord) => void
+  onStatusChange: (r: QuoteRecord, status: QuoteStatus) => void
+}) {
+  const [expandido, setExpandido] = useState(false)
+  const [menuAberto, setMenuAberto] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const travadaPorOutro = r.status !== 'PENDENTE' && !!r.responsavelStatus && r.responsavelStatus !== currentAdmin
+
+  useEffect(() => {
+    if (!menuAberto) return
+    function aoClicarFora(e: Event) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuAberto(false)
+    }
+    document.addEventListener('mousedown', aoClicarFora)
+    return () => document.removeEventListener('mousedown', aoClicarFora)
+  }, [menuAberto])
+
+  return (
+    <div className="rounded-lg border border-ink-100 overflow-hidden">
+      <div className="flex items-center gap-2 pl-1 pr-2 py-2">
+        <button
+          type="button"
+          onClick={() => setExpandido((v) => !v)}
+          aria-label={expandido ? 'Recolher detalhes' : 'Expandir detalhes'}
+          className="shrink-0 h-7 w-7 flex items-center justify-center rounded text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
+        >
+          <span className={`inline-block transition-transform ${expandido ? 'rotate-90' : ''}`}>▸</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onOpenQuote(r)}
+          className="flex-1 min-w-0 flex flex-wrap items-center gap-2 text-left py-1"
+        >
+          <span className="font-mono text-sm text-ink-500">{r.codigo || '—'}</span>
+          <span className="text-sm text-ink-800 truncate">
+            {r.vendedor || '—'} | {r.cliente || '(sem cliente)'}
+          </span>
+          <span
+            className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+            style={{ backgroundColor: corDoStatus(r.status), color: corTexto(corDoStatus(r.status)) }}
+          >
+            {r.status}
+          </span>
+          <span className="ml-auto text-sm font-mono tabular-nums text-ink-800">
+            {r.summary.precoVendaTotalGeral > 0 ? formatCurrency(r.summary.precoVendaTotalGeral) : '—'}
+          </span>
+        </button>
+
+        <div className="relative shrink-0" ref={menuRef}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuAberto((v) => !v)
+            }}
+            aria-label="Mais opções"
+            className="h-7 w-7 flex items-center justify-center rounded-full text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
+          >
+            ⋯
+          </button>
+          {menuAberto && (
+            <div className="absolute right-0 top-8 z-10 w-36 rounded-lg border border-ink-100 bg-white py-1 shadow-lg">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuAberto(false)
+                  onOpenQuote(r)
+                }}
+                className="w-full text-left px-3 py-1.5 text-xs font-medium text-ink-700 hover:bg-ink-50"
+              >
+                Editar
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {expandido && (
+        <div className="px-3 pb-3 pt-1 border-t border-ink-50 space-y-3 text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2">
+            <div>
+              <p className="text-ink-400">Data criada</p>
+              <p className="text-ink-700">{formatDate(r.createdAt)}</p>
+            </div>
+            <div>
+              <p className="text-ink-400">Em análise por</p>
+              <p className="text-ink-700">{r.responsavelStatus || '—'}</p>
+            </div>
+          </div>
+          <div>
+            <p className="text-ink-400 mb-1">Alterar status</p>
+            <div className="flex items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: corDoStatus(r.status) }} />
+              <select
+                value={r.status}
+                disabled={travadaPorOutro}
+                onChange={(e) => onStatusChange(r, e.target.value as QuoteStatus)}
+                className={`field-input text-xs py-1.5 ${travadaPorOutro ? 'opacity-60 cursor-not-allowed' : ''}`}
+                title={travadaPorOutro ? `Em análise por ${r.responsavelStatus} — só ele(a) pode mudar` : undefined}
+              >
+                {QUOTE_STATUSES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function GrupoCotacoesCard({
+  grupo,
+  corDoStatus,
+  currentAdmin,
+  onOpenQuote,
+  onStatusChange,
+}: {
+  grupo: { status: QuoteStatus; itens: QuoteRecord[] }
+  corDoStatus: (status: string) => string
+  currentAdmin: string
+  onOpenQuote: (r: QuoteRecord) => void
+  onStatusChange: (r: QuoteRecord, status: QuoteStatus) => void
+}) {
+  const [aberto, setAberto] = useState(false)
+  return (
+    <div>
+      <button type="button" onClick={() => setAberto((v) => !v)} className="w-full flex items-center gap-2 mb-2 text-left">
+        <span
+          className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
+          style={{ backgroundColor: corDoStatus(grupo.status), color: corTexto(corDoStatus(grupo.status)) }}
+        >
+          {grupo.status}
+        </span>
+        <span className="text-xs text-ink-400">{grupo.itens.length}</span>
+        <span aria-hidden className={`ml-auto text-ink-400 transition-transform ${aberto ? 'rotate-180' : ''}`}>
+          ▾
+        </span>
+      </button>
+      {aberto && (
+        <div className="space-y-2">
+          {grupo.itens.map((r) => (
+            <QuoteCard
+              key={r.id}
+              r={r}
+              corDoStatus={corDoStatus}
+              currentAdmin={currentAdmin}
+              onOpenQuote={onOpenQuote}
+              onStatusChange={onStatusChange}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 export function CotacoesPage({
@@ -507,83 +678,14 @@ export function CotacoesPage({
         ) : (
           <div className="space-y-6">
             {grupos.map((grupo) => (
-              <div key={grupo.status}>
-                <div className="flex items-center gap-2 mb-2">
-                  <span
-                    className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
-                    style={{ backgroundColor: corDoStatus(grupo.status), color: corTexto(corDoStatus(grupo.status)) }}
-                  >
-                    {grupo.status}
-                  </span>
-                  <span className="text-xs text-ink-400">{grupo.itens.length}</span>
-                </div>
-                <div className="overflow-x-auto rounded-xl border border-ink-100">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-ink-400 border-b border-ink-100">
-                        <th className="py-2 px-3 font-medium">Código</th>
-                        <th className="py-2 px-3 font-medium">Nome</th>
-                        <th className="py-2 px-3 font-medium">Data criada</th>
-                        <th className="py-2 px-3 font-medium">Status</th>
-                        <th className="py-2 px-3 font-medium">Em análise por</th>
-                        <th className="py-2 px-3 font-medium text-right">Valor da cotação</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {grupo.itens.map((r) => {
-                        const travadaPorOutro = r.status !== 'PENDENTE' && !!r.responsavelStatus && r.responsavelStatus !== currentAdmin
-                        return (
-                          <tr key={r.id} className="border-b border-ink-50 last:border-0 hover:bg-ink-50">
-                            <td
-                              onClick={() => onOpenQuote(r)}
-                              className="cursor-pointer py-2 px-3 font-mono text-ink-500"
-                            >
-                              {r.codigo || '—'}
-                            </td>
-                            <td
-                              onClick={() => onOpenQuote(r)}
-                              className="cursor-pointer py-2 px-3 text-ink-800"
-                            >
-                              {r.vendedor || '—'} | {r.cliente || '(sem cliente)'}
-                            </td>
-                            <td onClick={() => onOpenQuote(r)} className="cursor-pointer py-2 px-3 text-ink-500">
-                              {formatDate(r.createdAt)}
-                            </td>
-                            <td className="py-2 px-3">
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className="h-2.5 w-2.5 shrink-0 rounded-full"
-                                  style={{ backgroundColor: corDoStatus(r.status) }}
-                                />
-                                <select
-                                  value={r.status}
-                                  disabled={travadaPorOutro}
-                                  onChange={(e) => handleStatusChange(r, e.target.value as QuoteStatus)}
-                                  className={`field-input text-xs py-1.5 ${travadaPorOutro ? 'opacity-60 cursor-not-allowed' : ''}`}
-                                  title={travadaPorOutro ? `Em análise por ${r.responsavelStatus} — só ele(a) pode mudar` : undefined}
-                                >
-                                  {QUOTE_STATUSES.map((s) => (
-                                    <option key={s} value={s}>
-                                      {s}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-                            </td>
-                            <td className="py-2 px-3 text-ink-500">{r.responsavelStatus || '—'}</td>
-                            <td
-                              onClick={() => onOpenQuote(r)}
-                              className="cursor-pointer py-2 px-3 text-right font-mono tabular-nums text-ink-800"
-                            >
-                              {r.summary.precoVendaTotalGeral > 0 ? formatCurrency(r.summary.precoVendaTotalGeral) : '—'}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
+              <GrupoCotacoesCard
+                key={grupo.status}
+                grupo={grupo}
+                corDoStatus={corDoStatus}
+                currentAdmin={currentAdmin}
+                onOpenQuote={onOpenQuote}
+                onStatusChange={handleStatusChange}
+              />
             ))}
           </div>
         )}

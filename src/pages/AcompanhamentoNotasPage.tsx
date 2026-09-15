@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { TextField, AutocompleteField, NumberField, SelectField, DateField } from '../components/ui/Field'
 import { Button } from '../components/ui/Basics'
 import { deleteNotaFiscal, listNotasFiscais, saveNotaFiscal, updateNotaFiscalStatus } from '../db/notasFiscaisRepo'
@@ -16,6 +16,125 @@ const recebedorSuggestions = RECEBEDORES.map((r) => ({ value: r, label: r }))
 const statusOptions = NOTA_FISCAL_STATUSES.map((s) => ({ value: s, label: s }))
 const tipoOptions = NOTA_FISCAL_TIPOS
 
+function NotaCard({
+  n,
+  corDoStatus,
+  onEdit,
+  onAbrirStatus,
+}: {
+  n: NotaFiscal
+  corDoStatus: (status: string) => string
+  onEdit: (n: NotaFiscal) => void
+  onAbrirStatus: (n: NotaFiscal) => void
+}) {
+  const [expandido, setExpandido] = useState(false)
+  const [menuAberto, setMenuAberto] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!menuAberto) return
+    function aoClicarFora(e: Event) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuAberto(false)
+    }
+    document.addEventListener('mousedown', aoClicarFora)
+    return () => document.removeEventListener('mousedown', aoClicarFora)
+  }, [menuAberto])
+
+  return (
+    <div className="rounded-lg border border-ink-100 overflow-hidden">
+      <div className="flex items-center gap-2 pl-1 pr-2 py-2">
+        <button
+          type="button"
+          onClick={() => setExpandido((v) => !v)}
+          aria-label={expandido ? 'Recolher detalhes' : 'Expandir detalhes'}
+          className="shrink-0 h-7 w-7 flex items-center justify-center rounded text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
+        >
+          <span className={`inline-block transition-transform ${expandido ? 'rotate-90' : ''}`}>▸</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onAbrirStatus(n)}
+          title="Clique pra alterar o status"
+          className="flex-1 min-w-0 flex flex-wrap items-center gap-2 text-left py-1"
+        >
+          <span className="font-mono text-sm text-ink-800">{n.numeroNfe}</span>
+          <span
+            className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
+            style={{ backgroundColor: corDoStatus(n.status), color: corTexto(corDoStatus(n.status)) }}
+          >
+            {n.status}
+          </span>
+          <span className="ml-auto text-sm font-mono tabular-nums text-ink-600">{formatCurrency(n.valorNota)}</span>
+        </button>
+
+        <div className="relative shrink-0" ref={menuRef}>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuAberto((v) => !v)
+            }}
+            aria-label="Mais opções"
+            className="h-7 w-7 flex items-center justify-center rounded-full text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
+          >
+            ⋯
+          </button>
+          {menuAberto && (
+            <div className="absolute right-0 top-8 z-10 w-32 rounded-lg border border-ink-100 bg-white py-1 shadow-lg">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuAberto(false)
+                  onEdit(n)
+                }}
+                className="w-full text-left px-3 py-1.5 text-xs font-medium text-ink-700 hover:bg-ink-50"
+              >
+                Editar
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {expandido && (
+        <div className="px-3 pb-3 pt-1 border-t border-ink-50 grid grid-cols-2 sm:grid-cols-4 gap-x-4 gap-y-2 text-xs">
+          <div>
+            <p className="text-ink-400">Tipo</p>
+            <p className="text-ink-700 font-medium">{labelDoTipo(n.tipo ?? 'PECAS')}</p>
+          </div>
+          <div>
+            <p className="text-ink-400">Fornecedor</p>
+            <p className="text-ink-700">{n.fornecedor || '—'}</p>
+          </div>
+          <div>
+            <p className="text-ink-400">Recebedor</p>
+            <p className="text-ink-700">{n.recebedor || '—'}</p>
+          </div>
+          <div>
+            <p className="text-ink-400">Transportadora</p>
+            <p className="text-ink-700">{n.transportadora || '—'}</p>
+          </div>
+          <div>
+            <p className="text-ink-400">Valor frete</p>
+            <p className="text-ink-700 font-mono">{formatCurrency(n.valorFrete)}</p>
+          </div>
+          <div>
+            <p className="text-ink-400">Emitida em</p>
+            <p className="text-ink-700">
+              {n.dataEmissao ? new Date(`${n.dataEmissao}T00:00:00`).toLocaleDateString('pt-BR') : '—'}
+            </p>
+          </div>
+          <div>
+            <p className="text-ink-400">Registrada em</p>
+            <p className="text-ink-700">{formatDate(n.createdAt)}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function GrupoStatusTable({
   grupo,
   corDoStatus,
@@ -27,9 +146,10 @@ function GrupoStatusTable({
   onEdit: (n: NotaFiscal) => void
   onAbrirStatus: (n: NotaFiscal) => void
 }) {
+  const [aberto, setAberto] = useState(false)
   return (
     <div>
-      <div className="flex items-center gap-2 mb-2">
+      <button type="button" onClick={() => setAberto((v) => !v)} className="w-full flex items-center gap-2 mb-2 text-left">
         <span
           className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
           style={{ backgroundColor: corDoStatus(grupo.status), color: corTexto(corDoStatus(grupo.status)) }}
@@ -37,79 +157,17 @@ function GrupoStatusTable({
           {grupo.status}
         </span>
         <span className="text-xs text-ink-400">{grupo.itens.length}</span>
-      </div>
-      <div className="overflow-x-auto rounded-xl border border-ink-100">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-ink-400 border-b border-ink-100">
-              <th className="py-2 px-3 font-medium">NF-e</th>
-              <th className="py-2 px-3 font-medium">Tipo</th>
-              <th className="py-2 px-3 font-medium">Fornecedor</th>
-              <th className="py-2 px-3 font-medium">Recebedor</th>
-              <th className="py-2 px-3 font-medium">Transportadora</th>
-              <th className="py-2 px-3 font-medium text-right">Valor nota</th>
-              <th className="py-2 px-3 font-medium text-right">Valor frete</th>
-              <th className="py-2 px-3 font-medium">Status</th>
-              <th className="py-2 px-3 font-medium">Emitida em</th>
-              <th className="py-2 px-3 font-medium">Registrada em</th>
-              <th className="py-2 px-3 font-medium"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {grupo.itens.map((n) => (
-              <tr
-                key={n.id}
-                onClick={() => onAbrirStatus(n)}
-                title="Clique pra alterar o status"
-                className="cursor-pointer border-b border-ink-50 last:border-0 hover:bg-ink-50 group"
-              >
-                <td className="py-2 px-3 font-mono text-ink-800">{n.numeroNfe}</td>
-                <td className="py-2 px-3">
-                  <span
-                    className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                    style={{
-                      backgroundColor: corDoTipo(n.tipo ?? 'PECAS'),
-                      color: corTexto(corDoTipo(n.tipo ?? 'PECAS')),
-                    }}
-                  >
-                    {labelDoTipo(n.tipo ?? 'PECAS')}
-                  </span>
-                </td>
-                <td className="py-2 px-3 text-ink-800">{n.fornecedor || '—'}</td>
-                <td className="py-2 px-3 text-ink-600">{n.recebedor || '—'}</td>
-                <td className="py-2 px-3 text-ink-600">{n.transportadora || '—'}</td>
-                <td className="py-2 px-3 text-right font-mono tabular-nums text-ink-800">
-                  {formatCurrency(n.valorNota)}
-                </td>
-                <td className="py-2 px-3 text-right font-mono tabular-nums text-ink-600">
-                  {formatCurrency(n.valorFrete)}
-                </td>
-                <td className="py-2 px-3">
-                  <span
-                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold group-hover:shadow-sm transition"
-                    style={{ backgroundColor: corDoStatus(n.status), color: corTexto(corDoStatus(n.status)) }}
-                  >
-                    {n.status}
-                  </span>
-                </td>
-                <td className="py-2 px-3 text-ink-400">
-                  {n.dataEmissao ? new Date(`${n.dataEmissao}T00:00:00`).toLocaleDateString('pt-BR') : '—'}
-                </td>
-                <td className="py-2 px-3 text-ink-400">{formatDate(n.createdAt)}</td>
-                <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
-                  <button
-                    type="button"
-                    onClick={() => onEdit(n)}
-                    className="text-xs font-medium text-brand-700 hover:text-brand-800 underline underline-offset-2"
-                  >
-                    Editar
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+        <span aria-hidden className={`ml-auto text-ink-400 transition-transform ${aberto ? 'rotate-180' : ''}`}>
+          ▾
+        </span>
+      </button>
+      {aberto && (
+        <div className="space-y-2">
+          {grupo.itens.map((n) => (
+            <NotaCard key={n.id} n={n} corDoStatus={corDoStatus} onEdit={onEdit} onAbrirStatus={onAbrirStatus} />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
