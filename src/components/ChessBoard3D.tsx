@@ -272,6 +272,9 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
 const LARGURA_FULL_HD = 1920
 const ALTURA_FULL_HD = 1080
 
+/** Duração do deslocamento de cada lance — mais lenta e cadenciada, pra dar tempo de acompanhar o movimento. */
+const DURACAO_LANCE_MS = 700
+
 /** Calcula o pixel ratio necessário pra garantir que o canvas renderize em pelo menos Full HD (1920x1080), mesmo quando o card exibido na tela é menor — limitado a 3x pra não sobrecarregar a GPU em telas muito pequenas. */
 function pixelRatioParaFullHD(larguraCss: number, alturaCss: number): number {
   const dpr = window.devicePixelRatio || 1
@@ -279,8 +282,7 @@ function pixelRatioParaFullHD(larguraCss: number, alturaCss: number): number {
   return Math.min(Math.max(dpr, fatorParaFullHD), 3)
 }
 
-/** Anima suavemente a posição (x/z) de um objeto, com ease-out cúbico. */
-/** Anima a posição x/z (ease-out) e, se a peça tiver braços/pernas, balança os membros como uma caminhada durante o trajeto — voltando à pose neutra ao terminar. */
+/** Anima a posição x/z (ease-in-out, mais lenta e cadenciada) e, se a peça tiver braços/pernas, balança os membros como uma caminhada durante o trajeto — voltando à pose neutra ao terminar. */
 function animarPosicao(
   mesh: THREE.Object3D,
   de: { x: number; z: number },
@@ -292,7 +294,7 @@ function animarPosicao(
   const inicio = performance.now()
   function passo(agora: number) {
     const t = Math.min(1, (agora - inicio) / duracaoMs)
-    const suave = 1 - Math.pow(1 - t, 3)
+    const suave = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
     mesh.position.x = de.x + (para.x - de.x) * suave
     mesh.position.z = de.z + (para.z - de.z) * suave
 
@@ -570,7 +572,7 @@ export function ChessBoard3D() {
       if (meshMovendo && origem && destino) {
         const de = squareToPos(origem)
         const para = squareToPos(destino)
-        animarPosicao(meshMovendo, de, para, 260, () => {
+        animarPosicao(meshMovendo, de, para, DURACAO_LANCE_MS, () => {
           sincronizarPecas()
           aoTerminar()
         })
