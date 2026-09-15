@@ -20,12 +20,12 @@ function GrupoStatusTable({
   grupo,
   corDoStatus,
   onEdit,
-  onStatusChange,
+  onAbrirStatus,
 }: {
   grupo: { status: NotaFiscalStatus; itens: NotaFiscal[] }
   corDoStatus: (status: string) => string
   onEdit: (n: NotaFiscal) => void
-  onStatusChange: (n: NotaFiscal, status: NotaFiscalStatus) => void
+  onAbrirStatus: (n: NotaFiscal) => void
 }) {
   return (
     <div>
@@ -52,13 +52,15 @@ function GrupoStatusTable({
               <th className="py-2 px-3 font-medium">Status</th>
               <th className="py-2 px-3 font-medium">Emitida em</th>
               <th className="py-2 px-3 font-medium">Registrada em</th>
+              <th className="py-2 px-3 font-medium"></th>
             </tr>
           </thead>
           <tbody>
             {grupo.itens.map((n) => (
               <tr
                 key={n.id}
-                onClick={() => onEdit(n)}
+                onClick={() => onAbrirStatus(n)}
+                title="Clique pra alterar o status"
                 className="cursor-pointer border-b border-ink-50 last:border-0 hover:bg-ink-50 group"
               >
                 <td className="py-2 px-3 font-mono text-ink-800">{n.numeroNfe}</td>
@@ -82,29 +84,27 @@ function GrupoStatusTable({
                 <td className="py-2 px-3 text-right font-mono tabular-nums text-ink-600">
                   {formatCurrency(n.valorFrete)}
                 </td>
-                <td className="py-2 px-3" onClick={(e) => e.stopPropagation()}>
-                  <div className="flex items-center gap-2">
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: corDoStatus(n.status) }}
-                    />
-                    <select
-                      value={n.status}
-                      onChange={(e) => onStatusChange(n, e.target.value as NotaFiscalStatus)}
-                      className="field-input text-xs py-1.5"
-                    >
-                      {NOTA_FISCAL_STATUSES.map((s) => (
-                        <option key={s} value={s}>
-                          {s}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                <td className="py-2 px-3">
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold group-hover:shadow-sm transition"
+                    style={{ backgroundColor: corDoStatus(n.status), color: corTexto(corDoStatus(n.status)) }}
+                  >
+                    {n.status}
+                  </span>
                 </td>
                 <td className="py-2 px-3 text-ink-400">
                   {n.dataEmissao ? new Date(`${n.dataEmissao}T00:00:00`).toLocaleDateString('pt-BR') : '—'}
                 </td>
                 <td className="py-2 px-3 text-ink-400">{formatDate(n.createdAt)}</td>
+                <td className="py-2 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    type="button"
+                    onClick={() => onEdit(n)}
+                    className="text-xs font-medium text-brand-700 hover:text-brand-800 underline underline-offset-2"
+                  >
+                    Editar
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -121,7 +121,7 @@ function PastaMes({
   todasConcluidas,
   corDoStatus,
   onEdit,
-  onStatusChange,
+  onAbrirStatus,
 }: {
   mesKey: string
   itens: NotaFiscal[]
@@ -129,7 +129,7 @@ function PastaMes({
   todasConcluidas: boolean
   corDoStatus: (status: string) => string
   onEdit: (n: NotaFiscal) => void
-  onStatusChange: (n: NotaFiscal, status: NotaFiscalStatus) => void
+  onAbrirStatus: (n: NotaFiscal) => void
 }) {
   const [aberta, setAberta] = useState(false)
   const [completa, setCompleta] = useState(false)
@@ -213,7 +213,7 @@ function PastaMes({
                     grupo={grupo}
                     corDoStatus={corDoStatus}
                     onEdit={onEdit}
-                    onStatusChange={onStatusChange}
+                    onAbrirStatus={onAbrirStatus}
                   />
                 ))}
               </div>
@@ -221,6 +221,65 @@ function PastaMes({
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function AlterarStatusModal({
+  nota,
+  corDoStatus,
+  onSelecionar,
+  onFechar,
+}: {
+  nota: NotaFiscal
+  corDoStatus: (status: string) => string
+  onSelecionar: (status: NotaFiscalStatus) => void
+  onFechar: () => void
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/60 backdrop-blur-sm p-4"
+      onClick={onFechar}
+    >
+      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs text-ink-400">Alterar status</p>
+            <h3 className="font-display text-base font-semibold text-ink-900 truncate">NF-e {nota.numeroNfe}</h3>
+            <p className="text-xs text-ink-400 truncate">{nota.fornecedor || 'Fornecedor não informado'}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onFechar}
+            aria-label="Fechar"
+            className="shrink-0 h-7 w-7 rounded-full text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition flex items-center justify-center"
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-2">
+          {NOTA_FISCAL_STATUSES.map((s) => {
+            const ativo = s === nota.status
+            return (
+              <button
+                key={s}
+                type="button"
+                onClick={() => onSelecionar(s)}
+                className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm font-medium text-left transition ${
+                  ativo
+                    ? 'border-ink-900 ring-2 ring-ink-900/10 bg-ink-50'
+                    : 'border-ink-100 hover:border-ink-300 hover:bg-ink-50'
+                }`}
+              >
+                <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: corDoStatus(s) }} />
+                <span className="flex-1 text-ink-800">{s}</span>
+                {ativo && <span className="text-xs text-ink-400">atual</span>}
+              </button>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 }
@@ -236,7 +295,8 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
   const [saving, setSaving] = useState(false)
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
   const [mostrarArquivadas, setMostrarArquivadas] = useState(false)
-  const [formRecolhido, setFormRecolhido] = useState(false)
+  const [formRecolhido, setFormRecolhido] = useState(true)
+  const [notaParaStatus, setNotaParaStatus] = useState<NotaFiscal | null>(null)
   const [importandoPdf, setImportandoPdf] = useState(false)
 
   async function refresh() {
@@ -276,6 +336,13 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
     }
+  }
+
+  async function handleSelecionarStatus(status: NotaFiscalStatus) {
+    if (!notaParaStatus) return
+    const nota = notaParaStatus
+    setNotaParaStatus(null)
+    await handleStatusChange(nota, status)
   }
 
   function patch(p: Partial<typeof form>) {
@@ -446,10 +513,12 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
             )}
           </div>
           <span
-            aria-hidden
-            className={`shrink-0 text-ink-400 transition-transform ${formRecolhido ? '' : 'rotate-180'}`}
+            className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border border-ink-300 bg-ink-50 px-3 py-1.5 text-xs font-semibold text-ink-700 hover:bg-ink-100 hover:border-ink-400 transition`}
           >
-            ▾
+            {formRecolhido ? 'Expandir' : 'Recolher'}
+            <span aria-hidden className={`transition-transform ${formRecolhido ? '' : 'rotate-180'}`}>
+              ▾
+            </span>
           </span>
         </button>
 
@@ -570,7 +639,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
                     grupo={grupo}
                     corDoStatus={corDoStatus}
                     onEdit={handleEdit}
-                    onStatusChange={handleStatusChange}
+                    onAbrirStatus={setNotaParaStatus}
                   />
                 ))}
               </div>
@@ -597,7 +666,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
                 todasConcluidas={p.todasConcluidas}
                 corDoStatus={corDoStatus}
                 onEdit={handleEdit}
-                onStatusChange={handleStatusChange}
+                onAbrirStatus={setNotaParaStatus}
               />
             ))}
           </div>
@@ -624,7 +693,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
                   todasConcluidas={p.todasConcluidas}
                   corDoStatus={corDoStatus}
                   onEdit={handleEdit}
-                  onStatusChange={handleStatusChange}
+                  onAbrirStatus={setNotaParaStatus}
                 />
               ))}
             </div>
@@ -652,6 +721,15 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
           ↑
         </button>
       </div>
+
+      {notaParaStatus && (
+        <AlterarStatusModal
+          nota={notaParaStatus}
+          corDoStatus={corDoStatus}
+          onSelecionar={handleSelecionarStatus}
+          onFechar={() => setNotaParaStatus(null)}
+        />
+      )}
     </div>
   )
 }
