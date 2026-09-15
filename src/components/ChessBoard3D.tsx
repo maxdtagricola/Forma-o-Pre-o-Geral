@@ -10,7 +10,7 @@ const COR_CASA_CLARA = 0xe8d9b8
 const COR_CASA_ESCURA = 0x8a5a3b
 const COR_BASE = 0x4a3323
 const COR_PECA_BRANCA = 0xf4f0e6
-const COR_PECA_PRETA = 0x2b2b2b
+const COR_PECA_PRETA = 0x232323
 const COR_SELECIONADA = 0x2a9d5f
 const COR_DESTINO = 0x2a78d6
 
@@ -20,68 +20,108 @@ function squareToPos(square: string): { x: number; z: number } {
   return { x: file - 3.5, z: 3.5 - rank }
 }
 
-function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
-  const grupo = new THREE.Group()
-  const material = new THREE.MeshStandardMaterial({
-    color: cor === 'w' ? COR_PECA_BRANCA : COR_PECA_PRETA,
-    roughness: 0.45,
-    metalness: 0.12,
-  })
+// ---------------------------------------------------------------------------
+// Geometria das peças — montada uma única vez por tipo (não por peça) e
+// reaproveitada pra sempre. Isso evita recriar ~30 buffers de geometria a
+// cada lance, que é o que deixava o tabuleiro engasgado a cada movimento.
+// ---------------------------------------------------------------------------
+interface ParteGeom {
+  geo: THREE.BufferGeometry
+  x?: number
+  y: number
+  z?: number
+  rotX?: number
+}
 
-  function add(geo: THREE.BufferGeometry, y: number) {
-    const mesh = new THREE.Mesh(geo, material)
-    mesh.position.y = y
-    mesh.castShadow = true
-    grupo.add(mesh)
-    return mesh
-  }
+const geometriasPorTipo = new Map<string, ParteGeom[]>()
 
+function geometriasDoTipo(tipo: string): ParteGeom[] {
+  const existente = geometriasPorTipo.get(tipo)
+  if (existente) return existente
+
+  let partes: ParteGeom[] = []
   switch (tipo) {
     case 'p':
-      add(new THREE.CylinderGeometry(0.16, 0.2, 0.22, 16), 0.11)
-      add(new THREE.SphereGeometry(0.14, 16, 16), 0.3)
+      partes = [
+        { geo: new THREE.CylinderGeometry(0.16, 0.2, 0.22, 24), y: 0.11 },
+        { geo: new THREE.SphereGeometry(0.14, 24, 20), y: 0.3 },
+      ]
       break
     case 'r':
-      add(new THREE.CylinderGeometry(0.22, 0.24, 0.5, 16), 0.25)
-      add(new THREE.BoxGeometry(0.32, 0.12, 0.32), 0.56)
+      partes = [
+        { geo: new THREE.CylinderGeometry(0.22, 0.24, 0.5, 24), y: 0.25 },
+        { geo: new THREE.BoxGeometry(0.32, 0.12, 0.32), y: 0.56 },
+      ]
       break
     case 'n':
-      add(new THREE.CylinderGeometry(0.2, 0.24, 0.35, 16), 0.175)
-      {
-        const cabeca = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.3, 0.34), material)
-        cabeca.position.set(0, 0.5, 0.04)
-        cabeca.rotation.x = -0.3
-        cabeca.castShadow = true
-        grupo.add(cabeca)
-      }
+      partes = [
+        { geo: new THREE.CylinderGeometry(0.2, 0.24, 0.35, 24), y: 0.175 },
+        { geo: new THREE.BoxGeometry(0.18, 0.3, 0.34), y: 0.5, z: 0.04, rotX: -0.3 },
+      ]
       break
     case 'b':
-      add(new THREE.CylinderGeometry(0.2, 0.22, 0.4, 16), 0.2)
-      add(new THREE.ConeGeometry(0.16, 0.35, 16), 0.58)
-      add(new THREE.SphereGeometry(0.06, 12, 12), 0.8)
+      partes = [
+        { geo: new THREE.CylinderGeometry(0.2, 0.22, 0.4, 24), y: 0.2 },
+        { geo: new THREE.ConeGeometry(0.16, 0.35, 24), y: 0.58 },
+        { geo: new THREE.SphereGeometry(0.06, 16, 16), y: 0.8 },
+      ]
       break
     case 'q':
-      add(new THREE.CylinderGeometry(0.24, 0.26, 0.5, 16), 0.25)
-      add(new THREE.SphereGeometry(0.22, 16, 16), 0.58)
-      add(new THREE.ConeGeometry(0.07, 0.16, 8), 0.85)
+      partes = [
+        { geo: new THREE.CylinderGeometry(0.24, 0.26, 0.5, 24), y: 0.25 },
+        { geo: new THREE.SphereGeometry(0.22, 24, 20), y: 0.58 },
+        { geo: new THREE.ConeGeometry(0.07, 0.16, 12), y: 0.85 },
+      ]
       break
     case 'k':
-      add(new THREE.CylinderGeometry(0.24, 0.26, 0.55, 16), 0.275)
-      add(new THREE.BoxGeometry(0.3, 0.3, 0.1), 0.65)
-      {
-        const crossV = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.24, 0.06), material)
-        crossV.position.y = 0.78
-        crossV.castShadow = true
-        grupo.add(crossV)
-        const crossH = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.06, 0.06), material)
-        crossH.position.y = 0.78
-        crossH.castShadow = true
-        grupo.add(crossH)
-      }
+      partes = [
+        { geo: new THREE.CylinderGeometry(0.24, 0.26, 0.55, 24), y: 0.275 },
+        { geo: new THREE.BoxGeometry(0.3, 0.3, 0.1), y: 0.65 },
+        { geo: new THREE.BoxGeometry(0.06, 0.24, 0.06), y: 0.78 },
+        { geo: new THREE.BoxGeometry(0.18, 0.06, 0.06), y: 0.78 },
+      ]
       break
   }
+  geometriasPorTipo.set(tipo, partes)
+  return partes
+}
 
+const materialPorCor: Record<'w' | 'b', THREE.MeshStandardMaterial> = {
+  w: new THREE.MeshStandardMaterial({ color: COR_PECA_BRANCA, roughness: 0.4, metalness: 0.12 }),
+  b: new THREE.MeshStandardMaterial({ color: COR_PECA_PRETA, roughness: 0.4, metalness: 0.12 }),
+}
+
+function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
+  const grupo = new THREE.Group()
+  const material = materialPorCor[cor]
+  for (const parte of geometriasDoTipo(tipo)) {
+    const mesh = new THREE.Mesh(parte.geo, material)
+    mesh.position.set(parte.x ?? 0, parte.y, parte.z ?? 0)
+    if (parte.rotX) mesh.rotation.x = parte.rotX
+    mesh.castShadow = true
+    grupo.add(mesh)
+  }
   return grupo
+}
+
+/** Anima suavemente a posição (x/z) de um objeto, com ease-out cúbico. */
+function animarPosicao(
+  mesh: THREE.Object3D,
+  de: { x: number; z: number },
+  para: { x: number; z: number },
+  duracaoMs: number,
+  aoTerminar: () => void,
+) {
+  const inicio = performance.now()
+  function passo(agora: number) {
+    const t = Math.min(1, (agora - inicio) / duracaoMs)
+    const suave = 1 - Math.pow(1 - t, 3)
+    mesh.position.x = de.x + (para.x - de.x) * suave
+    mesh.position.z = de.z + (para.z - de.z) * suave
+    if (t < 1) requestAnimationFrame(passo)
+    else aoTerminar()
+  }
+  requestAnimationFrame(passo)
 }
 
 export function ChessBoard3D() {
@@ -111,36 +151,52 @@ export function ChessBoard3D() {
     const selecionadaRef: { current: Square | null } = { current: null }
     const destinosRef: { current: Square[] } = { current: [] }
     const vezDaMaquinaRef: { current: boolean } = { current: false }
+    const pieceMeshBySquare = new Map<string, THREE.Group>()
 
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0xf5f0e6)
+    scene.fog = new THREE.Fog(0xf5f0e6, 11, 20)
 
     const camera = new THREE.PerspectiveCamera(45, container.clientWidth / Math.max(container.clientHeight, 1), 0.1, 100)
     camera.position.set(0, 7.5, 6.5)
     camera.lookAt(0, 0, 0)
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true })
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
     renderer.setSize(container.clientWidth, container.clientHeight)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.shadowMap.enabled = true
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    renderer.outputColorSpace = THREE.SRGBColorSpace
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.05
     container.appendChild(renderer.domElement)
 
     const controls = new OrbitControls(camera, renderer.domElement)
     controls.target.set(0, 0, 0)
     controls.enableDamping = true
+    controls.dampingFactor = 0.08
     controls.minDistance = 3.5
     controls.maxDistance = 14
     controls.maxPolarAngle = Math.PI / 2 - 0.05
 
-    scene.add(new THREE.AmbientLight(0xffffff, 0.65))
-    const dirLight = new THREE.DirectionalLight(0xffffff, 0.85)
+    scene.add(new THREE.HemisphereLight(0xfff6e6, 0x3a2a1a, 0.55))
+    const dirLight = new THREE.DirectionalLight(0xfff3e0, 0.95)
     dirLight.position.set(4, 10, 6)
     dirLight.castShadow = true
+    dirLight.shadow.mapSize.set(1024, 1024)
+    dirLight.shadow.camera.left = -6
+    dirLight.shadow.camera.right = 6
+    dirLight.shadow.camera.top = 6
+    dirLight.shadow.camera.bottom = -6
+    dirLight.shadow.bias = -0.0015
     scene.add(dirLight)
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.25)
+    fillLight.position.set(-5, 6, -4)
+    scene.add(fillLight)
 
     const base = new THREE.Mesh(
       new THREE.BoxGeometry(8.6, 0.25, 8.6),
-      new THREE.MeshStandardMaterial({ color: COR_BASE, roughness: 0.8 }),
+      new THREE.MeshStandardMaterial({ color: COR_BASE, roughness: 0.75 }),
     )
     base.position.y = -0.22
     base.receiveShadow = true
@@ -153,7 +209,10 @@ export function ChessBoard3D() {
       for (let r = 0; r < 8; r++) {
         const square = `${String.fromCharCode(97 + f)}${r + 1}`
         const clara = (f + r) % 2 === 1
-        const mat = new THREE.MeshStandardMaterial({ color: clara ? COR_CASA_CLARA : COR_CASA_ESCURA })
+        const mat = new THREE.MeshStandardMaterial({
+          color: clara ? COR_CASA_CLARA : COR_CASA_ESCURA,
+          roughness: 0.7,
+        })
         const mesh = new THREE.Mesh(squareGeo, mat)
         const { x, z } = squareToPos(square)
         mesh.position.set(x, -0.05, z)
@@ -183,8 +242,11 @@ export function ChessBoard3D() {
       grupo.clear()
     }
 
+    // as peças usam geometria/material compartilhados (cache por tipo/cor), então aqui só
+    // desmonta o grupo — nunca chama dispose(), senão quebraria as peças que ainda usam o cache
     function sincronizarPecas() {
-      descartarFilhos(piecesGroup)
+      piecesGroup.clear()
+      pieceMeshBySquare.clear()
       for (const linha of chessRef.current.board()) {
         for (const casa of linha) {
           if (!casa) continue
@@ -192,6 +254,7 @@ export function ChessBoard3D() {
           const { x, z } = squareToPos(casa.square)
           mesh.position.set(x, 0.05, z)
           piecesGroup.add(mesh)
+          pieceMeshBySquare.set(casa.square, mesh)
         }
       }
     }
@@ -238,6 +301,62 @@ export function ChessBoard3D() {
       }
     }
 
+    /**
+     * Aplica um lance (SAN da máquina, ou {from,to} do clique do jogador) já animando a peça da
+     * posição de origem até o destino, removendo na hora quem for capturado (inclusive en passant).
+     * Peças de roque (a torre) e promoções só assumem a posição/forma final ao ressincronizar no
+     * fim da animação — não são animadas separadamente.
+     */
+    function executarLanceComAnimacao(
+      entrada: string | { from: Square; to: Square; promotion?: string },
+      aoTerminar: () => void,
+    ) {
+      const chess = chessRef.current
+      let origem: Square | undefined
+      let destino: Square | undefined
+
+      if (typeof entrada === 'string') {
+        const candidato = chess.moves({ verbose: true }).find((m) => m.san === entrada)
+        if (candidato) {
+          origem = candidato.from as Square
+          destino = candidato.to as Square
+        }
+      } else {
+        origem = entrada.from
+        destino = entrada.to
+      }
+
+      const meshMovendo = origem ? pieceMeshBySquare.get(origem) : undefined
+      const meshCapturada = destino ? pieceMeshBySquare.get(destino) : undefined
+
+      const resultado =
+        typeof entrada === 'string' ? chess.move(entrada) : chess.move({ ...entrada, promotion: entrada.promotion ?? 'q' })
+      if (!resultado) {
+        aoTerminar()
+        return
+      }
+
+      if (meshCapturada) {
+        piecesGroup.remove(meshCapturada)
+      } else if (resultado.isEnPassant() && origem && destino) {
+        const casaCapturada = `${destino[0]}${origem[1]}` as Square
+        const meshEnPassant = pieceMeshBySquare.get(casaCapturada)
+        if (meshEnPassant) piecesGroup.remove(meshEnPassant)
+      }
+
+      if (meshMovendo && origem && destino) {
+        const de = squareToPos(origem)
+        const para = squareToPos(destino)
+        animarPosicao(meshMovendo, de, para, 260, () => {
+          sincronizarPecas()
+          aoTerminar()
+        })
+      } else {
+        sincronizarPecas()
+        aoTerminar()
+      }
+    }
+
     function jogarLanceDaMaquina() {
       const chess = chessRef.current
       if (chess.isGameOver() || chess.turn() !== 'b') return
@@ -245,11 +364,15 @@ export function ChessBoard3D() {
       atualizarStatusTexto()
       window.setTimeout(() => {
         const lance = escolherJogadaDaMaquina(chess, livroRef.current)
-        if (lance) chess.move(lance)
-        vezDaMaquinaRef.current = false
-        sincronizarPecas()
-        limparDestaques()
-        atualizarStatusTexto()
+        if (!lance) {
+          vezDaMaquinaRef.current = false
+          atualizarStatusTexto()
+          return
+        }
+        executarLanceComAnimacao(lance, () => {
+          vezDaMaquinaRef.current = false
+          atualizarStatusTexto()
+        })
       }, 450)
     }
 
@@ -279,13 +402,13 @@ export function ChessBoard3D() {
         tentarSelecionar(destino)
         return
       }
-      chess.move({ from: origem, to: destino, promotion: 'q' })
       selecionadaRef.current = null
       destinosRef.current = []
-      sincronizarPecas()
       limparDestaques()
-      atualizarStatusTexto()
-      if (!chess.isGameOver()) jogarLanceDaMaquina()
+      executarLanceComAnimacao({ from: origem, to: destino, promotion: 'q' }, () => {
+        atualizarStatusTexto()
+        if (!chess.isGameOver()) jogarLanceDaMaquina()
+      })
     }
 
     function onClick(event: MouseEvent) {
