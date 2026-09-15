@@ -7,8 +7,10 @@ export type StatusPartidaXadrez = 'EM_ANDAMENTO' | 'FINALIZADA'
 
 export interface PartidaXadrez {
   id: string
-  /** Nome do jogador — é o que separa as partidas em "pastas" por jogador. */
+  /** Nome do jogador (= admin logado) — é o que separa as partidas em "pastas" por jogador. */
   jogador: string
+  /** Cor escolhida pelo jogador nessa partida — a máquina joga sempre com a outra. */
+  corJogador: 'w' | 'b'
   /** PGN completo (histórico de lances) — reconstrói o tabuleiro inteiro ao carregar. */
   pgn: string
   status: StatusPartidaXadrez
@@ -17,9 +19,9 @@ export interface PartidaXadrez {
   atualizadaEm: number
 }
 
-export function novaPartida(jogador: string): PartidaXadrez {
+export function novaPartida(jogador: string, corJogador: 'w' | 'b'): PartidaXadrez {
   const agora = Date.now()
-  return { id: makeId(), jogador, pgn: '', status: 'EM_ANDAMENTO', criadaEm: agora, atualizadaEm: agora }
+  return { id: makeId(), jogador, corJogador, pgn: '', status: 'EM_ANDAMENTO', criadaEm: agora, atualizadaEm: agora }
 }
 
 export async function listPartidasXadrez(): Promise<PartidaXadrez[]> {

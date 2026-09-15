@@ -430,7 +430,7 @@ export default function App() {
 
   return (
     <Layout active={tab} onChangeTab={setTab} currentAdmin={currentAdmin} onSwitchAdmin={handleSwitchAdmin}>
-      {tab === 'telaInicial' && <TelaInicialPage />}
+      {tab === 'telaInicial' && <TelaInicialPage currentAdmin={currentAdmin} />}
       {tab === 'cotacoes' && (
         <CotacoesPage
           refreshKey={historyRefreshKey}

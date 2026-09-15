@@ -5,7 +5,6 @@ import { Chess, type Square } from 'chess.js'
 import { Button } from './ui/Basics'
 import { carregarLivroDeAberturas, type LivroDeAberturas } from '../chess/pgnBook'
 import { escolherJogadaDaMaquina } from '../chess/engine'
-import { getJogadorAtual, limparJogadorAtual, setJogadorAtual } from '../chess/jogadorAtual'
 import { listPartidasDoJogador, novaPartida, salvarPartida, type PartidaXadrez } from '../db/xadrezRepo'
 
 const COR_CASA_CLARA = 0xe8d9b8
@@ -325,31 +324,22 @@ function animarPosicao(
   requestAnimationFrame(passo)
 }
 
-export function ChessBoard3D() {
+export function ChessBoard3D({ currentAdmin }: { currentAdmin: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chessRef = useRef(new Chess())
   const livroRef = useRef<LivroDeAberturas>(new Map())
   const partidaAtualRef = useRef<PartidaXadrez | null>(null)
-  const jogadorRef = useRef<string | null>(null)
-  const mostrarPedidoNomeRef = useRef<() => void>(() => {})
-  const acoesRef = useRef<{ carregarPgn: (pgn: string) => void } | null>(null)
+  const corHumanoRef = useRef<'w' | 'b'>('w')
+  const acoesRef = useRef<{ carregarPgn: (pgn: string, corHumano: 'w' | 'b') => void } | null>(null)
 
   const [statusTexto, setStatusTexto] = useState('Carregando o tabuleiro…')
   const [livroInfo, setLivroInfo] = useState<string | null>(null)
   const [historico, setHistorico] = useState<string[]>([])
   const [historicoAberto, setHistoricoAberto] = useState(false)
-  const [jogador, setJogadorState] = useState<string | null>(() => getJogadorAtual())
-  const [nomeInput, setNomeInput] = useState('')
-  const [pedindoNome, setPedindoNome] = useState(false)
   const [partidasEmAndamento, setPartidasEmAndamento] = useState<PartidaXadrez[]>([])
-
-  useEffect(() => {
-    jogadorRef.current = jogador
-  }, [jogador])
-
-  useEffect(() => {
-    mostrarPedidoNomeRef.current = () => setPedindoNome(true)
-  }, [])
+  // true quando ainda não há partida em andamento e o jogador precisa escolher a cor antes de
+  // começar (tanto na primeira vez quanto em "Novo jogo") — o admin logado já é o jogador fixo
+  const [escolhendoCor, setEscolhendoCor] = useState(false)
 
   useEffect(() => {
     carregarLivroDeAberturas().then((livro) => {
@@ -362,40 +352,29 @@ export function ChessBoard3D() {
     })
   }, [])
 
-  // assim que sabe quem é o jogador, retoma a partida em andamento mais recente dele
-  // (ou cria uma nova) — o progresso nunca é perdido, fica salvo no servidor por jogador
+  // o jogador é sempre o admin logado (fixo, não muda por aqui) — retoma a partida em andamento
+  // mais recente dele, ou pede a cor pra começar uma primeira partida se não houver nenhuma
   useEffect(() => {
-    if (!jogador) return
     let cancelado = false
-    listPartidasDoJogador(jogador)
-      .then(async (partidas) => {
+    listPartidasDoJogador(currentAdmin)
+      .then((partidas) => {
         if (cancelado) return
         const emAndamento = partidas.filter((p) => p.status === 'EM_ANDAMENTO')
-        let ativa = emAndamento[0]
-        if (!ativa) {
-          ativa = novaPartida(jogador)
-          try {
-            await salvarPartida(ativa)
-          } catch {
-            // sem servidor por enquanto — segue com a partida só localmente
-          }
-          emAndamento.unshift(ativa)
+        if (emAndamento.length > 0) {
+          partidaAtualRef.current = emAndamento[0]
+          setPartidasEmAndamento(emAndamento)
+          acoesRef.current?.carregarPgn(emAndamento[0].pgn, emAndamento[0].corJogador)
+        } else {
+          setEscolhendoCor(true)
         }
-        if (cancelado) return
-        partidaAtualRef.current = ativa
-        setPartidasEmAndamento(emAndamento)
-        acoesRef.current?.carregarPgn(ativa.pgn)
       })
       .catch(() => {
-        const ativa = novaPartida(jogador)
-        partidaAtualRef.current = ativa
-        setPartidasEmAndamento([ativa])
-        acoesRef.current?.carregarPgn('')
+        setEscolhendoCor(true)
       })
     return () => {
       cancelado = true
     }
-  }, [jogador])
+  }, [currentAdmin])
 
   useEffect(() => {
     const container = containerRef.current
@@ -573,7 +552,8 @@ export function ChessBoard3D() {
       partida.atualizadaEm = Date.now()
       if (chess.isCheckmate()) {
         partida.status = 'FINALIZADA'
-        partida.resultado = chess.turn() === 'w' ? 'Você venceu (xeque-mate)' : 'A máquina venceu (xeque-mate)'
+        partida.resultado =
+          chess.turn() === corHumanoRef.current ? 'A máquina venceu (xeque-mate)' : 'Você venceu (xeque-mate)'
       } else if (chess.isStalemate()) {
         partida.status = 'FINALIZADA'
         partida.resultado = 'Empate por afogamento'
@@ -597,19 +577,24 @@ export function ChessBoard3D() {
       const chess = chessRef.current
       setHistorico(chess.history())
       salvarProgresso()
-      if (!jogadorRef.current) {
-        setStatusTexto('Modo demonstração — clique numa peça pra registrar seu nome e começar a jogar.')
-      } else if (chess.isCheckmate()) {
-        const vencedor = chess.turn() === 'w' ? 'A máquina (pretas)' : 'Você (brancas)'
+      const corHumano = corHumanoRef.current
+      const labelCor = (c: 'w' | 'b') => (c === 'w' ? 'brancas' : 'pretas')
+      if (chess.isCheckmate()) {
+        const vencedor =
+          chess.turn() === corHumano
+            ? `A máquina (${labelCor(corHumano === 'w' ? 'b' : 'w')})`
+            : `Você (${labelCor(corHumano)})`
         setStatusTexto(`Xeque-mate — ${vencedor} venceu!`)
       } else if (chess.isStalemate()) {
         setStatusTexto('Empate por afogamento.')
       } else if (chess.isDraw()) {
         setStatusTexto('Empate.')
-      } else if (chess.turn() === 'b') {
+      } else if (chess.turn() !== corHumano) {
         setStatusTexto(chess.isCheck() ? 'Xeque! A máquina está pensando…' : 'A máquina está pensando…')
       } else {
-        setStatusTexto(chess.isCheck() ? 'Xeque! Sua vez (brancas).' : 'Sua vez — você joga com as brancas.')
+        setStatusTexto(
+          chess.isCheck() ? `Xeque! Sua vez (${labelCor(corHumano)}).` : `Sua vez — você joga com as ${labelCor(corHumano)}.`,
+        )
       }
     }
 
@@ -671,7 +656,7 @@ export function ChessBoard3D() {
 
     function jogarLanceDaMaquina() {
       const chess = chessRef.current
-      if (chess.isGameOver() || chess.turn() !== 'b') return
+      if (chess.isGameOver() || chess.turn() === corHumanoRef.current) return
       vezDaMaquinaRef.current = true
       atualizarStatusTexto()
       window.setTimeout(() => {
@@ -690,9 +675,9 @@ export function ChessBoard3D() {
 
     function tentarSelecionar(square: Square) {
       const chess = chessRef.current
-      if (chess.turn() !== 'w' || vezDaMaquinaRef.current || chess.isGameOver()) return
+      if (chess.turn() !== corHumanoRef.current || vezDaMaquinaRef.current || chess.isGameOver()) return
       const peca = chess.get(square)
-      if (!peca || peca.color !== 'w') {
+      if (!peca || peca.color !== corHumanoRef.current) {
         selecionadaRef.current = null
         limparDestaques()
         return
@@ -734,13 +719,6 @@ export function ChessBoard3D() {
       const hits = raycaster.intersectObjects(squareMeshes)
       if (hits.length === 0) return
 
-      // sem jogador registrado ainda, o tabuleiro fica só em modo demonstrativo (dá pra girar/
-      // aproximar, mas não pra jogar) — a primeira tentativa de interação é que pede o nome
-      if (!jogadorRef.current) {
-        mostrarPedidoNomeRef.current()
-        return
-      }
-
       const square = hits[0].object.userData.square as Square
       if (selecionadaRef.current) {
         tentarMover(square)
@@ -752,9 +730,10 @@ export function ChessBoard3D() {
 
     acoesRef.current = {
       // carrega uma partida salva (PGN) ou começa uma nova (pgn vazio) — usado tanto pra
-      // retomar a partida do jogador ao abrir quanto pra trocar de partida/jogador depois
-      carregarPgn(pgn: string) {
+      // retomar a partida em andamento ao abrir quanto pra começar uma partida nova depois
+      carregarPgn(pgn: string, corHumano: 'w' | 'b') {
         const chess = chessRef.current
+        corHumanoRef.current = corHumano
         if (pgn) {
           try {
             chess.loadPgn(pgn)
@@ -770,7 +749,7 @@ export function ChessBoard3D() {
         sincronizarPecas()
         limparDestaques()
         atualizarStatusTexto()
-        if (!chess.isGameOver() && chess.turn() === 'b') jogarLanceDaMaquina()
+        if (!chess.isGameOver() && chess.turn() !== corHumanoRef.current) jogarLanceDaMaquina()
       },
     }
 
@@ -813,25 +792,13 @@ export function ChessBoard3D() {
     return pares
   }, [historico])
 
-  function confirmarNome() {
-    const nome = nomeInput.trim()
-    if (!nome) return
-    setJogadorAtual(nome)
-    setJogadorState(nome)
-    setNomeInput('')
-    setPedindoNome(false)
+  function handleNovoJogo() {
+    setEscolhendoCor(true)
   }
 
-  function handleTrocarJogador() {
-    limparJogadorAtual()
-    setJogadorState(null)
-    partidaAtualRef.current = null
-    setPartidasEmAndamento([])
-  }
-
-  async function handleNovoJogo() {
-    if (!jogador) return
-    const nova = novaPartida(jogador)
+  async function handleEscolherCor(cor: 'w' | 'b') {
+    setEscolhendoCor(false)
+    const nova = novaPartida(currentAdmin, cor)
     try {
       await salvarPartida(nova)
     } catch {
@@ -839,12 +806,12 @@ export function ChessBoard3D() {
     }
     partidaAtualRef.current = nova
     setPartidasEmAndamento((prev) => [nova, ...prev])
-    acoesRef.current?.carregarPgn('')
+    acoesRef.current?.carregarPgn('', cor)
   }
 
   function handleRetomarPartida(partida: PartidaXadrez) {
     partidaAtualRef.current = partida
-    acoesRef.current?.carregarPgn(partida.pgn)
+    acoesRef.current?.carregarPgn(partida.pgn, partida.corJogador)
   }
 
   return (
@@ -852,16 +819,11 @@ export function ChessBoard3D() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-medium text-ink-700">{statusTexto}</p>
-          {jogador && (
-            <p className="text-xs text-ink-400">
-              Jogando como <span className="font-medium text-ink-600">{jogador}</span> ·{' '}
-              <button type="button" onClick={handleTrocarJogador} className="underline hover:text-ink-600">
-                trocar jogador
-              </button>
-            </p>
-          )}
+          <p className="text-xs text-ink-400">
+            Jogando como <span className="font-medium text-ink-600">{currentAdmin}</span>
+          </p>
         </div>
-        <Button variant="secondary" onClick={handleNovoJogo} disabled={!jogador}>
+        <Button variant="secondary" onClick={handleNovoJogo} disabled={escolhendoCor}>
           Novo jogo
         </Button>
       </div>
@@ -919,35 +881,38 @@ export function ChessBoard3D() {
           )}
         </div>
 
-        {pedindoNome && !jogador && (
+        {escolhendoCor && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-ink-950/70 backdrop-blur-sm rounded-xl p-4">
-            <div className="w-full max-w-xs rounded-xl bg-white p-4 shadow-xl">
-              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Como você quer ser chamado?</h3>
-              <p className="text-xs text-ink-400 mb-3">
-                Pra começar a jogar, registre seu nome — suas partidas ficam salvas separadas por jogador, e retomam
-                sozinhas da próxima vez.
-              </p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  className="field-input flex-1"
-                  placeholder="Seu nome"
-                  value={nomeInput}
-                  onChange={(e) => setNomeInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && confirmarNome()}
-                  autoFocus
-                />
-                <Button variant="primary" onClick={confirmarNome} disabled={!nomeInput.trim()}>
-                  Entrar
-                </Button>
+            <div className="w-full max-w-xs rounded-xl bg-white p-4 shadow-xl text-center">
+              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Com qual peça você quer jogar?</h3>
+              <p className="text-xs text-ink-400 mb-4">Escolha antes de começar essa partida.</p>
+              <div className="flex gap-3 justify-center">
+                <button
+                  type="button"
+                  onClick={() => handleEscolherCor('w')}
+                  className="flex flex-col items-center gap-2 rounded-xl border border-ink-200 hover:border-ink-400 hover:bg-ink-50 transition px-5 py-4"
+                >
+                  <span className="h-10 w-10 rounded-full bg-white border-2 border-ink-300 shadow-inner" />
+                  <span className="text-sm font-medium text-ink-800">Brancas</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleEscolherCor('b')}
+                  className="flex flex-col items-center gap-2 rounded-xl border border-ink-200 hover:border-ink-400 hover:bg-ink-50 transition px-5 py-4"
+                >
+                  <span className="h-10 w-10 rounded-full bg-ink-900 border-2 border-ink-900 shadow-inner" />
+                  <span className="text-sm font-medium text-ink-800">Pretas</span>
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setPedindoNome(false)}
-                className="mt-3 text-xs text-ink-400 underline hover:text-ink-600"
-              >
-                Continuar só olhando
-              </button>
+              {partidaAtualRef.current && (
+                <button
+                  type="button"
+                  onClick={() => setEscolhendoCor(false)}
+                  className="mt-4 text-xs text-ink-400 underline hover:text-ink-600"
+                >
+                  Cancelar e voltar pra partida atual
+                </button>
+              )}
             </div>
           </div>
         )}
