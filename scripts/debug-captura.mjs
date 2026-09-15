@@ -13,15 +13,22 @@ async function main() {
   await page.getByRole('button', { name: 'Max', exact: true }).click()
   await page.waitForTimeout(500)
   await page.getByRole('button', { name: 'Tela Inicial', exact: true }).click()
-  await page.waitForTimeout(2500)
+  await page.waitForTimeout(2000)
 
   const board = page.locator('.aspect-\\[4\\/3\\]')
   const box = await board.boundingBox()
-
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  await page.mouse.wheel(0, -1100)
-  await page.waitForTimeout(500)
-  await board.screenshot({ path: 'scripts/screenshots/cavalo-01.png' })
+  await page.mouse.wheel(0, -1300)
+
+  // depois de carregar a posição (via o "novo jogo" padrão + partida em EM_ANDAMENTO no servidor,
+  // pré-carregada com "1. e4 d5", jogador de pretas) é a vez da máquina (brancas) — o peão de e4
+  // captura o de d5 de graça, é a jogada natural que o motor deve escolher
+  const tempoInicio = Date.now()
+  for (let i = 0; i < 30; i++) {
+    await page.waitForTimeout(500)
+    await board.screenshot({ path: `scripts/screenshots/captura-frame-${String(i).padStart(2, '0')}.png` })
+    console.log(`frame ${i} em +${((Date.now() - tempoInicio) / 1000).toFixed(1)}s`)
+  }
 
   await browser.close()
 }

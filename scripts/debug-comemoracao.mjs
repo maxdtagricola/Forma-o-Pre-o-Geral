@@ -13,15 +13,12 @@ async function main() {
   await page.getByRole('button', { name: 'Max', exact: true }).click()
   await page.waitForTimeout(500)
   await page.getByRole('button', { name: 'Tela Inicial', exact: true }).click()
-  await page.waitForTimeout(2500)
+  await page.waitForTimeout(6000)
+  await page.screenshot({ path: 'scripts/screenshots/comemoracao-01-overlay.png' })
 
-  const board = page.locator('.aspect-\\[4\\/3\\]')
-  const box = await board.boundingBox()
-
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  await page.mouse.wheel(0, -1100)
-  await page.waitForTimeout(500)
-  await board.screenshot({ path: 'scripts/screenshots/cavalo-01.png' })
+  // espera um pouco mais pra pegar a comemoração das peças em movimento
+  await page.waitForTimeout(800)
+  await page.screenshot({ path: 'scripts/screenshots/comemoracao-02-pulando.png' })
 
   await browser.close()
 }

@@ -18,10 +18,11 @@ async function main() {
   const board = page.locator('.aspect-\\[4\\/3\\]')
   const box = await board.boundingBox()
 
+  // zoom nas peças brancas (frente), pra ver a pose de guarda parada
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  await page.mouse.wheel(0, -1100)
+  await page.mouse.wheel(0, -1300)
   await page.waitForTimeout(500)
-  await board.screenshot({ path: 'scripts/screenshots/cavalo-01.png' })
+  await board.screenshot({ path: 'scripts/screenshots/guarda-01-parado.png' })
 
   await browser.close()
 }

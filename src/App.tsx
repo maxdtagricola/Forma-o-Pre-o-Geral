@@ -62,7 +62,11 @@ export default function App() {
   const [currentPlayer, setCurrentPlayerState] = useState<string | null>(() =>
     getModoSessao() === 'jogador' ? getCurrentPlayer() : null,
   )
-  const [tab, setTab] = useState<TabKey>('telaInicial')
+  // o admin Max começa direto em "Acompanhamento de notas" — é a aba que ele mais usa
+  const [tab, setTab] = useState<TabKey>(() => {
+    const admin = getModoSessao() === 'admin' ? getCurrentAdmin() : null
+    return admin === 'Max' ? 'acompanhamentoNotas' : 'telaInicial'
+  })
   const [vendedor, setVendedor] = useState('')
   const [tipoReferencia, setTipoReferencia] = useState<TipoReferencia>('itens')
   const [cliente, setCliente] = useState('')
@@ -189,6 +193,7 @@ export default function App() {
     setModoSessao('admin')
     setCurrentAdmin(admin)
     setCurrentAdminState(admin)
+    setTab(admin === 'Max' ? 'acompanhamentoNotas' : 'telaInicial')
   }
 
   function handleSwitchAdmin() {

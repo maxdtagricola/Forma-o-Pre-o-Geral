@@ -96,7 +96,10 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
     case 'p':
       partes = [
         { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.135, 0.025, 0.135), y: 0.4, papel: 'detalhe' },
         { geo: new THREE.CylinderGeometry(0.11, 0.13, 0.2, 18), y: 0.48, papel: 'armadura' },
+        { geo: new THREE.SphereGeometry(0.045, 12, 10), x: -0.13, y: 0.55, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.045, 12, 10), x: 0.13, y: 0.55, papel: 'detalhe' },
         { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.68, papel: 'armadura' },
         { geo: new THREE.ConeGeometry(0.055, 0.11, 14), y: 0.79, papel: 'detalhe' },
         { geo: new THREE.BoxGeometry(0.08, 0.02, 0.02), y: 0.685, z: 0.09, papel: 'brilho' },
@@ -107,32 +110,47 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
       partes = [
         { geo: new THREE.BoxGeometry(0.24, 0.09, 0.16), y: 0.36, papel: 'armadura' },
         { geo: new THREE.BoxGeometry(0.34, 0.22, 0.24), y: 0.5, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.345, 0.03, 0.245), y: 0.5, papel: 'detalhe' },
         { geo: new THREE.BoxGeometry(0.09, 0.13, 0.09), x: -0.2, y: 0.53, papel: 'detalhe' },
         { geo: new THREE.BoxGeometry(0.09, 0.13, 0.09), x: 0.2, y: 0.53, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.06, 0.06, 0.02), y: 0.56, z: 0.125, rotZ: Math.PI / 4, papel: 'brilho' },
         { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.7, papel: 'armadura' },
         { geo: new THREE.BoxGeometry(0.3, 0.07, 0.3), y: 0.8, papel: 'detalhe' },
         { geo: new THREE.BoxGeometry(0.09, 0.02, 0.02), y: 0.705, z: 0.095, papel: 'brilho' },
       ]
       break
-    // cavalo — batedor ágil e franzino, corpo esguio e inclinado numa postura de corrida (bem
-    // diferente do porte reto do peão), capuz alto cobrindo a cabeça toda, pena longa varrendo pra
-    // trás e um arco nas costas — silhueta reconhecível de longe, não só uma variação do peão
+    // cavalo — literalmente um peão montado em cima de um cavalo: corpo/pescoço/cabeça/orelhas/
+    // crina/rabo do cavalo por baixo, e um cavaleiro pequeno (mesma cara do peão — corpo, cabeça,
+    // capacete pontudo) sentado no lombo. O tronco do cavalo fica mais estreito que a distância das
+    // "patas" (o mesmo par de pernas articuladas de toda peça), então elas ficam visíveis do lado
+    // de fora do corpo em vez de escondidas por dentro.
     case 'n':
       partes = [
-        { geo: new THREE.BoxGeometry(0.16, 0.07, 0.12), y: 0.35, rotZ: 0.14, papel: 'armadura' },
-        { geo: new THREE.CylinderGeometry(0.075, 0.095, 0.24, 14), y: 0.49, rotZ: 0.18, papel: 'armadura' },
-        { geo: new THREE.ConeGeometry(0.105, 0.26, 16), y: 0.68, rotZ: 0.18, papel: 'detalhe' },
-        { geo: new THREE.SphereGeometry(0.07, 16, 12), y: 0.62, z: 0.015, rotX: -0.15, papel: 'armadura' },
-        { geo: new THREE.ConeGeometry(0.03, 0.24, 10), x: -0.07, y: 0.88, z: -0.03, rotZ: 0.55, papel: 'detalhe' },
-        {
-          geo: new THREE.TorusGeometry(0.12, 0.014, 8, 16, Math.PI),
-          y: 0.42,
-          z: -0.11,
-          rotY: Math.PI / 2,
-          rotZ: 0.18,
-          papel: 'detalhe',
-        },
-        { geo: new THREE.BoxGeometry(0.05, 0.015, 0.015), y: 0.605, z: 0.06, rotZ: 0.18, papel: 'brilho' },
+        // corpo do cavalo
+        { geo: new THREE.BoxGeometry(0.15, 0.17, 0.4), y: 0.42, papel: 'armadura' },
+        // manta de sela, sob o cavaleiro
+        { geo: new THREE.BoxGeometry(0.17, 0.03, 0.22), y: 0.505, z: 0.03, papel: 'detalhe' },
+        // pescoço, inclinado pra frente e pra cima
+        { geo: new THREE.BoxGeometry(0.1, 0.24, 0.11), y: 0.54, z: -0.2, rotX: -0.5, papel: 'armadura' },
+        // cabeça — focinho alongado
+        { geo: new THREE.BoxGeometry(0.085, 0.1, 0.2), y: 0.65, z: -0.35, rotX: -0.15, papel: 'armadura' },
+        // orelhas
+        { geo: new THREE.ConeGeometry(0.025, 0.07, 8), x: -0.03, y: 0.72, z: -0.27, papel: 'detalhe' },
+        { geo: new THREE.ConeGeometry(0.025, 0.07, 8), x: 0.03, y: 0.72, z: -0.27, papel: 'detalhe' },
+        // crina, ao longo do pescoço
+        { geo: new THREE.BoxGeometry(0.03, 0.16, 0.16), y: 0.6, z: -0.13, rotX: -0.5, papel: 'detalhe' },
+        // rabo
+        { geo: new THREE.ConeGeometry(0.045, 0.22, 10), y: 0.42, z: 0.24, rotX: Math.PI * 0.55, papel: 'detalhe' },
+        // cavaleiro — tronco pequeno sentado no lombo
+        { geo: new THREE.CylinderGeometry(0.075, 0.085, 0.14, 14), y: 0.56, papel: 'armadura' },
+        // capa curta do cavaleiro, esvoaçando pra trás
+        { geo: new THREE.BoxGeometry(0.1, 0.16, 0.02), y: 0.58, z: 0.09, rotX: 0.25, papel: 'detalhe' },
+        // cabeça do cavaleiro
+        { geo: new THREE.SphereGeometry(0.065, 16, 12), y: 0.68, papel: 'armadura' },
+        // capacete pontudo, igual ao do peão
+        { geo: new THREE.ConeGeometry(0.04, 0.08, 12), y: 0.755, papel: 'detalhe' },
+        // brilho dos olhos do cavaleiro
+        { geo: new THREE.BoxGeometry(0.055, 0.015, 0.015), y: 0.685, z: 0.06, papel: 'brilho' },
       ]
       break
     // bispo — místico com chapéu pontudo e cajado
@@ -140,8 +158,12 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
       partes = [
         { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
         { geo: new THREE.ConeGeometry(0.16, 0.26, 18), y: 0.5, papel: 'detalhe' },
+        // faixa/cíngulo na cintura da batina
+        { geo: new THREE.TorusGeometry(0.1, 0.012, 8, 20), y: 0.45, rotX: Math.PI / 2, papel: 'brilho' },
         { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.7, papel: 'armadura' },
         { geo: new THREE.ConeGeometry(0.1, 0.3, 16), y: 0.94, papel: 'detalhe' },
+        // faixa diagonal no peito
+        { geo: new THREE.BoxGeometry(0.035, 0.22, 0.02), x: 0.05, y: 0.68, z: 0.08, rotZ: 0.5, papel: 'detalhe' },
         { geo: new THREE.CylinderGeometry(0.014, 0.014, 0.46, 8), x: 0.19, y: 0.52, papel: 'armadura' },
         { geo: new THREE.SphereGeometry(0.045, 14, 14), x: 0.19, y: 0.77, papel: 'brilho' },
       ]
@@ -151,8 +173,13 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
       partes = [
         { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
         { geo: new THREE.ConeGeometry(0.16, 0.28, 20), y: 0.5, papel: 'detalhe' },
+        // colar
+        { geo: new THREE.TorusGeometry(0.078, 0.012, 8, 20), y: 0.63, rotX: Math.PI / 2, papel: 'coroa' },
         { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.72, papel: 'armadura' },
         { geo: new THREE.TorusGeometry(0.09, 0.022, 10, 20), y: 0.85, rotX: Math.PI / 2, papel: 'coroa' },
+        // pontas pequenas na coroa, além do topo com a joia
+        { geo: new THREE.ConeGeometry(0.017, 0.05, 8), x: 0.075, y: 0.895, papel: 'coroa' },
+        { geo: new THREE.ConeGeometry(0.017, 0.05, 8), x: -0.075, y: 0.895, papel: 'coroa' },
         { geo: new THREE.SphereGeometry(0.04, 14, 14), y: 0.92, papel: 'brilho' },
       ]
       break
@@ -162,6 +189,8 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
         { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
         { geo: new THREE.ConeGeometry(0.17, 0.3, 20), y: 0.51, papel: 'detalhe' },
         { geo: new THREE.BoxGeometry(0.2, 0.34, 0.04), y: 0.46, z: -0.11, rotX: 0.1, papel: 'detalhe' },
+        // emblema no peito
+        { geo: new THREE.BoxGeometry(0.055, 0.055, 0.018), y: 0.58, z: 0.115, rotZ: Math.PI / 4, papel: 'brilho' },
         { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.74, papel: 'armadura' },
         { geo: new THREE.TorusGeometry(0.1, 0.024, 10, 20), y: 0.88, rotX: Math.PI / 2, papel: 'coroa' },
         { geo: new THREE.BoxGeometry(0.035, 0.15, 0.035), y: 0.99, papel: 'coroa' },
@@ -203,6 +232,19 @@ interface MembrosPersonagem {
   bracoEsq: THREE.Group
   bracoDir: THREE.Group
 }
+
+/** Pose de descanso de cada membro (rotation.x) — a maioria fica com tudo a 0 (braços caídos), mas
+ * o peão segura a espada em guarda, com o braço direito erguido à frente do corpo. A caminhada
+ * soma o balanço em cima dessa base, em vez de partir sempre de zero. */
+interface PoseBaseMembros {
+  pernaEsq: number
+  pernaDir: number
+  bracoEsq: number
+  bracoDir: number
+}
+const POSE_BASE_NEUTRA: PoseBaseMembros = { pernaEsq: 0, pernaDir: 0, bracoEsq: 0, bracoDir: 0 }
+const ANGULO_GUARDA_BRACO_DIR = -Math.PI * 0.85
+const ANGULO_GUARDA_BRACO_ESQ = -Math.PI * 0.4
 
 interface MateriaisFaccao {
   armadura: THREE.MeshToonMaterial
@@ -307,13 +349,28 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
   grupo.add(membros.pernaEsq, membros.pernaDir, membros.bracoEsq, membros.bracoDir)
   grupo.userData.membros = membros
 
+  const poseBase: PoseBaseMembros = { ...POSE_BASE_NEUTRA }
   if (tipo === 'p') {
     const espada = criarEspadaDoPeao()
     espada.position.y = -CONFIG_BRACO_DIR.comprimento
-    espada.rotation.z = -0.5
-    espada.scale.setScalar(1.8)
+    espada.rotation.z = Math.PI * 0.15
+    espada.scale.setScalar(1.5)
     membros.bracoDir.add(espada)
+
+    // peão fica em posição de guarda — braço direito erguido à frente segurando a espada, o
+    // esquerdo mais recolhido perto do corpo, como se ajudasse a firmar o cabo
+    poseBase.bracoDir = ANGULO_GUARDA_BRACO_DIR
+    poseBase.bracoEsq = ANGULO_GUARDA_BRACO_ESQ
+    membros.bracoDir.rotation.x = poseBase.bracoDir
+    membros.bracoEsq.rotation.x = poseBase.bracoEsq
   }
+  grupo.userData.poseBase = poseBase
+
+  // todo detalhe assimétrico (olhos, espada em guarda) foi desenhado virado pra +Z, que é "pra
+  // frente" pras pretas (avançam de z negativo pra positivo) — as brancas avançam ao contrário
+  // (de z positivo pra negativo), então giram 180° aqui pra também ficarem de frente pro
+  // adversário em vez de de costas
+  if (cor === 'w') grupo.rotation.y = Math.PI
 
   grupo.scale.setScalar(ESCALA_POR_TIPO[tipo] ?? 1)
 
@@ -323,8 +380,14 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
 const LARGURA_FULL_HD = 1920
 const ALTURA_FULL_HD = 1080
 
-/** Duração do deslocamento de cada lance — bem mais lenta e cadenciada, pra dar tempo de acompanhar o movimento. */
-const DURACAO_LANCE_MS = 1300
+// Velocidade de caminhada das peças: a duração do deslocamento e o número de passadas escalam
+// com a distância percorrida (em casas do tabuleiro), então uma peça anda no mesmo ritmo humano
+// constante tanto num lance curto quanto num lance longo — em vez de todo lance levar o mesmo
+// tempo fixo, com as pernas balançando fixo desincronizadas da distância real percorrida.
+const VELOCIDADE_CASAS_POR_SEGUNDO = 2.6
+const DURACAO_LANCE_MIN_MS = 650
+const DURACAO_LANCE_MAX_MS = 2400
+const PASSADAS_POR_CASA = 1.6
 /** Pausa "pensando" da máquina antes de mover, pro ritmo geral ficar mais compassado. */
 const PAUSA_MAQUINA_MS = 700
 /** Intervalo entre lances no modo demonstração (máquina x máquina) — de 10 a 15s por lance com o tabuleiro cheio. */
@@ -352,15 +415,26 @@ function pixelRatioParaFullHD(larguraCss: number, alturaCss: number): number {
   return Math.min(Math.max(dpr, fatorParaFullHD), 3)
 }
 
-/** Anima a posição x/z (ease-in-out, mais lenta e cadenciada) e, se a peça tiver braços/pernas, balança os membros como uma caminhada durante o trajeto — voltando à pose neutra ao terminar. */
+/**
+ * Anima a posição x/z (ease-in-out) e, se a peça tiver braços/pernas, balança os membros como uma
+ * caminhada durante o trajeto — voltando à pose de descanso da peça (guarda, no caso do peão) ao
+ * terminar. Duração e número de passadas escalam com a distância percorrida, então o ritmo do
+ * "passo" fica igual não importa se a peça andou uma casa ou atravessou o tabuleiro inteiro.
+ */
 function animarPosicao(
   mesh: THREE.Object3D,
   de: { x: number; z: number },
   para: { x: number; z: number },
-  duracaoMs: number,
   aoTerminar: () => void,
 ) {
   const membros = mesh.userData.membros as MembrosPersonagem | undefined
+  const base = (mesh.userData.poseBase as PoseBaseMembros | undefined) ?? POSE_BASE_NEUTRA
+  const distancia = Math.hypot(para.x - de.x, para.z - de.z)
+  const duracaoMs = Math.min(
+    DURACAO_LANCE_MAX_MS,
+    Math.max(DURACAO_LANCE_MIN_MS, (distancia / VELOCIDADE_CASAS_POR_SEGUNDO) * 1000),
+  )
+  const passadas = Math.max(1, Math.round(distancia * PASSADAS_POR_CASA))
   const inicio = performance.now()
   function passo(agora: number) {
     const t = Math.min(1, (agora - inicio) / duracaoMs)
@@ -369,23 +443,227 @@ function animarPosicao(
     mesh.position.z = de.z + (para.z - de.z) * suave
 
     if (membros) {
-      const balanco = Math.sin(t * Math.PI * 4) * 0.55 * Math.sin(t * Math.PI)
-      membros.pernaEsq.rotation.x = balanco
-      membros.pernaDir.rotation.x = -balanco
-      membros.bracoEsq.rotation.x = -balanco
-      membros.bracoDir.rotation.x = balanco
+      const envelope = Math.sin(t * Math.PI) // 0 no início/fim do trajeto, evita um "chute" seco na primeira/última passada
+      const balanco = Math.sin(t * Math.PI * passadas) * 0.55 * envelope
+      membros.pernaEsq.rotation.x = base.pernaEsq + balanco
+      membros.pernaDir.rotation.x = base.pernaDir - balanco
+      membros.bracoEsq.rotation.x = base.bracoEsq - balanco
+      membros.bracoDir.rotation.x = base.bracoDir + balanco
     }
 
     if (t < 1) {
       requestAnimationFrame(passo)
     } else {
       if (membros) {
-        membros.pernaEsq.rotation.x = 0
-        membros.pernaDir.rotation.x = 0
-        membros.bracoEsq.rotation.x = 0
-        membros.bracoDir.rotation.x = 0
+        membros.pernaEsq.rotation.x = base.pernaEsq
+        membros.pernaDir.rotation.x = base.pernaDir
+        membros.bracoEsq.rotation.x = base.bracoEsq
+        membros.bracoDir.rotation.x = base.bracoDir
       }
       aoTerminar()
+    }
+  }
+  requestAnimationFrame(passo)
+}
+
+/** Duração da comemoração de xeque-mate — pulos com os braços levantados, cada peça começando num instante levemente diferente pra não ficarem todas sincronizadas feito robôs. */
+const DURACAO_COMEMORACAO_MS = 2400
+
+/** Faz a peça pular com os braços erguidos, comemorando — usado quando o lado dela vence por xeque-mate. */
+function animarComemoracao(mesh: THREE.Object3D, atraso: number) {
+  const membros = mesh.userData.membros as MembrosPersonagem | undefined
+  const yBase = mesh.position.y
+  const rotYBase = mesh.rotation.y // brancas ficam viradas 180° (Math.PI) — não pode resetar pra 0
+  const inicio = performance.now() + atraso
+  function passo(agora: number) {
+    if (agora < inicio) {
+      requestAnimationFrame(passo)
+      return
+    }
+    const t = Math.min(1, (agora - inicio) / DURACAO_COMEMORACAO_MS)
+    const amortecido = 1 - t // os pulos vão ficando mais baixos até parar
+    const pulo = Math.abs(Math.sin(t * Math.PI * 7)) * 0.22 * amortecido
+    mesh.position.y = yBase + pulo
+    mesh.rotation.y = rotYBase + Math.sin(t * Math.PI * 3) * 0.5 * amortecido
+
+    if (membros) {
+      const braceje = Math.sin(t * Math.PI * 9) * 0.25
+      membros.bracoEsq.rotation.z = (Math.PI * 0.65 + braceje) * amortecido
+      membros.bracoDir.rotation.z = -(Math.PI * 0.65 - braceje) * amortecido
+      membros.pernaEsq.rotation.x = pulo * 1.5
+      membros.pernaDir.rotation.x = -pulo * 1.5
+    }
+
+    if (t < 1) {
+      requestAnimationFrame(passo)
+    } else {
+      mesh.position.y = yBase
+      mesh.rotation.y = rotYBase
+      if (membros) {
+        membros.bracoEsq.rotation.z = 0
+        membros.bracoDir.rotation.z = 0
+        membros.pernaEsq.rotation.x = 0
+        membros.pernaDir.rotation.x = 0
+      }
+    }
+  }
+  requestAnimationFrame(passo)
+}
+
+/** Duração do golpe de espada do peão ao capturar — vira de frente pro alvo e desfere um corte rápido. */
+const DURACAO_ATAQUE_MS = 420
+
+/**
+ * Ataque de espada do peão ao capturar: vira de frente pra direção do alvo e desfere um golpe
+ * (o braço vai da guarda até um corte à frente e volta) — só depois disso a peça capturada cai.
+ */
+function animarAtaqueEspada(mesh: THREE.Object3D, direcao: { x: number; z: number }, aoTerminar: () => void) {
+  const membros = mesh.userData.membros as MembrosPersonagem | undefined
+  const base = (mesh.userData.poseBase as PoseBaseMembros | undefined) ?? POSE_BASE_NEUTRA
+  const rotYOriginal = mesh.rotation.y
+  const anguloAlvo = Math.atan2(direcao.x, direcao.z)
+  const inicio = performance.now()
+  function passo(agora: number) {
+    const t = Math.min(1, (agora - inicio) / DURACAO_ATAQUE_MS)
+    // vira de frente rápido, segura o giro durante o golpe e desfaz no fim
+    const giro = t < 0.3 ? t / 0.3 : t > 0.8 ? (1 - t) / 0.2 : 1
+    mesh.rotation.y = rotYOriginal + (anguloAlvo - rotYOriginal) * giro
+    if (membros) {
+      const golpe = Math.sin(Math.min(1, t / 0.75) * Math.PI) // 0 -> 1 -> 0, golpe termina antes do giro desfazer
+      membros.bracoDir.rotation.x = base.bracoDir + golpe * 1.3
+      membros.bracoDir.rotation.z = golpe * -0.3
+    }
+    if (t < 1) {
+      requestAnimationFrame(passo)
+    } else {
+      mesh.rotation.y = rotYOriginal
+      if (membros) {
+        membros.bracoDir.rotation.x = base.bracoDir
+        membros.bracoDir.rotation.z = 0
+      }
+      aoTerminar()
+    }
+  }
+  requestAnimationFrame(passo)
+}
+
+/** Duração da queda (tomba) e do afundamento+desaparecimento da peça capturada, depois do golpe. */
+const DURACAO_QUEDA_MS = 500
+const DURACAO_SUMIR_MS = 650
+
+/**
+ * A peça capturada tomba pro chão e depois afunda no tabuleiro sumindo aos poucos — clona os
+ * materiais antes (são compartilhados entre todas as peças da mesma facção/tipo) pra desvanecer só
+ * essa peça sem afetar as outras que ainda estão em jogo.
+ */
+function animarQuedaEDesaparecimento(mesh: THREE.Object3D, aoTerminar: () => void) {
+  mesh.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh)) return
+    const mat = obj.material
+    if (Array.isArray(mat)) {
+      obj.material = mat.map((m) => {
+        const clone = m.clone()
+        clone.transparent = true
+        return clone
+      })
+    } else {
+      const clone = mat.clone()
+      clone.transparent = true
+      obj.material = clone
+    }
+  })
+
+  const yInicial = mesh.position.y
+  const eixoQueda: 'x' | 'z' = Math.random() < 0.5 ? 'x' : 'z'
+  const sinalQueda = Math.random() < 0.5 ? 1 : -1
+  const duracaoTotal = DURACAO_QUEDA_MS + DURACAO_SUMIR_MS
+  const inicio = performance.now()
+
+  function definirOpacidade(valor: number) {
+    mesh.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return
+      const mat = obj.material
+      if (Array.isArray(mat)) mat.forEach((m) => (m.opacity = valor))
+      else mat.opacity = valor
+    })
+  }
+
+  function passo(agora: number) {
+    const decorrido = agora - inicio
+    const tQueda = Math.min(1, decorrido / DURACAO_QUEDA_MS)
+    const quedaSuave = 1 - Math.pow(1 - tQueda, 3)
+    const anguloQueda = quedaSuave * (Math.PI / 2) * sinalQueda
+    mesh.rotation[eixoQueda] = anguloQueda
+
+    if (decorrido > DURACAO_QUEDA_MS) {
+      const tSumir = Math.min(1, (decorrido - DURACAO_QUEDA_MS) / DURACAO_SUMIR_MS)
+      mesh.position.y = yInicial - tSumir * 0.35
+      definirOpacidade(1 - tSumir)
+    }
+
+    if (decorrido < duracaoTotal) {
+      requestAnimationFrame(passo)
+    } else {
+      aoTerminar()
+    }
+  }
+  requestAnimationFrame(passo)
+}
+
+// ---------------------------------------------------------------------------
+// Efeito especial de acerto — um anel de luz se espalhando pelo chão mais um
+// estilhaço de raios, no ponto exato do golpe. Some rápido, é só pra dar peso
+// visual ao instante do impacto, antes da peça atingida cair. Material próprio
+// (não-toon, sempre "aceso") clonado por instância pra cada cópia poder sumir
+// (opacity) de forma independente sem afetar outros efeitos ainda em andamento.
+// ---------------------------------------------------------------------------
+const materialImpactoBase = new THREE.MeshBasicMaterial({ color: 0xfff3c4, transparent: true, depthWrite: false })
+const geoAnelImpacto = new THREE.RingGeometry(0.05, 0.12, 32)
+const geoRaioImpacto = new THREE.BoxGeometry(0.03, 0.02, 0.24)
+const RAIOS_IMPACTO = 6
+const DURACAO_IMPACTO_MS = 380
+
+function criarEfeitoImpacto(): THREE.Group {
+  const grupo = new THREE.Group()
+
+  const anel = new THREE.Mesh(geoAnelImpacto, materialImpactoBase.clone())
+  anel.rotation.x = -Math.PI / 2
+  grupo.add(anel)
+
+  for (let i = 0; i < RAIOS_IMPACTO; i++) {
+    const raio = new THREE.Mesh(geoRaioImpacto, materialImpactoBase.clone())
+    raio.position.y = 0.012
+    raio.rotation.y = (i / RAIOS_IMPACTO) * Math.PI * 2
+    raio.translateZ(0.14) // empurra pra fora ao longo do próprio eixo já girado — fica radial
+    grupo.add(raio)
+  }
+  return grupo
+}
+
+/** Dispara o estouro de luz no ponto (x,z) do golpe — remove a si mesmo da cena ao terminar. */
+function animarImpacto(scene: THREE.Object3D, x: number, z: number) {
+  const efeito = criarEfeitoImpacto()
+  efeito.position.set(x, 0.035, z)
+  efeito.scale.setScalar(0.35)
+  scene.add(efeito)
+
+  const inicio = performance.now()
+  function passo(agora: number) {
+    const t = Math.min(1, (agora - inicio) / DURACAO_IMPACTO_MS)
+    const escala = 0.35 + t * 1.5
+    efeito.scale.set(escala, 1, escala)
+    const opacidade = 1 - t
+    efeito.traverse((obj) => {
+      if (obj instanceof THREE.Mesh) (obj.material as THREE.MeshBasicMaterial).opacity = opacidade
+    })
+
+    if (t < 1) {
+      requestAnimationFrame(passo)
+    } else {
+      scene.remove(efeito)
+      efeito.traverse((obj) => {
+        if (obj instanceof THREE.Mesh) (obj.material as THREE.Material).dispose()
+      })
     }
   }
   requestAnimationFrame(passo)
@@ -415,6 +693,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
   const [escolhendoCor, setEscolhendoCor] = useState(false)
   const [emDemo, setEmDemo] = useState(false)
   const [demoPausado, setDemoPausado] = useState(false)
+  const [resultadoOverlay, setResultadoOverlay] = useState<'venceu' | 'perdeu' | null>(null)
 
   useEffect(() => {
     carregarLivroDeAberturas().then((livro) => {
@@ -461,6 +740,8 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     const vezDaMaquinaRef: { current: boolean } = { current: false }
     const demoPausadaRef: { current: boolean } = { current: false }
     const pieceMeshBySquare = new Map<string, THREE.Group>()
+    // pra não disparar a comemoração de novo enquanto o xeque-mate continuar sendo a posição atual
+    let comemoracaoDisparada = false
 
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0xf5f0e6)
@@ -663,6 +944,26 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       }
     }
 
+    // xeque-mate: faz as peças do lado vencedor comemorarem (pulando, com os braços erguidos) e
+    // mostra "Você venceu"/"Você perdeu" em destaque — só uma vez por mate (comemoracaoDisparada
+    // só volta a false quando uma partida nova é carregada, em carregarPgn)
+    function dispararComemoracaoDeXequeMate(chess: Chess) {
+      if (comemoracaoDisparada) return
+      comemoracaoDisparada = true
+
+      const corVencedora: 'w' | 'b' = chess.turn() === 'w' ? 'b' : 'w'
+      let atraso = 0
+      for (const linha of chess.board()) {
+        for (const casa of linha) {
+          if (!casa || casa.color !== corVencedora) continue
+          const mesh = pieceMeshBySquare.get(casa.square)
+          if (mesh) animarComemoracao(mesh, atraso)
+          atraso += 60
+        }
+      }
+      setResultadoOverlay(corVencedora === corHumanoRef.current ? 'venceu' : 'perdeu')
+    }
+
     function atualizarStatusTexto() {
       const chess = chessRef.current
       setHistorico(chess.history())
@@ -681,6 +982,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
             ? `A máquina (${labelCor(corHumano === 'w' ? 'b' : 'w')})`
             : `Você (${labelCor(corHumano)})`
         setStatusTexto(`Xeque-mate — ${vencedor} venceu!`)
+        dispararComemoracaoDeXequeMate(chess)
       } else if (chess.isStalemate()) {
         setStatusTexto('Empate por afogamento.')
       } else if (chess.isDraw()) {
@@ -738,6 +1040,40 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         return
       }
 
+      function seguirParaDestino() {
+        if (meshMovendo && origem && destino) {
+          const de = squareToPos(origem)
+          const para = squareToPos(destino)
+          animarPosicao(meshMovendo, de, para, () => {
+            sincronizarPecas()
+            aoTerminar()
+          })
+        } else {
+          sincronizarPecas()
+          aoTerminar()
+        }
+      }
+
+      // peão capturando: golpe de espada primeiro, só depois a vítima cai e some — pra qualquer
+      // outro tipo de peça capturando, mantém a remoção direta de antes
+      const vitima = meshCapturada ?? (resultado.isEnPassant() && origem && destino
+        ? pieceMeshBySquare.get(`${destino[0]}${origem[1]}` as Square)
+        : undefined)
+
+      if (vitima && resultado.piece === 'p' && meshMovendo && origem && destino) {
+        const deAtaque = squareToPos(origem)
+        const paraAtaque = squareToPos(destino)
+        const direcao = { x: paraAtaque.x - deAtaque.x, z: paraAtaque.z - deAtaque.z }
+        animarAtaqueEspada(meshMovendo, direcao, () => {
+          animarImpacto(scene, vitima.position.x, vitima.position.z)
+          animarQuedaEDesaparecimento(vitima, () => {
+            piecesGroup.remove(vitima)
+            seguirParaDestino()
+          })
+        })
+        return
+      }
+
       if (meshCapturada) {
         piecesGroup.remove(meshCapturada)
       } else if (resultado.isEnPassant() && origem && destino) {
@@ -746,17 +1082,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         if (meshEnPassant) piecesGroup.remove(meshEnPassant)
       }
 
-      if (meshMovendo && origem && destino) {
-        const de = squareToPos(origem)
-        const para = squareToPos(destino)
-        animarPosicao(meshMovendo, de, para, DURACAO_LANCE_MS, () => {
-          sincronizarPecas()
-          aoTerminar()
-        })
-      } else {
-        sincronizarPecas()
-        aoTerminar()
-      }
+      seguirParaDestino()
     }
 
     function jogarLanceDaMaquina() {
@@ -891,6 +1217,8 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         demoPausadaRef.current = false
         setEmDemo(false)
         setDemoPausado(false)
+        comemoracaoDisparada = false
+        setResultadoOverlay(null)
         const chess = chessRef.current
         corHumanoRef.current = corHumano
         if (pgn) {
@@ -1092,6 +1420,32 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
                   Cancelar e voltar pra partida atual
                 </button>
               )}
+            </div>
+          </div>
+        )}
+
+        {resultadoOverlay && (
+          <div className="absolute inset-0 z-20 flex items-center justify-center bg-ink-950/70 backdrop-blur-sm rounded-xl p-4">
+            <div className="w-full max-w-xs rounded-xl bg-white p-6 shadow-xl text-center">
+              <p className="text-4xl mb-2" aria-hidden>
+                {resultadoOverlay === 'venceu' ? '🏆' : '💀'}
+              </p>
+              <h3
+                className={`font-display text-2xl font-bold mb-1 ${
+                  resultadoOverlay === 'venceu' ? 'text-emerald-600' : 'text-rose-600'
+                }`}
+              >
+                {resultadoOverlay === 'venceu' ? 'Você venceu!' : 'Você perdeu'}
+              </h3>
+              <p className="text-xs text-ink-400 mb-5">Xeque-mate.</p>
+              <div className="flex gap-2 justify-center">
+                <Button variant="ghost" onClick={() => setResultadoOverlay(null)}>
+                  Fechar
+                </Button>
+                <Button variant="primary" onClick={handleNovoJogo}>
+                  Novo jogo
+                </Button>
+              </div>
             </div>
           </div>
         )}

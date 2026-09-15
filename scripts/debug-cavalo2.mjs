@@ -18,10 +18,11 @@ async function main() {
   const board = page.locator('.aspect-\\[4\\/3\\]')
   const box = await board.boundingBox()
 
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  await page.mouse.wheel(0, -1100)
-  await page.waitForTimeout(500)
-  await board.screenshot({ path: 'scripts/screenshots/cavalo-01.png' })
+  // zoom moderado, mirando um pouco mais alto pra manter a peça inteira no quadro
+  await page.mouse.move(box.x + box.width * 0.28, box.y + box.height * 0.45)
+  await page.mouse.wheel(0, -1450)
+  await page.waitForTimeout(600)
+  await board.screenshot({ path: 'scripts/screenshots/cavalo2-01.png' })
 
   await browser.close()
 }

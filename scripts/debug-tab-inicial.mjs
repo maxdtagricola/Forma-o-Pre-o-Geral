@@ -11,17 +11,17 @@ async function main() {
   await page.evaluate(() => localStorage.clear())
   await page.waitForTimeout(500)
   await page.getByRole('button', { name: 'Max', exact: true }).click()
-  await page.waitForTimeout(500)
-  await page.getByRole('button', { name: 'Tela Inicial', exact: true }).click()
-  await page.waitForTimeout(2500)
+  await page.waitForTimeout(1000)
 
-  const board = page.locator('.aspect-\\[4\\/3\\]')
-  const box = await board.boundingBox()
+  const titulo = await page.locator('h2').first().textContent()
+  console.log('título logo após login como Max:', titulo)
+  await page.screenshot({ path: 'scripts/screenshots/tabinicial-01-max.png' })
 
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
-  await page.mouse.wheel(0, -1100)
-  await page.waitForTimeout(500)
-  await board.screenshot({ path: 'scripts/screenshots/cavalo-01.png' })
+  // reload com sessão já ativa — deve continuar em Acompanhamento de notas
+  await page.reload({ waitUntil: 'load' })
+  await page.waitForTimeout(1200)
+  const tituloReload = await page.locator('h2').first().textContent()
+  console.log('título após reload (sessão já ativa):', tituloReload)
 
   await browser.close()
 }
