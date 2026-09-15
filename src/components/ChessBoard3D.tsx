@@ -340,6 +340,8 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     carregarPgn: (pgn: string, corHumano: 'w' | 'b') => void
     entrarEmDemo: () => void
     pararDemo: () => void
+    pausarDemo: () => void
+    retomarDemo: () => void
   } | null>(null)
 
   const [statusTexto, setStatusTexto] = useState('Carregando o tabuleiro…')
@@ -350,6 +352,8 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
   // true quando ainda não há partida em andamento e o jogador precisa escolher a cor antes de
   // começar (tanto na primeira vez quanto em "Novo jogo") — o admin logado já é o jogador fixo
   const [escolhendoCor, setEscolhendoCor] = useState(false)
+  const [emDemo, setEmDemo] = useState(false)
+  const [demoPausado, setDemoPausado] = useState(false)
 
   useEffect(() => {
     carregarLivroDeAberturas().then((livro) => {
@@ -394,6 +398,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     const selecionadaRef: { current: Square | null } = { current: null }
     const destinosRef: { current: Square[] } = { current: [] }
     const vezDaMaquinaRef: { current: boolean } = { current: false }
+    const demoPausadaRef: { current: boolean } = { current: false }
     const pieceMeshBySquare = new Map<string, THREE.Group>()
 
     const scene = new THREE.Scene()
@@ -591,7 +596,11 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       const corHumano = corHumanoRef.current
       const labelCor = (c: 'w' | 'b') => (c === 'w' ? 'brancas' : 'pretas')
       if (!partidaAtualRef.current) {
-        setStatusTexto('Modo demonstração — partida entre máquinas. Clique em "Novo jogo" pra jogar.')
+        setStatusTexto(
+          demoPausadaRef.current
+            ? 'Modo demonstração pausado.'
+            : 'Modo demonstração — partida entre máquinas. Clique em "Novo jogo" pra jogar.',
+        )
       } else if (chess.isCheckmate()) {
         const vencedor =
           chess.turn() === corHumano
@@ -791,6 +800,9 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       // retomar a partida em andamento ao abrir quanto pra começar uma partida nova depois
       carregarPgn(pgn: string, corHumano: 'w' | 'b') {
         pararDemo()
+        demoPausadaRef.current = false
+        setEmDemo(false)
+        setDemoPausado(false)
         const chess = chessRef.current
         corHumanoRef.current = corHumano
         if (pgn) {
@@ -814,6 +826,9 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       // clicar em "Novo jogo"
       entrarEmDemo() {
         partidaAtualRef.current = null
+        demoPausadaRef.current = false
+        setEmDemo(true)
+        setDemoPausado(false)
         chessRef.current.reset()
         selecionadaRef.current = null
         destinosRef.current = []
@@ -824,6 +839,20 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         agendarProximoLanceDemo()
       },
       pararDemo,
+      pausarDemo() {
+        if (partidaAtualRef.current || demoPausadaRef.current) return
+        pararDemo()
+        demoPausadaRef.current = true
+        setDemoPausado(true)
+        atualizarStatusTexto()
+      },
+      retomarDemo() {
+        if (partidaAtualRef.current || !demoPausadaRef.current) return
+        demoPausadaRef.current = false
+        setDemoPausado(false)
+        atualizarStatusTexto()
+        agendarProximoLanceDemo()
+      },
     }
 
     sincronizarPecas()
@@ -898,9 +927,22 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
             Jogando como <span className="font-medium text-ink-600">{jogador}</span>
           </p>
         </div>
-        <Button variant="secondary" onClick={handleNovoJogo} disabled={escolhendoCor}>
-          Novo jogo
-        </Button>
+        <div className="flex gap-2">
+          {emDemo && (
+            <Button
+              variant="ghost"
+              onClick={() =>
+                demoPausado ? acoesRef.current?.retomarDemo() : acoesRef.current?.pausarDemo()
+              }
+              disabled={escolhendoCor}
+            >
+              {demoPausado ? 'Retomar demonstração' : 'Pausar demonstração'}
+            </Button>
+          )}
+          <Button variant="secondary" onClick={handleNovoJogo} disabled={escolhendoCor}>
+            Novo jogo
+          </Button>
+        </div>
       </div>
 
       {partidasEmAndamento.length > 1 && (
