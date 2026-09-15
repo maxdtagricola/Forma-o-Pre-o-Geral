@@ -417,8 +417,10 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     scene.background = new THREE.Color(0xf5f0e6)
     scene.fog = new THREE.Fog(0xf5f0e6, 11, 20)
 
-    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / Math.max(container.clientHeight, 1), 0.1, 100)
-    camera.position.set(0, 7.5, 6.5)
+    // câmera mais afastada e com FOV mais fechado que o normal — bem próxima e com campo de visão
+    // largo deixava o tabuleiro com uma perspectiva exagerada, quase "olhando de raspão"
+    const camera = new THREE.PerspectiveCamera(38, container.clientWidth / Math.max(container.clientHeight, 1), 0.1, 100)
+    camera.position.set(0, 9.5, 10)
     camera.lookAt(0, 0, 0)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
@@ -436,8 +438,8 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     controls.target.set(0, 0, 0)
     controls.enableDamping = true
     controls.dampingFactor = 0.08
-    controls.minDistance = 3.5
-    controls.maxDistance = 14
+    controls.minDistance = 4
+    controls.maxDistance = 20
     controls.maxPolarAngle = Math.PI / 2 - 0.05
 
     // luz mais direcional e menos ambiente do que num render realista — é o que faz o
@@ -671,8 +673,17 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       const meshMovendo = origem ? pieceMeshBySquare.get(origem) : undefined
       const meshCapturada = destino ? pieceMeshBySquare.get(destino) : undefined
 
-      const resultado =
-        typeof entrada === 'string' ? chess.move(entrada) : chess.move({ ...entrada, promotion: entrada.promotion ?? 'q' })
+      // chess.js (v1.x) lança exceção pra um lance que não é mais válido na posição atual (ex: um
+      // lance calculado antes de outro já ter sido aplicado nesse meio-tempo) — sem isso, essa
+      // exceção ficava sem tratamento dentro do setTimeout assíncrono e travava a tela pra sempre
+      // em "a máquina está pensando…", já que aoTerminar() nunca era chamado.
+      let resultado: ReturnType<typeof chess.move> | null
+      try {
+        resultado =
+          typeof entrada === 'string' ? chess.move(entrada) : chess.move({ ...entrada, promotion: entrada.promotion ?? 'q' })
+      } catch {
+        resultado = null
+      }
       if (!resultado) {
         aoTerminar()
         return
@@ -701,7 +712,10 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
 
     function jogarLanceDaMaquina() {
       const chess = chessRef.current
-      if (chess.isGameOver() || chess.turn() === corHumanoRef.current) return
+      // vezDaMaquinaRef.current já true = já tem um cálculo de lance em andamento — chamar de
+      // novo nesse meio-tempo (ex: efeito remontado em dev) faria duas buscas concorrentes brigando
+      // pelo mesmo tabuleiro, e a segunda a terminar tentaria aplicar um lance já ilegal
+      if (chess.isGameOver() || chess.turn() === corHumanoRef.current || vezDaMaquinaRef.current) return
       vezDaMaquinaRef.current = true
       atualizarStatusTexto()
       window.setTimeout(async () => {

@@ -52,13 +52,26 @@ function salvarCache<T>(path: string, valor: T): void {
   }
 }
 
+// sem isso, um fetch pra um servidor inalcançável (celular desligado, Tailscale fora do ar) fica
+// pendurado por dezenas de segundos (ou mais) até o próprio SO desistir da conexão — trava telas
+// inteiras (ex: "a máquina está pensando…" no xadrez) por tempo nenhum motivo. 6s é bastante tempo
+// pra uma resposta normal do servidor, mas curto o suficiente pra sentir rápido quando ele está fora.
+const TIMEOUT_REQUISICAO_MS = 6000
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   let res: Response
   try {
-    res = await fetch(`${getServerUrl()}${path}`, {
-      headers: { 'Content-Type': 'application/json' },
-      ...options,
-    })
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_REQUISICAO_MS)
+    try {
+      res = await fetch(`${getServerUrl()}${path}`, {
+        headers: { 'Content-Type': 'application/json' },
+        ...options,
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeoutId)
+    }
   } catch {
     throw new ServidorInalcancavelError(
       `Não foi possível conectar ao servidor (${getServerUrl()}). Verifique se o celular está ligado, com o servidor rodando no Termux, e com o Tailscale conectado (tanto no celular quanto neste dispositivo).`,
