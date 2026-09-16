@@ -32,14 +32,18 @@ export function DonutChart({
   centerLabel,
   centerValue,
   valueFormatter,
+  chartValueFormatter,
   emptyText,
 }: {
   data: DonutDatum[]
   centerLabel: string
   centerValue: string
   valueFormatter: (v: number) => string
+  /** Formata o valor mostrado dentro da fatia — mais curto que o da legenda, já que a fatia tem pouco espaço. Usa valueFormatter se não for passado. */
+  chartValueFormatter?: (v: number) => string
   emptyText: string
 }) {
+  const formatarNaFatia = chartValueFormatter ?? valueFormatter
   const total = data.reduce((s, d) => s + d.value, 0)
 
   if (total <= 0) {
@@ -72,22 +76,28 @@ export function DonutChart({
 
   return (
     <div className="flex flex-col md:flex-row items-center gap-6">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="shrink-0">
+      <svg
+        width={size}
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        className="shrink-0"
+        style={{ overflow: 'visible' }}
+      >
         {segmentos.map((s, i) => s.path && <path key={i} d={s.path} fill={s.color} />)}
         {segmentos.map(
           (s, i) =>
-            s.sweep > 14 && (
+            s.sweep > 20 && (
               <text
                 key={i}
                 x={s.labelPos.x}
                 y={s.labelPos.y}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fontSize="15"
+                fontSize="12"
                 fontWeight="700"
                 fill={corTexto(s.color)}
               >
-                {typeof s.value === 'number' && Number.isInteger(s.value) ? s.value : ''}
+                {formatarNaFatia(s.value)}
               </text>
             ),
         )}

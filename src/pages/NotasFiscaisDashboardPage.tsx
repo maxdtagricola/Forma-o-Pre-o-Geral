@@ -13,6 +13,12 @@ import { chaveMesDaNota, labelCurtoDoMes, corDoTipo, labelDoTipo } from '../nota
 
 const tipoOptions = NOTA_FISCAL_TIPOS
 
+/** Versão curta do valor pra caber dentro da fatia do gráfico (a legenda ao lado mostra o valor completo). */
+function formatCurrencyCompacto(v: number): string {
+  if (Math.abs(v) < 1000) return formatCurrency(v)
+  return `${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k`
+}
+
 export function NotasFiscaisDashboardPage() {
   const [notas, setNotas] = useState<NotaFiscal[]>([])
   const [loading, setLoading] = useState(true)
@@ -175,6 +181,7 @@ export function NotasFiscaisDashboardPage() {
               centerValue={formatCurrency(valorTotalNotas)}
               centerLabel="Total"
               valueFormatter={formatCurrency}
+              chartValueFormatter={formatCurrencyCompacto}
               emptyText="Nenhuma nota com valor nesse período."
             />
           </div>

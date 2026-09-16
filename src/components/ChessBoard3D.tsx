@@ -173,6 +173,8 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
       partes = [
         { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
         { geo: new THREE.ConeGeometry(0.16, 0.28, 20), y: 0.5, papel: 'detalhe' },
+        // capa
+        { geo: new THREE.BoxGeometry(0.18, 0.32, 0.035), y: 0.46, z: -0.1, rotX: 0.08, papel: 'detalhe' },
         // colar
         { geo: new THREE.TorusGeometry(0.078, 0.012, 8, 20), y: 0.63, rotX: Math.PI / 2, papel: 'coroa' },
         { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.72, papel: 'armadura' },
@@ -181,6 +183,9 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
         { geo: new THREE.ConeGeometry(0.017, 0.05, 8), x: 0.075, y: 0.895, papel: 'coroa' },
         { geo: new THREE.ConeGeometry(0.017, 0.05, 8), x: -0.075, y: 0.895, papel: 'coroa' },
         { geo: new THREE.SphereGeometry(0.04, 14, 14), y: 0.92, papel: 'brilho' },
+        // cetro — cabo com uma joia no topo, na mão
+        { geo: new THREE.CylinderGeometry(0.012, 0.012, 0.36, 8), x: 0.19, y: 0.54, papel: 'armadura' },
+        { geo: new THREE.SphereGeometry(0.038, 14, 14), x: 0.19, y: 0.735, papel: 'coroa' },
       ]
       break
     // rei — o mais alto, coroa + cruz, capa
@@ -195,6 +200,10 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
         { geo: new THREE.TorusGeometry(0.1, 0.024, 10, 20), y: 0.88, rotX: Math.PI / 2, papel: 'coroa' },
         { geo: new THREE.BoxGeometry(0.035, 0.15, 0.035), y: 0.99, papel: 'coroa' },
         { geo: new THREE.BoxGeometry(0.11, 0.035, 0.035), y: 1.01, papel: 'coroa' },
+        // cajado — cabo com uma cruz no topo, igual à da coroa, na mão
+        { geo: new THREE.CylinderGeometry(0.015, 0.015, 0.48, 8), x: 0.19, y: 0.53, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.03, 0.09, 0.03), x: 0.19, y: 0.8, papel: 'coroa' },
+        { geo: new THREE.BoxGeometry(0.075, 0.025, 0.025), x: 0.19, y: 0.815, papel: 'coroa' },
       ]
       break
   }
