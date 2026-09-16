@@ -13,6 +13,7 @@ export type TabKey =
   | 'frete'
   | 'configuracoes'
   | 'acompanhamentoNotas'
+  | 'notasFiscais'
   | 'notasFiscaisDashboard'
   | 'history'
 
@@ -39,14 +40,15 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'cotacoes', label: 'Cotações' },
       { key: 'dashboard', label: 'Precificação' },
       { key: 'margins', label: 'Análise de Margens' },
-      { key: 'acompanhamentoNotas', label: 'Acompanhamento de notas', somenteAdmin: 'Max' },
+      { key: 'acompanhamentoNotas', label: 'Transferências Fiscais', somenteAdmin: 'Max' },
+      { key: 'notasFiscais', label: 'Notas Fiscais', somenteAdmin: 'Max' },
     ],
   },
   {
     label: 'Visão geral',
     items: [
       { key: 'analytics', label: 'Dashboard' },
-      { key: 'notasFiscaisDashboard', label: 'Notas fiscais', somenteAdmin: 'Max' },
+      { key: 'notasFiscaisDashboard', label: 'Dashboard de Transferências', somenteAdmin: 'Max' },
     ],
   },
   {

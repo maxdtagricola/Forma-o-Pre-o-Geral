@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { TextField, AutocompleteField, NumberField, SelectField, DateField } from '../components/ui/Field'
 import { Button } from '../components/ui/Basics'
-import { deleteNotaFiscal, listNotasFiscais, saveNotaFiscal, updateNotaFiscalStatus } from '../db/notasFiscaisRepo'
+import {
+  deleteNotaFiscalGeral,
+  listNotasFiscaisGerais,
+  saveNotaFiscalGeral,
+  updateNotaFiscalGeralStatus,
+} from '../db/notasFiscaisGeraisRepo'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { getStatusColors } from '../db/configRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency, formatDate } from '../utils'
 import { DEFAULT_NOTA_FISCAL, NOTA_FISCAL_STATUSES, NOTA_FISCAL_TIPOS, RECEBEDORES, TRANSPORTADORAS } from '../types'
 import type { Fornecedor, NotaFiscal, NotaFiscalStatus, NotaFiscalTipo } from '../types'
-import { chaveMes, chaveMesDaNota, labelDoMes, dataLimiteDoMes, corDoTipo, labelDoTipo } from '../notasFiscaisHelpers'
+import { chaveMes, chaveMesDaNota, labelDoMes, dataLimiteDoMes, labelDoTipo } from '../notasFiscaisHelpers'
 import { extrairDadosNotaFiscalPdf } from '../pdfNotaFiscal'
 import { useEstadoPersistente } from '../estadoPersistente'
 
@@ -147,7 +152,7 @@ function GrupoStatusTable({
   onEdit: (n: NotaFiscal) => void
   onAbrirStatus: (n: NotaFiscal) => void
 }) {
-  const [aberto, setAberto] = useEstadoPersistente(`notas:grupoStatusAberto:${grupo.status}`, false)
+  const [aberto, setAberto] = useEstadoPersistente(`notasGerais:grupoStatusAberto:${grupo.status}`, false)
   return (
     <div>
       <button type="button" onClick={() => setAberto((v) => !v)} className="w-full flex items-center gap-2 mb-2 text-left">
@@ -190,7 +195,7 @@ function PastaMes({
   onEdit: (n: NotaFiscal) => void
   onAbrirStatus: (n: NotaFiscal) => void
 }) {
-  const [aberta, setAberta] = useEstadoPersistente(`notas:pastaMesAberta:${mesKey}`, false)
+  const [aberta, setAberta] = useEstadoPersistente(`notasGerais:pastaMesAberta:${mesKey}`, false)
   const [completa, setCompleta] = useState(false)
 
   const valorTotal = itens.reduce((s, n) => s + n.valorNota, 0)
@@ -343,7 +348,12 @@ function AlterarStatusModal({
   )
 }
 
-export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string }) {
+/**
+ * Mesmo modelo da aba "Transferências Fiscais" (src/pages/AcompanhamentoNotasPage.tsx), só que
+ * com uma lista de notas fiscais própria e independente — não é a mesma lista, é outra coleção no
+ * servidor (ver src/db/notasFiscaisGeraisRepo.ts).
+ */
+export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
   const [notas, setNotas] = useState<NotaFiscal[]>([])
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [loading, setLoading] = useState(true)
@@ -354,14 +364,14 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
   const [saving, setSaving] = useState(false)
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
   const [mostrarArquivadas, setMostrarArquivadas] = useState(false)
-  const [formRecolhido, setFormRecolhido] = useEstadoPersistente('notas:formRecolhido', true)
+  const [formRecolhido, setFormRecolhido] = useEstadoPersistente('notasGerais:formRecolhido', true)
   const [notaParaStatus, setNotaParaStatus] = useState<NotaFiscal | null>(null)
   const [importandoPdf, setImportandoPdf] = useState(false)
 
   async function refresh() {
     setLoading(true)
     try {
-      setNotas(await listNotasFiscais())
+      setNotas(await listNotasFiscaisGerais())
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Erro ao carregar notas fiscais do servidor.')
     } finally {
@@ -390,7 +400,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
 
   async function handleStatusChange(nota: NotaFiscal, novoStatus: NotaFiscalStatus) {
     try {
-      await updateNotaFiscalStatus(nota.id, novoStatus)
+      await updateNotaFiscalGeralStatus(nota.id, novoStatus)
       await refresh()
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
@@ -459,7 +469,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
     }
     setSaving(true)
     try {
-      await saveNotaFiscal(form, currentAdmin, editingId, statusInicial)
+      await saveNotaFiscalGeral(form, currentAdmin, editingId, statusInicial)
       handleCancelEdit()
       await refresh()
     } catch (err) {
@@ -489,7 +499,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
     e?.stopPropagation()
     if (!confirm('Excluir esta nota fiscal? Essa ação não pode ser desfeita.')) return
     try {
-      await deleteNotaFiscal(id)
+      await deleteNotaFiscalGeral(id)
       if (editingId === id) handleCancelEdit()
       await refresh()
     } catch (err) {
@@ -561,7 +571,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
         >
           <div>
             <h2 className="font-display text-lg font-semibold text-ink-900">
-              Registro de Transferências
+              Registro de Notas
               {editingId && <span className="ml-2 text-xs font-medium text-brand-700">(editando)</span>}
             </h2>
           </div>
@@ -664,7 +674,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
       </div>
 
       <div className="card">
-        <h2 className="font-display text-lg font-semibold text-ink-900 mb-4">Transferências fiscais registradas</h2>
+        <h2 className="font-display text-lg font-semibold text-ink-900 mb-4">Notas fiscais registradas</h2>
         <input
           type="text"
           className="field-input max-w-sm mb-4"
