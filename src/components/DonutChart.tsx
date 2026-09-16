@@ -53,9 +53,18 @@ export function DonutChart({
   const size = 240
   const cx = size / 2
   const cy = size / 2
-  const rOuter = 110
+  // o raio externo de cada fatia varia com o valor dela — quanto maior a quantidade/porcentagem,
+  // mais longe do centro ela se estende; a menor fatia do conjunto fica pertinho do centro (perto
+  // de rInner), a maior vai até rOuterMax. Assim o tamanho da "rosca" também comunica a grandeza,
+  // não só o ângulo da fatia.
+  const rOuterMax = 110
+  const rOuterMin = 82
   const rInner = 66
   const gapDeg = 1.5
+
+  const valoresPositivos = data.filter((d) => d.value > 0).map((d) => d.value)
+  const valorMin = Math.min(...valoresPositivos)
+  const valorMax = Math.max(...valoresPositivos)
 
   let angle = 0
   const segmentos = data
@@ -66,10 +75,12 @@ export function DonutChart({
       const end = angle + sweep - gapDeg / 2
       const mid = (start + end) / 2
       angle += sweep
+      const proporcao = valorMax > valorMin ? (d.value - valorMin) / (valorMax - valorMin) : 1
+      const rOuterSeg = rOuterMin + proporcao * (rOuterMax - rOuterMin)
       return {
         ...d,
-        path: end > start ? arcPath(cx, cy, rOuter, rInner, start, end) : null,
-        labelPos: polarToCartesian(cx, cy, (rOuter + rInner) / 2, mid),
+        path: end > start ? arcPath(cx, cy, rOuterSeg, rInner, start, end) : null,
+        labelPos: polarToCartesian(cx, cy, (rOuterSeg + rInner) / 2, mid),
         sweep,
       }
     })

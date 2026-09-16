@@ -103,6 +103,9 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
         { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.68, papel: 'armadura' },
         { geo: new THREE.ConeGeometry(0.055, 0.11, 14), y: 0.79, papel: 'detalhe' },
         { geo: new THREE.BoxGeometry(0.08, 0.02, 0.02), y: 0.685, z: 0.09, papel: 'brilho' },
+        // bainha na cintura, do lado direito — a espada em si só existe enquanto ele ataca
+        // (desembainhada na mão), o resto do tempo é só isso aqui + o cabo espiando pra fora
+        { geo: new THREE.BoxGeometry(0.03, 0.2, 0.04), x: 0.15, y: 0.33, z: 0.02, rotZ: -0.12, papel: 'detalhe' },
       ]
       break
     // torre — guardião pesado, ombreiras largas e "ameia" no topo (lembrando torre)
@@ -243,9 +246,9 @@ interface MembrosPersonagem {
   bracoDir: THREE.Group
 }
 
-/** Pose de descanso de cada membro (rotation.x) — a maioria fica com tudo a 0 (braços caídos), mas
- * o peão segura a espada em guarda, com o braço direito erguido à frente do corpo. A caminhada
- * soma o balanço em cima dessa base, em vez de partir sempre de zero. */
+/** Pose de descanso de cada membro (rotation.x) — todas as peças ficam com os braços caídos por
+ * padrão (o peão só empunha a espada durante o ataque, ver animarAtaqueEspada). A caminhada soma o
+ * balanço em cima dessa base, em vez de partir sempre de zero. */
 interface PoseBaseMembros {
   pernaEsq: number
   pernaDir: number
@@ -253,8 +256,6 @@ interface PoseBaseMembros {
   bracoDir: number
 }
 const POSE_BASE_NEUTRA: PoseBaseMembros = { pernaEsq: 0, pernaDir: 0, bracoEsq: 0, bracoDir: 0 }
-const ANGULO_GUARDA_BRACO_DIR = -Math.PI * 0.85
-const ANGULO_GUARDA_BRACO_ESQ = -Math.PI * 0.4
 
 interface MateriaisFaccao {
   armadura: THREE.MeshToonMaterial
@@ -361,18 +362,14 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
 
   const poseBase: PoseBaseMembros = { ...POSE_BASE_NEUTRA }
   if (tipo === 'p') {
-    const espada = criarEspadaDoPeao()
-    espada.position.y = -CONFIG_BRACO_DIR.comprimento
-    espada.rotation.z = Math.PI * 0.15
-    espada.scale.setScalar(1.5)
-    membros.bracoDir.add(espada)
-
-    // peão fica em posição de guarda — braço direito erguido à frente segurando a espada, o
-    // esquerdo mais recolhido perto do corpo, como se ajudasse a firmar o cabo
-    poseBase.bracoDir = ANGULO_GUARDA_BRACO_DIR
-    poseBase.bracoEsq = ANGULO_GUARDA_BRACO_ESQ
-    membros.bracoDir.rotation.x = poseBase.bracoDir
-    membros.bracoEsq.rotation.x = poseBase.bracoEsq
+    // cabo espiando pra fora da bainha — é só isso que fica visível enquanto a espada está
+    // guardada; a peça inteira (lâmina incluída) só existe presa na mão durante o ataque, criada
+    // e destruída ali (ver animarAtaqueEspada) — o peão não anda por aí com ela desembainhada
+    const caboNaBainha = new THREE.Mesh(geoCaboEspada, materialCaboEspada)
+    caboNaBainha.position.set(0.16, 0.45, 0.02)
+    caboNaBainha.rotation.z = -0.12
+    caboNaBainha.castShadow = true
+    grupo.add(caboNaBainha)
   }
   grupo.userData.poseBase = poseBase
 
@@ -380,7 +377,12 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
   // frente" pras pretas (avançam de z negativo pra positivo) — as brancas avançam ao contrário
   // (de z positivo pra negativo), então giram 180° aqui pra também ficarem de frente pro
   // adversário em vez de de costas
-  if (cor === 'w') grupo.rotation.y = Math.PI
+  let rotacaoY = cor === 'w' ? Math.PI : 0
+  // o cavalo é a exceção: foi desenhado com o pescoço/cabeça do cavalo virados pra -Z (o
+  // contrário de toda outra peça), então precisa de mais 180° em cima da correção por cor —
+  // pras pretas isso sozinho já vira a cabeça pra frente, e pras brancas os dois 180° se cancelam
+  if (tipo === 'n') rotacaoY += Math.PI
+  grupo.rotation.y = rotacaoY
 
   grupo.scale.setScalar(ESCALA_POR_TIPO[tipo] ?? 1)
 
@@ -479,8 +481,12 @@ function animarPosicao(
 /** Duração da comemoração de xeque-mate — pulos com os braços levantados, cada peça começando num instante levemente diferente pra não ficarem todas sincronizadas feito robôs. */
 const DURACAO_COMEMORACAO_MS = 2400
 
-/** Faz a peça pular com os braços erguidos, comemorando — usado quando o lado dela vence por xeque-mate. */
-function animarComemoracao(mesh: THREE.Object3D, atraso: number) {
+/**
+ * Faz a peça pular com os braços erguidos, comemorando — usado tanto na comemoração grande de
+ * xeque-mate quanto (com uma duração bem mais curta) quando peças aliadas próximas reagem a uma
+ * captura de um companheiro de time.
+ */
+function animarComemoracao(mesh: THREE.Object3D, atraso: number, duracaoMs: number = DURACAO_COMEMORACAO_MS) {
   const membros = mesh.userData.membros as MembrosPersonagem | undefined
   const yBase = mesh.position.y
   const rotYBase = mesh.rotation.y // brancas ficam viradas 180° (Math.PI) — não pode resetar pra 0
@@ -490,7 +496,7 @@ function animarComemoracao(mesh: THREE.Object3D, atraso: number) {
       requestAnimationFrame(passo)
       return
     }
-    const t = Math.min(1, (agora - inicio) / DURACAO_COMEMORACAO_MS)
+    const t = Math.min(1, (agora - inicio) / duracaoMs)
     const amortecido = 1 - t // os pulos vão ficando mais baixos até parar
     const pulo = Math.abs(Math.sin(t * Math.PI * 7)) * 0.22 * amortecido
     mesh.position.y = yBase + pulo
@@ -514,6 +520,101 @@ function animarComemoracao(mesh: THREE.Object3D, atraso: number) {
         membros.bracoDir.rotation.z = 0
         membros.pernaEsq.rotation.x = 0
         membros.pernaDir.rotation.x = 0
+      }
+    }
+  }
+  requestAnimationFrame(passo)
+}
+
+/** Duração do gesto amigável entre peças aliadas — bem mais longa e cadenciada, pra ficar mais
+ * natural (dá tempo de perceber o movimento) em vez de um giro-e-volta rápido demais. O mortal é
+ * um pouco mais curto (senão fica devagar demais pra dar uma volta inteira). */
+const DURACAO_GESTO_MS = 1900
+const DURACAO_MORTAL_MS = 1300
+
+/** Pool de gestos possíveis nas interações entre peças aliadas — sorteado a cada interação, pra
+ * não ser sempre o mesmo movimento. Mesmo sendo peças de formas geométricas simples, os gestos
+ * imitam movimentos humanos de verdade. */
+type TipoGesto = 'aceno' | 'braco_erguido' | 'inclinacao' | 'agachamento' | 'mortal'
+const POOL_GESTOS: TipoGesto[] = ['aceno', 'braco_erguido', 'inclinacao', 'agachamento', 'mortal']
+
+/**
+ * Gesto amigável entre peças aliadas — vira na direção da outra (exceto no mortal, que já gira
+ * sozinho) e faz um movimento de corpo inteiro: acenar, erguer o braço, se inclinar numa
+ * reverência, se agachar, ou dar um mortal pra trás. Usado quando uma peça aliada é selecionada e
+ * nas interações aleatórias entre peças do mesmo time que ficam paradas esperando a vez.
+ */
+function animarGestoAmigavel(
+  mesh: THREE.Object3D,
+  direcao: { x: number; z: number },
+  tipo: TipoGesto = POOL_GESTOS[Math.floor(Math.random() * POOL_GESTOS.length)],
+  atraso = 0,
+) {
+  const membros = mesh.userData.membros as MembrosPersonagem | undefined
+  const base = (mesh.userData.poseBase as PoseBaseMembros | undefined) ?? POSE_BASE_NEUTRA
+  const rotYOriginal = mesh.rotation.y
+  const rotXOriginal = mesh.rotation.x
+  const yOriginal = mesh.position.y
+  const anguloAlvo = Math.atan2(direcao.x, direcao.z)
+  const duracao = tipo === 'mortal' ? DURACAO_MORTAL_MS : DURACAO_GESTO_MS
+  const inicio = performance.now() + atraso
+
+  function passo(agora: number) {
+    if (agora < inicio) {
+      requestAnimationFrame(passo)
+      return
+    }
+    const t = Math.min(1, (agora - inicio) / duracao)
+    const giro = t < 0.2 ? t / 0.2 : t > 0.85 ? (1 - t) / 0.15 : 1
+    if (tipo !== 'mortal') {
+      mesh.rotation.y = rotYOriginal + (anguloAlvo - rotYOriginal) * giro
+    }
+
+    switch (tipo) {
+      case 'aceno': {
+        if (membros) membros.bracoEsq.rotation.z = Math.sin(Math.min(1, t / 0.8) * Math.PI * 3) * 0.45 * giro
+        break
+      }
+      case 'braco_erguido': {
+        if (membros) {
+          const envelope = t < 0.4 ? Math.min(1, t / 0.3) : Math.max(0, (1 - t) / 0.4)
+          membros.bracoEsq.rotation.x = base.bracoEsq - Math.PI * 0.75 * envelope
+        }
+        break
+      }
+      case 'inclinacao': {
+        // uma reverência — o corpo inteiro curva pra frente e volta
+        mesh.rotation.x = rotXOriginal + Math.sin(t * Math.PI) * 0.5
+        break
+      }
+      case 'agachamento': {
+        const envelope = Math.sin(t * Math.PI)
+        mesh.position.y = yOriginal - envelope * 0.14
+        if (membros) {
+          membros.pernaEsq.rotation.x = base.pernaEsq + envelope * 0.6
+          membros.pernaDir.rotation.x = base.pernaDir - envelope * 0.6
+        }
+        break
+      }
+      case 'mortal': {
+        // gira o corpo inteiro pra trás em torno do eixo X, com um salto em arco
+        mesh.rotation.x = rotXOriginal - t * Math.PI * 2
+        mesh.position.y = yOriginal + Math.sin(t * Math.PI) * 0.45
+        break
+      }
+    }
+
+    if (t < 1) {
+      requestAnimationFrame(passo)
+    } else {
+      mesh.rotation.y = rotYOriginal
+      mesh.rotation.x = rotXOriginal
+      mesh.position.y = yOriginal
+      if (membros) {
+        membros.bracoEsq.rotation.z = 0
+        membros.bracoEsq.rotation.x = base.bracoEsq
+        membros.pernaEsq.rotation.x = base.pernaEsq
+        membros.pernaDir.rotation.x = base.pernaDir
       }
     }
   }
@@ -545,15 +646,22 @@ function curvaDoGolpe(t: number): number {
   return 2.2 * (1 - k * k)
 }
 
+/** Estilo do golpe do peão ao capturar — sorteado a cada captura, pra não repetir sempre a mesma animação. */
+type EstiloAtaque = 'corte' | 'derrubada'
+
 /**
  * Ataque de espada do peão ao capturar: vira de frente pro alvo, avança um passo (lunge) e desfere
  * um golpe bem mais amplo — preparação, corte e recuperação — antes de assentar de volta na guarda.
- * `aoImpacto` dispara no instante exato em que o golpe atinge o alvo (pro efeito de impacto e a
- * queda da peça atingida ficarem sincronizados com a espada, não só depois de tudo terminar).
+ * Dois estilos possíveis: "corte" é um golpe vertical de cima pra baixo; "derrubada" é uma
+ * bordoada bem mais larga e horizontal, de baixo pra cima, feita pra jogar a peça atingida longe
+ * (ver `direcaoNocauteDoEstilo`). `aoImpacto` dispara no instante exato em que o golpe atinge o
+ * alvo (pro efeito de impacto e a queda da peça atingida ficarem sincronizados com a espada, não
+ * só depois de tudo terminar).
  */
 function animarAtaqueEspada(
   mesh: THREE.Object3D,
   direcao: { x: number; z: number },
+  estilo: EstiloAtaque,
   aoImpacto: () => void,
   aoTerminar: () => void,
 ) {
@@ -564,6 +672,14 @@ function animarAtaqueEspada(
   const anguloAlvo = Math.atan2(direcao.x, direcao.z)
   const inicio = performance.now()
   let impactoDisparado = false
+
+  // desembainha — a espada só existe presa na mão durante o golpe; o resto do tempo o peão só
+  // tem o cabo na bainha (parte fixa do corpo). Guardada de volta ao fim do ataque.
+  const espadaDesembainhada = criarEspadaDoPeao()
+  espadaDesembainhada.position.y = -CONFIG_BRACO_DIR.comprimento
+  espadaDesembainhada.rotation.z = Math.PI * 0.15
+  espadaDesembainhada.scale.setScalar(1.5)
+  membros?.bracoDir.add(espadaDesembainhada)
 
   function passo(agora: number) {
     const t = Math.min(1, (agora - inicio) / DURACAO_ATAQUE_MS)
@@ -578,8 +694,14 @@ function animarAtaqueEspada(
 
     if (membros) {
       const golpe = curvaDoGolpe(t)
-      membros.bracoDir.rotation.x = base.bracoDir + golpe
-      membros.bracoDir.rotation.z = golpe * -0.35
+      if (estilo === 'derrubada') {
+        // bordoada larga e horizontal — o braço varre de lado em vez de cortar de cima pra baixo
+        membros.bracoDir.rotation.z = golpe * -1.3
+        membros.bracoDir.rotation.x = base.bracoDir + golpe * 0.3
+      } else {
+        membros.bracoDir.rotation.x = base.bracoDir + golpe
+        membros.bracoDir.rotation.z = golpe * -0.35
+      }
     }
 
     if (!impactoDisparado && t >= INSTANTE_IMPACTO) {
@@ -596,6 +718,7 @@ function animarAtaqueEspada(
       if (membros) {
         membros.bracoDir.rotation.x = base.bracoDir
         membros.bracoDir.rotation.z = 0
+        membros.bracoDir.remove(espadaDesembainhada)
       }
       aoTerminar()
     }
@@ -610,9 +733,15 @@ const DURACAO_SUMIR_MS = 650
 /**
  * A peça capturada tomba pro chão e depois afunda no tabuleiro sumindo aos poucos — clona os
  * materiais antes (são compartilhados entre todas as peças da mesma facção/tipo) pra desvanecer só
- * essa peça sem afetar as outras que ainda estão em jogo.
+ * essa peça sem afetar as outras que ainda estão em jogo. Quando `direcaoNocaute` é passado (golpe
+ * de "derrubada"), a peça também desliza nessa direção enquanto cai, como se tivesse sido jogada
+ * longe pelo golpe, em vez de só tombar no lugar.
  */
-function animarQuedaEDesaparecimento(mesh: THREE.Object3D, aoTerminar: () => void) {
+function animarQuedaEDesaparecimento(
+  mesh: THREE.Object3D,
+  aoTerminar: () => void,
+  direcaoNocaute?: { x: number; z: number },
+) {
   mesh.traverse((obj) => {
     if (!(obj instanceof THREE.Mesh)) return
     const mat = obj.material
@@ -630,6 +759,7 @@ function animarQuedaEDesaparecimento(mesh: THREE.Object3D, aoTerminar: () => voi
   })
 
   const yInicial = mesh.position.y
+  const posOriginal = { x: mesh.position.x, z: mesh.position.z }
   const eixoQueda: 'x' | 'z' = Math.random() < 0.5 ? 'x' : 'z'
   const sinalQueda = Math.random() < 0.5 ? 1 : -1
   const duracaoTotal = DURACAO_QUEDA_MS + DURACAO_SUMIR_MS
@@ -810,7 +940,10 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
 
     const scene = new THREE.Scene()
     scene.background = new THREE.Color(0xf5f0e6)
-    scene.fog = new THREE.Fog(0xf5f0e6, 11, 20)
+    // "far" bem além do maxDistance do controle de órbita (20) — antes os dois coincidiam, então
+    // no zoom mais distante o tabuleiro chegava a ficar 100% da cor da névoa (basicamente
+    // invisível); agora ele só vai desbotando um pouco, nunca sumindo, não importa a distância
+    scene.fog = new THREE.Fog(0xf5f0e6, 11, 55)
 
     // câmera mais afastada e com FOV mais fechado que o normal — bem próxima e com campo de visão
     // largo deixava o tabuleiro com uma perspectiva exagerada, quase "olhando de raspão"
@@ -939,6 +1072,24 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
           pieceMeshBySquare.set(casa.square, mesh)
         }
       }
+    }
+
+    /** Peças aliadas (mesma cor) a até `raio` casas de distância de `square`, sem incluir ela mesma. */
+    function pecasAliadasProximas(square: Square, cor: 'w' | 'b', raio: number): { square: Square; mesh: THREE.Group }[] {
+      const origem = squareToPos(square)
+      const resultado: { square: Square; mesh: THREE.Group }[] = []
+      for (const linha of chessRef.current.board()) {
+        for (const casa of linha) {
+          if (!casa || casa.color !== cor || casa.square === square) continue
+          const mesh = pieceMeshBySquare.get(casa.square)
+          if (!mesh) continue
+          const pos = squareToPos(casa.square)
+          if (Math.hypot(pos.x - origem.x, pos.z - origem.z) <= raio) {
+            resultado.push({ square: casa.square as Square, mesh })
+          }
+        }
+      }
+      return resultado
     }
 
     // true enquanto a aura pulsante da peça selecionada (abaixo) deve continuar rodando — vira
@@ -1162,16 +1313,33 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         const deAtaque = squareToPos(origem)
         const paraAtaque = squareToPos(destino)
         const direcao = { x: paraAtaque.x - deAtaque.x, z: paraAtaque.z - deAtaque.z }
+        // sorteia o estilo do golpe a cada captura, pra não ser sempre a mesma animação
+        const estilo: EstiloAtaque = Math.random() < 0.5 ? 'corte' : 'derrubada'
         animarAtaqueEspada(
           meshMovendo,
           direcao,
+          estilo,
           () => {
             // no instante exato do impacto — não espera a espada voltar pra guarda pra já cair
             animarImpacto(scene, vitima.position.x, vitima.position.z)
-            animarQuedaEDesaparecimento(vitima, () => {
-              piecesGroup.remove(vitima)
-              seguirParaDestino()
-            })
+            const nocaute = estilo === 'derrubada' ? direcao : undefined
+            animarQuedaEDesaparecimento(
+              vitima,
+              () => {
+                piecesGroup.remove(vitima)
+                seguirParaDestino()
+              },
+              nocaute,
+            )
+
+            // peças aliadas da atacante que estejam por perto comemoram junto, numa versão
+            // curta da comemoração de xeque-mate
+            const corAtacante = resultado.color
+            let atraso = 0
+            for (const aliada of pecasAliadasProximas(destino, corAtacante, 2.2)) {
+              animarComemoracao(aliada.mesh, atraso, 900)
+              atraso += 80
+            }
           },
           () => {},
         )
@@ -1272,6 +1440,16 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       selecionadaRef.current = square
       destinosRef.current = destinos
       destacarSelecao(square, destinos)
+
+      // peças aliadas por perto reagem (gesto sorteado) na direção da peça que acabou de ser
+      // selecionada, cada uma com um pequeno atraso pra não ficarem todas sincronizadas
+      const posSel = squareToPos(square)
+      let atrasoReacao = 0
+      for (const aliada of pecasAliadasProximas(square, peca.color, 2.2)) {
+        const pos = squareToPos(aliada.square)
+        animarGestoAmigavel(aliada.mesh, { x: posSel.x - pos.x, z: posSel.z - pos.z }, undefined, atrasoReacao)
+        atrasoReacao += 120
+      }
     }
 
     function tentarMover(destino: Square) {
@@ -1396,8 +1574,43 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     }
     window.addEventListener('resize', onResize)
 
+    // interações casuais entre peças aliadas — de vez em quando (não depende de nenhuma ação do
+    // jogador), duas peças do mesmo time que estejam próximas viram uma pra outra e acenam, só pra
+    // dar uma sensação de vida no tabuleiro enquanto esperam a vez. Roda tanto em modo demonstração
+    // quanto numa partida de verdade.
+    let interacaoTimeoutId: number | undefined
+    function agendarProximaInteracaoAmigavel() {
+      interacaoTimeoutId = window.setTimeout(tentarInteracaoAmigavel, 6000 + Math.random() * 7000)
+    }
+    function tentarInteracaoAmigavel() {
+      const casasComPeca: { square: Square; color: 'w' | 'b' }[] = []
+      for (const linha of chessRef.current.board()) {
+        for (const casa of linha) {
+          if (casa) casasComPeca.push({ square: casa.square as Square, color: casa.color })
+        }
+      }
+      const origem = casasComPeca[Math.floor(Math.random() * casasComPeca.length)]
+      const meshOrigem = origem ? pieceMeshBySquare.get(origem.square) : undefined
+      if (origem && meshOrigem) {
+        const aliadas = pecasAliadasProximas(origem.square, origem.color, 1.6)
+        if (aliadas.length > 0) {
+          const alvo = aliadas[Math.floor(Math.random() * aliadas.length)]
+          const posOrigem = squareToPos(origem.square)
+          const posAlvo = squareToPos(alvo.square)
+          // as duas fazem o mesmo gesto sorteado, uma respondendo a outra com um pequeno atraso —
+          // fica mais com cara de "interação" do que dois gestos aleatórios sem relação
+          const gesto = POOL_GESTOS[Math.floor(Math.random() * POOL_GESTOS.length)]
+          animarGestoAmigavel(meshOrigem, { x: posAlvo.x - posOrigem.x, z: posAlvo.z - posOrigem.z }, gesto)
+          animarGestoAmigavel(alvo.mesh, { x: posOrigem.x - posAlvo.x, z: posOrigem.z - posAlvo.z }, gesto, 400)
+        }
+      }
+      agendarProximaInteracaoAmigavel()
+    }
+    agendarProximaInteracaoAmigavel()
+
     return () => {
       pararDemo()
+      window.clearTimeout(interacaoTimeoutId)
       window.removeEventListener('resize', onResize)
       renderer.domElement.removeEventListener('click', onClick)
       cancelAnimationFrame(frameId)
