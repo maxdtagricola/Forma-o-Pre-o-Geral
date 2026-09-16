@@ -244,6 +244,7 @@ export interface CalculationResult {
 
 export interface MarginPoint {
   margemPct: number
+  custoUnitario: number
   precoVendaUnitario: number
   precoVendaTotal: number
   lucroValor: number
@@ -358,6 +359,8 @@ export interface QuoteRecord {
   responsavelStatus: string
   statusHistory: StatusChange[]
   pedidoCompra?: PedidoCompraInfo
+  /** Data em que o cliente pediu a cotação (editável) — diferente de createdAt, que é quando o registro foi criado no sistema. */
+  dataSolicitacao?: number
   createdAt: number
   updatedAt: number
   // resumo pré-calculado para exibição rápida na lista do histórico
@@ -365,6 +368,23 @@ export interface QuoteRecord {
     totalItens: number
     precoVendaTotalGeral: number
   }
+}
+
+// ---------------------------------------------------------------------------
+// Catálogo de produtos — registro independente, sobrevive mesmo se todas as
+// cotações onde o produto apareceu forem excluídas depois (sincronizado a
+// partir delas, mas não derivado só delas — ver produtosRepo.ts).
+// ---------------------------------------------------------------------------
+export interface Produto {
+  id: string
+  interno: string
+  descricao: string
+  /** Pode ter mais de uma — fornecedores diferentes às vezes usam códigos diferentes pro mesmo item. */
+  referencias: string[]
+  ncm: string
+  peso: number
+  createdAt: number
+  updatedAt: number
 }
 
 // ---------------------------------------------------------------------------

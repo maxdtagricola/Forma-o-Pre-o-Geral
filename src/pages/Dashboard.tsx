@@ -1,9 +1,10 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { ProductForm } from '../components/ProductForm'
 import { PricingConfigPanel } from '../components/PricingConfigPanel'
 import { ResultPanel } from '../components/ResultPanel'
 import { QuoteItemsList } from '../components/QuoteItemsList'
 import { FreightSplitPanel } from '../components/FreightSplitPanel'
+import { EnvioCotacaoModal } from '../components/EnvioCotacaoModal'
 import { Button } from '../components/ui/Basics'
 import { SelectField, TextField } from '../components/ui/Field'
 import { calculateItem } from '../calc/calculator'
@@ -49,6 +50,8 @@ export function Dashboard({
   onGoToCotacoes,
   onGoToPreRegistro,
   onGoToComparar,
+  onGoToFrete,
+  onEnviarCotacao,
   temPlanilhaCliente,
   onVerPlanilhaCliente,
 }: {
@@ -86,9 +89,12 @@ export function Dashboard({
   onGoToCotacoes: () => void
   onGoToPreRegistro: () => void
   onGoToComparar: () => void
+  onGoToFrete: () => void
+  onEnviarCotacao: () => Promise<void>
   temPlanilhaCliente: boolean
   onVerPlanilhaCliente: () => void
 }) {
+  const [mostrarEnvioCotacao, setMostrarEnvioCotacao] = useState(false)
   const travadaPorOutro = activeStatus !== 'PENDENTE' && !!activeResponsavel && activeResponsavel !== currentAdmin
 
   const empresaOptions = [
@@ -142,6 +148,12 @@ export function Dashboard({
             </Button>
             <Button variant="ghost" onClick={onGoToComparar}>
               Comparar fornecedores
+            </Button>
+            <Button variant="ghost" onClick={onGoToFrete}>
+              Ir para Frete
+            </Button>
+            <Button variant="secondary" onClick={() => setMostrarEnvioCotacao(true)} disabled={items.length === 0}>
+              Enviar cotação
             </Button>
           </div>
         </div>
@@ -206,6 +218,20 @@ export function Dashboard({
           </div>
         </div>
       </div>
+
+      {mostrarEnvioCotacao && (
+        <EnvioCotacaoModal
+          items={items}
+          cliente={cliente}
+          maquina={maquina}
+          codigo={codigo}
+          onClose={() => setMostrarEnvioCotacao(false)}
+          onEnviado={async () => {
+            await onEnviarCotacao()
+            setMostrarEnvioCotacao(false)
+          }}
+        />
+      )}
     </div>
   )
 }

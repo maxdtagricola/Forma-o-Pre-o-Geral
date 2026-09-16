@@ -163,11 +163,14 @@ export async function updateQuoteStatus(
   return atualizado
 }
 
-/** Salva a lista de pré-registro (Interno, Referência, Quantidade) da cotação, sem mexer nos itens já precificados. */
+/** Salva a lista de pré-registro (Interno, Referência, Quantidade) da cotação, sem mexer nos itens já precificados.
+ * `dataSolicitacao` é opcional — quando omitida, preserva o valor já salvo (evita apagar ao chamar de fluxos que
+ * não mexem nesse campo, como a importação de planilha). */
 export async function updateItensPreRegistro(
   id: string,
   itens: PreRegistroItem[],
   atorAdmin: string,
+  dataSolicitacao?: number,
 ): Promise<QuoteRecord> {
   const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
   if (!atual) throw new Error('Cotação não encontrada no servidor.')
@@ -183,7 +186,12 @@ export async function updateItensPreRegistro(
     )
   }
 
-  const atualizado: QuoteRecord = { ...normalizado, itensPreRegistro: itens, updatedAt: Date.now() }
+  const atualizado: QuoteRecord = {
+    ...normalizado,
+    itensPreRegistro: itens,
+    dataSolicitacao: dataSolicitacao ?? normalizado.dataSolicitacao,
+    updatedAt: Date.now(),
+  }
   await dbPut(STORE_ANALISES, atualizado)
   return atualizado
 }

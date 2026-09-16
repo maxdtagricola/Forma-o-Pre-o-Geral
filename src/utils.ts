@@ -26,6 +26,25 @@ export function formatDate(ts: number): string {
   })
 }
 
+/** Timestamp -> "YYYY-MM-DD" (data local, não UTC) pra preencher um <input type="date">. */
+export function dateToInputValue(ts: number | undefined): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  const yyyy = d.getFullYear()
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}`
+}
+
+/** "YYYY-MM-DD" de um <input type="date"> -> timestamp de meia-noite local (evita o "dia errado"
+ * que `new Date("YYYY-MM-DD")` dá por interpretar como UTC). */
+export function inputValueToDate(value: string): number | undefined {
+  if (!value) return undefined
+  const [yyyy, mm, dd] = value.split('-').map(Number)
+  if (!yyyy || !mm || !dd) return undefined
+  return new Date(yyyy, mm - 1, dd).getTime()
+}
+
 /** Converte string de input percentual ("25" -> 0.25) preservando o que o usuário digitou. */
 export function pctToFraction(input: number): number {
   return input / 100

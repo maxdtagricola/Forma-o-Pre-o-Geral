@@ -21,6 +21,7 @@ export function calculateMarginRange(
     const resultado = calculateItem(product, { ...pricing, lucroPct: margemPct })
     pontos.push({
       margemPct,
+      custoUnitario: resultado.custoUnitario,
       precoVendaUnitario: resultado.precoVendaUnitario,
       precoVendaTotal: resultado.precoVendaTotal,
       lucroValor: resultado.breakdown.lucro,

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button } from '../components/ui/Basics'
 import { PlanilhaFornecedoresModal } from '../components/PlanilhaFornecedoresModal'
 import { findByInterno } from '../db/analysesRepo'
-import { selecionarTudoAoFocar } from '../utils'
+import { dateToInputValue, formatDate, inputValueToDate, selecionarTudoAoFocar } from '../utils'
 import type { PreRegistroItem, QuoteStatus } from '../types'
 
 export function PreRegistroPage({
@@ -14,6 +14,9 @@ export function PreRegistroPage({
   cliente,
   maquina,
   itens,
+  createdAt,
+  dataSolicitacao,
+  onChangeDataSolicitacao,
   onAddItem,
   onRemoveItem,
   onPatchItem,
@@ -31,6 +34,9 @@ export function PreRegistroPage({
   cliente: string
   maquina: string
   itens: PreRegistroItem[]
+  createdAt?: number
+  dataSolicitacao?: number
+  onChangeDataSolicitacao: (ts: number | undefined) => void
   onAddItem: () => void
   onRemoveItem: (id: string) => void
   onPatchItem: (id: string, patch: Partial<PreRegistroItem>) => void
@@ -137,6 +143,23 @@ export function PreRegistroPage({
           </div>
         </div>
 
+        <div className="mt-3 mb-4 flex flex-wrap items-end gap-x-6 gap-y-3 rounded-lg border border-ink-100 bg-ink-50/60 px-3 py-2.5">
+          <div>
+            <p className="text-xs text-ink-400">Data criada</p>
+            <p className="text-sm text-ink-700">{createdAt ? formatDate(createdAt) : '—'}</p>
+          </div>
+          <label className="block">
+            <span className="field-label">Data de solicitação</span>
+            <input
+              type="date"
+              className="field-input"
+              value={dateToInputValue(dataSolicitacao)}
+              disabled={travadaPorOutro}
+              onChange={(e) => onChangeDataSolicitacao(inputValueToDate(e.target.value))}
+            />
+          </label>
+        </div>
+
         <div className="mt-4 overflow-x-auto rounded-xl border border-ink-100">
           <table className="w-full text-sm border-collapse">
             <thead>
@@ -216,6 +239,9 @@ export function PreRegistroPage({
         </div>
 
         <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+          <Button variant="ghost" onClick={onGoToCotacoes}>
+            ← Voltar para Cotações
+          </Button>
           <Button variant="secondary" onClick={onGoToComparar} disabled={itens.length === 0}>
             Comparar fornecedores
           </Button>

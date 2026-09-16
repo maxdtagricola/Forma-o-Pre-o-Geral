@@ -64,7 +64,7 @@ function QuoteCard({
   }, [menuAberto])
 
   return (
-    <div className="rounded-lg border border-ink-100 overflow-hidden">
+    <div className="rounded-lg border border-ink-100">
       <div className="flex items-center gap-2 pl-1 pr-2 py-2">
         <button
           type="button"

@@ -66,6 +66,7 @@ export function MarginAnalysisPage({ product, pricing }: { product: ProductInput
           <thead>
             <tr className="text-left text-ink-400 border-b border-ink-100">
               <th className="py-2 pr-4 font-medium">Margem</th>
+              <th className="py-2 pr-4 font-medium text-right">Custo unitário</th>
               <th className="py-2 pr-4 font-medium text-right">Preço unitário</th>
               <th className="py-2 pr-4 font-medium text-right">Preço total</th>
               <th className="py-2 pr-4 font-medium text-right">Lucro (R$)</th>
@@ -82,6 +83,9 @@ export function MarginAnalysisPage({ product, pricing }: { product: ProductInput
                 >
                   <td className={`py-2 pr-4 font-mono tabular-nums ${isCurrent ? 'font-semibold text-brand-700' : 'text-ink-600'}`}>
                     {formatPercent(p.margemPct, 0)}
+                  </td>
+                  <td className="py-2 pr-4 font-mono tabular-nums text-right text-ink-500">
+                    {formatCurrency(p.custoUnitario)}
                   </td>
                   <td className="py-2 pr-4 font-mono tabular-nums text-right text-ink-800">
                     {formatCurrency(p.precoVendaUnitario)}

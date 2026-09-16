@@ -29,7 +29,18 @@ interface CampoFrete {
   chave: string
   label: string
   valorInicial: (ctx: ContextoFrete) => string
+  /** Quando presente, o campo vira um <select> com essas opções em vez de texto livre. */
+  opcoes?: { value: string; label: string }[]
 }
+
+const OPCOES_CIF_FOB = [
+  { value: 'CIF', label: 'CIF — remetente paga' },
+  { value: 'FOB', label: 'FOB — destinatário paga' },
+]
+const OPCOES_MODALIDADE_EUCATUR = [
+  { value: 'ONIBUS', label: 'Ônibus' },
+  { value: 'CAMINHAO', label: 'Caminhão' },
+]
 
 const contextoVazio: ContextoFrete = {
   temCotacao: false,
@@ -52,10 +63,20 @@ function cidadeUf(municipio?: string, uf?: string): string {
 
 const CAMPOS_POR_TRANSPORTADORA: Record<string, CampoFrete[]> = {
   EUCATUR: [
-    { chave: 'modalidade', label: 'Modalidade de transporte (Ônibus / Caminhão)', valorInicial: () => '' },
+    {
+      chave: 'modalidade',
+      label: 'Modalidade de transporte (Ônibus / Caminhão)',
+      valorInicial: () => '',
+      opcoes: OPCOES_MODALIDADE_EUCATUR,
+    },
     { chave: 'cnpjRemetente', label: 'CNPJ/CPF do remetente', valorInicial: (c) => c.fornecedor?.cnpj ?? '' },
     { chave: 'cnpjDestinatario', label: 'CNPJ/CPF do destinatário', valorInicial: (c) => c.empresa?.cnpj ?? '' },
-    { chave: 'pagador', label: 'Responsável pelo pagamento (CIF / FOB)', valorInicial: () => '' },
+    {
+      chave: 'pagador',
+      label: 'Responsável pelo pagamento (CIF / FOB)',
+      valorInicial: () => '',
+      opcoes: OPCOES_CIF_FOB,
+    },
     { chave: 'cepOrigem', label: 'CEP de origem', valorInicial: (c) => c.fornecedor?.cep ?? '' },
     { chave: 'cepDestino', label: 'CEP de destino', valorInicial: (c) => c.empresa?.cep ?? '' },
     { chave: 'valorNF', label: 'Valor da Nota Fiscal (NFe)', valorInicial: (c) => (c.temCotacao ? formatCurrency(c.valorNF) : '') },
@@ -76,7 +97,7 @@ const CAMPOS_POR_TRANSPORTADORA: Record<string, CampoFrete[]> = {
     { chave: 'valorNota', label: 'Valor da nota', valorInicial: (c) => (c.temCotacao ? formatCurrency(c.valorNF) : '') },
     { chave: 'cnpjRemetente', label: 'CNPJ remetente', valorInicial: (c) => c.fornecedor?.cnpj ?? '' },
     { chave: 'cnpjDestinatario', label: 'CNPJ destinatário', valorInicial: (c) => c.empresa?.cnpj ?? '' },
-    { chave: 'pagador', label: 'Pagador do frete', valorInicial: () => '' },
+    { chave: 'pagador', label: 'Pagador do frete', valorInicial: () => '', opcoes: OPCOES_CIF_FOB },
     { chave: 'email', label: 'E-mail', valorInicial: () => '' },
   ],
   CARVALIMA: [
@@ -105,7 +126,7 @@ const CAMPOS_POR_TRANSPORTADORA: Record<string, CampoFrete[]> = {
     { chave: 'medidas', label: 'Medidas', valorInicial: () => '' },
     { chave: 'cnpjRemetente', label: 'CNPJ remetente', valorInicial: (c) => c.fornecedor?.cnpj ?? '' },
     { chave: 'cnpjDestinatario', label: 'CNPJ destinatário', valorInicial: (c) => c.empresa?.cnpj ?? '' },
-    { chave: 'pagador', label: 'Pagador do frete', valorInicial: () => '' },
+    { chave: 'pagador', label: 'Pagador do frete', valorInicial: () => '', opcoes: OPCOES_CIF_FOB },
     { chave: 'email', label: 'E-mail', valorInicial: () => '' },
   ],
   // modelo da Granexpress ainda não recebido — usa os campos comuns às outras por enquanto
@@ -118,7 +139,7 @@ const CAMPOS_POR_TRANSPORTADORA: Record<string, CampoFrete[]> = {
     { chave: 'volumes', label: 'Quantidade de volumes', valorInicial: (c) => String(c.qtdVolumes || '') },
     { chave: 'peso', label: 'Peso', valorInicial: (c) => (c.pesoTotal ? `${formatNumber(c.pesoTotal, 2)} kg` : '') },
     { chave: 'medidas', label: 'Medidas', valorInicial: () => '' },
-    { chave: 'pagador', label: 'Pagador do frete', valorInicial: () => '' },
+    { chave: 'pagador', label: 'Pagador do frete', valorInicial: () => '', opcoes: OPCOES_CIF_FOB },
   ],
 }
 
@@ -149,17 +170,35 @@ function FormularioFrete({ transportadora, ctx }: { transportadora: string; ctx:
   return (
     <div className="mt-4 rounded-xl border border-ink-200 p-4 space-y-3">
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {campos.map((campo) => (
-          <label key={campo.chave}>
-            <span className="field-label">{campo.label}</span>
-            <input
-              type="text"
-              className="field-input"
-              value={valores[campo.chave] ?? ''}
-              onChange={(e) => setValores((prev) => ({ ...prev, [campo.chave]: e.target.value }))}
-            />
-          </label>
-        ))}
+        {campos.map((campo) =>
+          campo.opcoes ? (
+            <label key={campo.chave}>
+              <span className="field-label">{campo.label}</span>
+              <select
+                className="field-input"
+                value={valores[campo.chave] ?? ''}
+                onChange={(e) => setValores((prev) => ({ ...prev, [campo.chave]: e.target.value }))}
+              >
+                <option value="">— selecione —</option>
+                {campo.opcoes.map((op) => (
+                  <option key={op.value} value={op.value}>
+                    {op.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : (
+            <label key={campo.chave}>
+              <span className="field-label">{campo.label}</span>
+              <input
+                type="text"
+                className="field-input"
+                value={valores[campo.chave] ?? ''}
+                onChange={(e) => setValores((prev) => ({ ...prev, [campo.chave]: e.target.value }))}
+              />
+            </label>
+          ),
+        )}
       </div>
       <div className="flex items-center gap-3">
         <Button variant="secondary" onClick={handleCopiar}>
@@ -224,13 +263,15 @@ function CardTransportadora({
   )
 }
 
-export function FretePage() {
+export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [quotes, setQuotes] = useState<QuoteRecord[]>([])
   const [empresaPorTransportadora, setEmpresaPorTransportadoraState] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)
-  const [cotacaoId, setCotacaoId] = useState('')
+  // chega pré-selecionada quando vem do botão "Ir para Frete" da Precificação — assim o usuário
+  // não precisa procurar a cotação de novo numa lista
+  const [cotacaoId, setCotacaoId] = useState(cotacaoIdInicial ?? '')
   const [fornecedorId, setFornecedorId] = useState('')
   const [transportadoraAberta, setTransportadoraAberta] = useState<string | null>(null)
 

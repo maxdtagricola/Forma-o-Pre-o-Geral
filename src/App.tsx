@@ -80,6 +80,8 @@ export default function App() {
   const [codigoCotacao, setCodigoCotacao] = useState('')
   const [activeStatus, setActiveStatus] = useState<QuoteStatus>('PENDENTE')
   const [activeResponsavel, setActiveResponsavel] = useState('')
+  const [activeCreatedAt, setActiveCreatedAt] = useState<number | undefined>(undefined)
+  const [dataSolicitacao, setDataSolicitacao] = useState<number | undefined>(undefined)
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const [pricingGlobal, setPricingGlobalState] = useState<PricingGlobal>(DEFAULT_PRICING_GLOBAL)
   const [tabelasVersion, setTabelasVersion] = useState(0)
@@ -292,14 +294,14 @@ export default function App() {
 
   async function handleSalvarPreRegistro() {
     if (!editingQuoteId || !currentAdmin) return
-    await updateItensPreRegistro(editingQuoteId, preRegistroItems, currentAdmin)
+    await updateItensPreRegistro(editingQuoteId, preRegistroItems, currentAdmin, dataSolicitacao)
     setHistoryRefreshKey((k) => k + 1)
     limparRascunho()
   }
 
   async function handleGoToPrecificacao() {
     if (!editingQuoteId || !currentAdmin) return
-    await updateItensPreRegistro(editingQuoteId, preRegistroItems, currentAdmin)
+    await updateItensPreRegistro(editingQuoteId, preRegistroItems, currentAdmin, dataSolicitacao)
 
     let novosItems = items
     if (items.length === 0) {
@@ -358,6 +360,16 @@ export default function App() {
     limparRascunho()
   }
 
+  async function handleEnviarCotacao() {
+    if (!editingQuoteId || !currentAdmin) return
+    if (activeStatus === 'PENDENTE' || activeStatus === 'ANALISANDO VALORES') {
+      await updateQuoteStatus(editingQuoteId, 'ENVIADO', currentAdmin)
+      setActiveStatus('ENVIADO')
+      setActiveResponsavel(currentAdmin)
+      setHistoryRefreshKey((k) => k + 1)
+    }
+  }
+
   function handleAddItem() {
     const item = criarItemComGlobais()
     setItems((prev) => [...prev, item])
@@ -412,6 +424,8 @@ export default function App() {
     setCodigoCotacao('')
     setActiveStatus('PENDENTE')
     setActiveResponsavel('')
+    setActiveCreatedAt(undefined)
+    setDataSolicitacao(undefined)
     setPreRegistroItems([])
     setPlanilhaOriginalState(undefined)
     limparRascunho()
@@ -431,6 +445,8 @@ export default function App() {
     setCodigoCotacao(record.codigo)
     setActiveStatus(record.status)
     setActiveResponsavel(record.responsavelStatus)
+    setActiveCreatedAt(record.createdAt)
+    setDataSolicitacao(record.dataSolicitacao)
     setPreRegistroItems(record.itensPreRegistro ?? [])
     setPlanilhaOriginalState(record.planilhaOriginal)
     setTab('preregistro')
@@ -514,6 +530,9 @@ export default function App() {
           cliente={cliente}
           maquina={maquina}
           itens={preRegistroItems}
+          createdAt={activeCreatedAt}
+          dataSolicitacao={dataSolicitacao}
+          onChangeDataSolicitacao={setDataSolicitacao}
           onAddItem={handleAddPreRegistroItem}
           onRemoveItem={handleRemovePreRegistroItem}
           onPatchItem={handlePatchPreRegistroItem}
@@ -574,6 +593,8 @@ export default function App() {
           onGoToCotacoes={() => setTab('cotacoes')}
           onGoToPreRegistro={() => setTab('preregistro')}
           onGoToComparar={() => setTab('comparar')}
+          onGoToFrete={() => setTab('frete')}
+          onEnviarCotacao={handleEnviarCotacao}
           temPlanilhaCliente={!!planilhaOriginal}
           onVerPlanilhaCliente={() => setMostrarPlanilhaCliente(true)}
         />
@@ -581,7 +602,7 @@ export default function App() {
       {tab === 'margins' && <MarginAnalysisPage product={activeItem.product} pricing={activeItem.pricing} />}
       {tab === 'produtos' && <ProdutosPage currentAdmin={currentAdmin} />}
       {tab === 'fornecedores' && <FornecedoresPage />}
-      {tab === 'frete' && <FretePage />}
+      {tab === 'frete' && <FretePage cotacaoIdInicial={editingQuoteId} />}
       {tab === 'configuracoes' && (
         <ConfiguracoesPage
           currentAdmin={currentAdmin}
