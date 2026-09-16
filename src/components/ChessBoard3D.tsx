@@ -103,9 +103,6 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
         { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.68, papel: 'armadura' },
         { geo: new THREE.ConeGeometry(0.055, 0.11, 14), y: 0.79, papel: 'detalhe' },
         { geo: new THREE.BoxGeometry(0.08, 0.02, 0.02), y: 0.685, z: 0.09, papel: 'brilho' },
-        // bainha na cintura, do lado direito — a espada em si só existe enquanto ele ataca
-        // (desembainhada na mão), o resto do tempo é só isso aqui + o cabo espiando pra fora
-        { geo: new THREE.BoxGeometry(0.03, 0.2, 0.04), x: 0.15, y: 0.33, z: 0.02, rotZ: -0.12, papel: 'detalhe' },
       ]
       break
     // torre — guardião pesado, ombreiras largas e "ameia" no topo (lembrando torre)
@@ -293,7 +290,9 @@ const geoLaminaEspada = new THREE.BoxGeometry(0.032, 0.26, 0.065)
 const geoGuardaEspada = new THREE.BoxGeometry(0.1, 0.022, 0.022)
 const geoCaboEspada = new THREE.CylinderGeometry(0.014, 0.014, 0.075, 8)
 const materialLaminaEspada = new THREE.MeshToonMaterial({ color: 0x8a94a3, gradientMap: gradienteToon })
-const materialCaboEspada = new THREE.MeshToonMaterial({ color: 0x4a2f18, gradientMap: gradienteToon })
+// marrom-couro claro (não escuro) de propósito — precisa contrastar tanto com a armadura clara
+// das brancas quanto com a armadura escura das pretas, senão some contra uma das duas facções
+const materialCaboEspada = new THREE.MeshToonMaterial({ color: 0x8b5a2b, gradientMap: gradienteToon })
 
 function criarEspadaDoPeao(): THREE.Group {
   const espada = new THREE.Group()
@@ -362,12 +361,35 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
 
   const poseBase: PoseBaseMembros = { ...POSE_BASE_NEUTRA }
   if (tipo === 'p') {
-    // cabo espiando pra fora da bainha — é só isso que fica visível enquanto a espada está
-    // guardada; a peça inteira (lâmina incluída) só existe presa na mão durante o ataque, criada
-    // e destruída ali (ver animarAtaqueEspada) — o peão não anda por aí com ela desembainhada
+    // bainha na cintura, do lado direito, em couro/madeira (cor fixa, não segue a facção —
+    // por isso não usa 'detalhe' como o resto da armadura, senão ela sumiria misturada nos
+    // outros acessórios azuis/vermelhos). Dois problemas descartaram as duas primeiras
+    // tentativas: (1) o braço direito pendurado (CONFIG_BRACO_DIR) cobre x:[0.125,0.215] em
+    // quase toda a altura da cintura, então em z~0 a bainha ficava atrás/colada nele,
+    // invisível; (2) deslocar em Z (pra frente do corpo) resolvia pro preto mas escondia nas
+    // brancas — as brancas giram 180° (rotation.y = PI mais abaixo) então o mesmo +Z que fica
+    // de frente pra câmera no preto vira de costas (escondido atrás do próprio corpo) no
+    // branco. A solução é ficar em z≈0 (puramente na lateral, sem comprometer frente/costas —
+    // assim não depende de qual lado a peça acaba olhando) e escapar do braço só em X, puxada
+    // bem pra fora do quadril. A espada em si só existe presa na mão durante o ataque, criada e
+    // destruída ali (ver animarAtaqueEspada) — o peão não anda por aí com ela desembainhada, só
+    // o cabo espia pra fora da boca da bainha.
+    const ANGULO_BAINHA = 0.32
+    const geoBainha = new THREE.BoxGeometry(0.045, 0.22, 0.05)
+    const bainha = new THREE.Mesh(geoBainha, materialCaboEspada)
+    bainha.position.set(0.268, 0.34, 0)
+    bainha.rotation.z = ANGULO_BAINHA
+    bainha.castShadow = true
+    grupo.add(bainha)
+
+    const contornoBainha = criarContorno(geoBainha)
+    contornoBainha.position.copy(bainha.position)
+    contornoBainha.rotation.copy(bainha.rotation)
+    grupo.add(contornoBainha)
+
     const caboNaBainha = new THREE.Mesh(geoCaboEspada, materialCaboEspada)
-    caboNaBainha.position.set(0.16, 0.45, 0.02)
-    caboNaBainha.rotation.z = -0.12
+    caboNaBainha.position.set(0.233, 0.445, 0)
+    caboNaBainha.rotation.z = ANGULO_BAINHA
     caboNaBainha.castShadow = true
     grupo.add(caboNaBainha)
   }
