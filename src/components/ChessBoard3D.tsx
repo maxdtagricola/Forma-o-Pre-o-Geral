@@ -90,121 +90,130 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
   const existente = geometriasPorTipo.get(tipo)
   if (existente) return existente
 
+  // Corpos bem mais esguios que a geração anterior (que lembrava um robozinho robusto) — visual
+  // de "boneco de madeira" articulado, tipo manequim de desenho: tronco/quadril bem mais finos e
+  // membros finos (ver geoPerna/geoBraco), mas ainda montado só com primitivas geométricas simples
+  // (caixa/cilindro/esfera/cone), não linhas literais — mantém o "formato geométrico" original só
+  // que mais magro. As alturas (Y) ficam quase todas iguais às da versão anterior; só as larguras/
+  // profundidades (X/Z) e os afastamentos do centro (onde fica ombro, cetro, cajado etc.) encolhem.
   let partes: ParteGeom[] = []
   switch (tipo) {
     // peão — soldado raso, elmo simples com ponta (tronco acima do quadril/pernas articulados)
     case 'p':
       partes = [
-        { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
-        { geo: new THREE.BoxGeometry(0.135, 0.025, 0.135), y: 0.4, papel: 'detalhe' },
-        { geo: new THREE.CylinderGeometry(0.11, 0.13, 0.2, 18), y: 0.48, papel: 'armadura' },
-        { geo: new THREE.SphereGeometry(0.045, 12, 10), x: -0.13, y: 0.55, papel: 'detalhe' },
-        { geo: new THREE.SphereGeometry(0.045, 12, 10), x: 0.13, y: 0.55, papel: 'detalhe' },
-        { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.68, papel: 'armadura' },
-        { geo: new THREE.ConeGeometry(0.055, 0.11, 14), y: 0.79, papel: 'detalhe' },
-        { geo: new THREE.BoxGeometry(0.08, 0.02, 0.02), y: 0.685, z: 0.09, papel: 'brilho' },
+        { geo: new THREE.BoxGeometry(0.1, 0.08, 0.075), y: 0.36, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.08, 0.025, 0.08), y: 0.4, papel: 'detalhe' },
+        { geo: new THREE.CylinderGeometry(0.055, 0.065, 0.2, 12), y: 0.48, papel: 'armadura' },
+        { geo: new THREE.SphereGeometry(0.026, 10, 8), x: -0.075, y: 0.55, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.026, 10, 8), x: 0.075, y: 0.55, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.085, 16, 12), y: 0.68, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.048, 0.1, 12), y: 0.785, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.06, 0.018, 0.018), y: 0.685, z: 0.078, papel: 'brilho' },
       ]
       break
-    // torre — guardião pesado, ombreiras largas e "ameia" no topo (lembrando torre)
+    // torre — guardião pesado, ombreiras largas e "ameia" no topo (lembrando torre) — continua a
+    // mais robusta do grupo (guarda a mesma proporção relativa às outras), só que agora fina o
+    // bastante pra também deixar ver um fiapo das pernas por baixo, como as demais peças
     case 'r':
       partes = [
-        { geo: new THREE.BoxGeometry(0.24, 0.09, 0.16), y: 0.36, papel: 'armadura' },
-        { geo: new THREE.BoxGeometry(0.34, 0.22, 0.24), y: 0.5, papel: 'armadura' },
-        { geo: new THREE.BoxGeometry(0.345, 0.03, 0.245), y: 0.5, papel: 'detalhe' },
-        { geo: new THREE.BoxGeometry(0.09, 0.13, 0.09), x: -0.2, y: 0.53, papel: 'detalhe' },
-        { geo: new THREE.BoxGeometry(0.09, 0.13, 0.09), x: 0.2, y: 0.53, papel: 'detalhe' },
-        { geo: new THREE.BoxGeometry(0.06, 0.06, 0.02), y: 0.56, z: 0.125, rotZ: Math.PI / 4, papel: 'brilho' },
-        { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.7, papel: 'armadura' },
-        { geo: new THREE.BoxGeometry(0.3, 0.07, 0.3), y: 0.8, papel: 'detalhe' },
-        { geo: new THREE.BoxGeometry(0.09, 0.02, 0.02), y: 0.705, z: 0.095, papel: 'brilho' },
+        { geo: new THREE.BoxGeometry(0.13, 0.09, 0.09), y: 0.36, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.19, 0.22, 0.13), y: 0.5, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.195, 0.03, 0.135), y: 0.5, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.05, 0.13, 0.05), x: -0.11, y: 0.53, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.05, 0.13, 0.05), x: 0.11, y: 0.53, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.035, 0.035, 0.014), y: 0.56, z: 0.07, rotZ: Math.PI / 4, papel: 'brilho' },
+        { geo: new THREE.SphereGeometry(0.075, 16, 12), y: 0.7, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.17, 0.07, 0.17), y: 0.8, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.05, 0.02, 0.02), y: 0.705, z: 0.058, papel: 'brilho' },
       ]
       break
     // cavalo — literalmente um peão montado em cima de um cavalo: corpo/pescoço/cabeça/orelhas/
     // crina/rabo do cavalo por baixo, e um cavaleiro pequeno (mesma cara do peão — corpo, cabeça,
     // capacete pontudo) sentado no lombo. O tronco do cavalo fica mais estreito que a distância das
     // "patas" (o mesmo par de pernas articuladas de toda peça), então elas ficam visíveis do lado
-    // de fora do corpo em vez de escondidas por dentro.
+    // de fora do corpo em vez de escondidas por dentro. Corpo/pescoço/cabeça mais esguios que antes,
+    // acompanhando o resto do time, mas o comprimento (focinho, rabo) fica como estava.
     case 'n':
       partes = [
         // corpo do cavalo
-        { geo: new THREE.BoxGeometry(0.15, 0.17, 0.4), y: 0.42, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.09, 0.12, 0.4), y: 0.42, papel: 'armadura' },
         // manta de sela, sob o cavaleiro
-        { geo: new THREE.BoxGeometry(0.17, 0.03, 0.22), y: 0.505, z: 0.03, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.1, 0.03, 0.22), y: 0.505, z: 0.03, papel: 'detalhe' },
         // pescoço, inclinado pra frente e pra cima
-        { geo: new THREE.BoxGeometry(0.1, 0.24, 0.11), y: 0.54, z: -0.2, rotX: -0.5, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.065, 0.24, 0.08), y: 0.54, z: -0.2, rotX: -0.5, papel: 'armadura' },
         // cabeça — focinho alongado
-        { geo: new THREE.BoxGeometry(0.085, 0.1, 0.2), y: 0.65, z: -0.35, rotX: -0.15, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.06, 0.075, 0.2), y: 0.65, z: -0.35, rotX: -0.15, papel: 'armadura' },
         // orelhas
-        { geo: new THREE.ConeGeometry(0.025, 0.07, 8), x: -0.03, y: 0.72, z: -0.27, papel: 'detalhe' },
-        { geo: new THREE.ConeGeometry(0.025, 0.07, 8), x: 0.03, y: 0.72, z: -0.27, papel: 'detalhe' },
+        { geo: new THREE.ConeGeometry(0.018, 0.06, 8), x: -0.018, y: 0.72, z: -0.27, papel: 'detalhe' },
+        { geo: new THREE.ConeGeometry(0.018, 0.06, 8), x: 0.018, y: 0.72, z: -0.27, papel: 'detalhe' },
         // crina, ao longo do pescoço
-        { geo: new THREE.BoxGeometry(0.03, 0.16, 0.16), y: 0.6, z: -0.13, rotX: -0.5, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.02, 0.16, 0.12), y: 0.6, z: -0.13, rotX: -0.5, papel: 'detalhe' },
         // rabo
-        { geo: new THREE.ConeGeometry(0.045, 0.22, 10), y: 0.42, z: 0.24, rotX: Math.PI * 0.55, papel: 'detalhe' },
+        { geo: new THREE.ConeGeometry(0.032, 0.22, 10), y: 0.42, z: 0.24, rotX: Math.PI * 0.55, papel: 'detalhe' },
         // cavaleiro — tronco pequeno sentado no lombo
-        { geo: new THREE.CylinderGeometry(0.075, 0.085, 0.14, 14), y: 0.56, papel: 'armadura' },
+        { geo: new THREE.CylinderGeometry(0.045, 0.052, 0.14, 10), y: 0.56, papel: 'armadura' },
         // capa curta do cavaleiro, esvoaçando pra trás
-        { geo: new THREE.BoxGeometry(0.1, 0.16, 0.02), y: 0.58, z: 0.09, rotX: 0.25, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.06, 0.16, 0.02), y: 0.58, z: 0.09, rotX: 0.25, papel: 'detalhe' },
         // cabeça do cavaleiro
-        { geo: new THREE.SphereGeometry(0.065, 16, 12), y: 0.68, papel: 'armadura' },
+        { geo: new THREE.SphereGeometry(0.055, 14, 10), y: 0.68, papel: 'armadura' },
         // capacete pontudo, igual ao do peão
-        { geo: new THREE.ConeGeometry(0.04, 0.08, 12), y: 0.755, papel: 'detalhe' },
+        { geo: new THREE.ConeGeometry(0.032, 0.07, 12), y: 0.75, papel: 'detalhe' },
         // brilho dos olhos do cavaleiro
-        { geo: new THREE.BoxGeometry(0.055, 0.015, 0.015), y: 0.685, z: 0.06, papel: 'brilho' },
+        { geo: new THREE.BoxGeometry(0.04, 0.013, 0.013), y: 0.685, z: 0.05, papel: 'brilho' },
       ]
       break
     // bispo — místico com chapéu pontudo e cajado
     case 'b':
       partes = [
-        { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
-        { geo: new THREE.ConeGeometry(0.16, 0.26, 18), y: 0.5, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.1, 0.08, 0.075), y: 0.36, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.09, 0.26, 14), y: 0.5, papel: 'detalhe' },
         // faixa/cíngulo na cintura da batina
-        { geo: new THREE.TorusGeometry(0.1, 0.012, 8, 20), y: 0.45, rotX: Math.PI / 2, papel: 'brilho' },
-        { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.7, papel: 'armadura' },
-        { geo: new THREE.ConeGeometry(0.1, 0.3, 16), y: 0.94, papel: 'detalhe' },
+        { geo: new THREE.TorusGeometry(0.056, 0.01, 8, 20), y: 0.45, rotX: Math.PI / 2, papel: 'brilho' },
+        { geo: new THREE.SphereGeometry(0.085, 16, 12), y: 0.7, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.06, 0.3, 14), y: 0.94, papel: 'detalhe' },
         // faixa diagonal no peito
-        { geo: new THREE.BoxGeometry(0.035, 0.22, 0.02), x: 0.05, y: 0.68, z: 0.08, rotZ: 0.5, papel: 'detalhe' },
-        { geo: new THREE.CylinderGeometry(0.014, 0.014, 0.46, 8), x: 0.19, y: 0.52, papel: 'armadura' },
-        { geo: new THREE.SphereGeometry(0.045, 14, 14), x: 0.19, y: 0.77, papel: 'brilho' },
+        { geo: new THREE.BoxGeometry(0.02, 0.22, 0.014), x: 0.03, y: 0.68, z: 0.045, rotZ: 0.5, papel: 'detalhe' },
+        { geo: new THREE.CylinderGeometry(0.013, 0.013, 0.46, 8), x: 0.1, y: 0.52, papel: 'armadura' },
+        { geo: new THREE.SphereGeometry(0.04, 12, 12), x: 0.1, y: 0.77, papel: 'brilho' },
       ]
       break
     // dama — elegante, coroa dourada com joia
     case 'q':
       partes = [
-        { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
-        { geo: new THREE.ConeGeometry(0.16, 0.28, 20), y: 0.5, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.1, 0.08, 0.075), y: 0.36, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.09, 0.28, 16), y: 0.5, papel: 'detalhe' },
         // capa — bem mais ampla, cobrindo quase toda a altura do corpo
-        { geo: new THREE.BoxGeometry(0.28, 0.48, 0.04), y: 0.42, z: -0.13, rotX: 0.08, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.16, 0.48, 0.03), y: 0.42, z: -0.08, rotX: 0.08, papel: 'detalhe' },
         // colar
-        { geo: new THREE.TorusGeometry(0.078, 0.012, 8, 20), y: 0.63, rotX: Math.PI / 2, papel: 'coroa' },
-        { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.72, papel: 'armadura' },
-        { geo: new THREE.TorusGeometry(0.09, 0.022, 10, 20), y: 0.85, rotX: Math.PI / 2, papel: 'coroa' },
+        { geo: new THREE.TorusGeometry(0.05, 0.01, 8, 20), y: 0.63, rotX: Math.PI / 2, papel: 'coroa' },
+        { geo: new THREE.SphereGeometry(0.085, 16, 12), y: 0.72, papel: 'armadura' },
+        { geo: new THREE.TorusGeometry(0.06, 0.018, 10, 20), y: 0.85, rotX: Math.PI / 2, papel: 'coroa' },
         // pontas pequenas na coroa, além do topo com a joia
-        { geo: new THREE.ConeGeometry(0.017, 0.05, 8), x: 0.075, y: 0.895, papel: 'coroa' },
-        { geo: new THREE.ConeGeometry(0.017, 0.05, 8), x: -0.075, y: 0.895, papel: 'coroa' },
-        { geo: new THREE.SphereGeometry(0.04, 14, 14), y: 0.92, papel: 'brilho' },
+        { geo: new THREE.ConeGeometry(0.014, 0.045, 8), x: 0.045, y: 0.89, papel: 'coroa' },
+        { geo: new THREE.ConeGeometry(0.014, 0.045, 8), x: -0.045, y: 0.89, papel: 'coroa' },
+        { geo: new THREE.SphereGeometry(0.032, 12, 12), y: 0.915, papel: 'brilho' },
         // cetro — cabo com uma joia no topo, na mão
-        { geo: new THREE.CylinderGeometry(0.012, 0.012, 0.36, 8), x: 0.19, y: 0.54, papel: 'armadura' },
-        { geo: new THREE.SphereGeometry(0.038, 14, 14), x: 0.19, y: 0.735, papel: 'coroa' },
+        { geo: new THREE.CylinderGeometry(0.011, 0.011, 0.36, 8), x: 0.1, y: 0.54, papel: 'armadura' },
+        { geo: new THREE.SphereGeometry(0.032, 12, 12), x: 0.1, y: 0.735, papel: 'coroa' },
       ]
       break
     // rei — o mais alto, coroa + cruz, capa
     case 'k':
       partes = [
-        { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
-        { geo: new THREE.ConeGeometry(0.17, 0.3, 20), y: 0.51, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.1, 0.08, 0.075), y: 0.36, papel: 'armadura' },
+        { geo: new THREE.ConeGeometry(0.095, 0.3, 16), y: 0.51, papel: 'detalhe' },
         // capa — bem mais ampla, cobrindo quase toda a altura do corpo
-        { geo: new THREE.BoxGeometry(0.31, 0.52, 0.045), y: 0.42, z: -0.14, rotX: 0.1, papel: 'detalhe' },
+        { geo: new THREE.BoxGeometry(0.17, 0.52, 0.032), y: 0.42, z: -0.085, rotX: 0.1, papel: 'detalhe' },
         // emblema no peito
-        { geo: new THREE.BoxGeometry(0.055, 0.055, 0.018), y: 0.58, z: 0.115, rotZ: Math.PI / 4, papel: 'brilho' },
-        { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.74, papel: 'armadura' },
-        { geo: new THREE.TorusGeometry(0.1, 0.024, 10, 20), y: 0.88, rotX: Math.PI / 2, papel: 'coroa' },
-        { geo: new THREE.BoxGeometry(0.035, 0.15, 0.035), y: 0.99, papel: 'coroa' },
-        { geo: new THREE.BoxGeometry(0.11, 0.035, 0.035), y: 1.01, papel: 'coroa' },
+        { geo: new THREE.BoxGeometry(0.032, 0.032, 0.013), y: 0.58, z: 0.065, rotZ: Math.PI / 4, papel: 'brilho' },
+        { geo: new THREE.SphereGeometry(0.088, 16, 12), y: 0.74, papel: 'armadura' },
+        { geo: new THREE.TorusGeometry(0.065, 0.02, 10, 20), y: 0.88, rotX: Math.PI / 2, papel: 'coroa' },
+        { geo: new THREE.BoxGeometry(0.025, 0.15, 0.025), y: 0.99, papel: 'coroa' },
+        { geo: new THREE.BoxGeometry(0.075, 0.025, 0.025), y: 1.01, papel: 'coroa' },
         // cajado — cabo com uma cruz no topo, igual à da coroa, na mão
-        { geo: new THREE.CylinderGeometry(0.015, 0.015, 0.48, 8), x: 0.19, y: 0.53, papel: 'armadura' },
-        { geo: new THREE.BoxGeometry(0.03, 0.09, 0.03), x: 0.19, y: 0.8, papel: 'coroa' },
-        { geo: new THREE.BoxGeometry(0.075, 0.025, 0.025), x: 0.19, y: 0.815, papel: 'coroa' },
+        { geo: new THREE.CylinderGeometry(0.014, 0.014, 0.48, 8), x: 0.1, y: 0.53, papel: 'armadura' },
+        { geo: new THREE.BoxGeometry(0.022, 0.09, 0.022), x: 0.1, y: 0.8, papel: 'coroa' },
+        { geo: new THREE.BoxGeometry(0.055, 0.02, 0.02), x: 0.1, y: 0.815, papel: 'coroa' },
       ]
       break
   }
@@ -215,10 +224,12 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
 // ---------------------------------------------------------------------------
 // Braços e pernas — mesma geometria pra todas as peças, com o pivô na
 // articulação (quadril/ombro) em vez do centro da peça, pra poder balançar
-// como uma caminhada de verdade durante a animação do lance.
+// como uma caminhada de verdade durante a animação do lance. Bem mais finos que antes — é a peça
+// central do visual "boneco de madeira": membros claramente mais estreitos que antes, ainda
+// cilíndricos (não viram linha), pendurados de um corpo igualmente mais fino (ver geometriasDoTipo).
 // ---------------------------------------------------------------------------
-const geoPerna = new THREE.CylinderGeometry(0.045, 0.055, 0.32, 14)
-const geoBraco = new THREE.CylinderGeometry(0.035, 0.045, 0.26, 14)
+const geoPerna = new THREE.CylinderGeometry(0.024, 0.03, 0.32, 10)
+const geoBraco = new THREE.CylinderGeometry(0.019, 0.024, 0.26, 10)
 
 interface ConfigMembro {
   geo: THREE.BufferGeometry
@@ -228,10 +239,10 @@ interface ConfigMembro {
   papel: Papel
 }
 
-const CONFIG_PERNA_ESQ: ConfigMembro = { geo: geoPerna, comprimento: 0.32, pivotX: -0.075, pivotY: 0.32, papel: 'armadura' }
-const CONFIG_PERNA_DIR: ConfigMembro = { geo: geoPerna, comprimento: 0.32, pivotX: 0.075, pivotY: 0.32, papel: 'armadura' }
-const CONFIG_BRACO_ESQ: ConfigMembro = { geo: geoBraco, comprimento: 0.26, pivotX: -0.17, pivotY: 0.52, papel: 'armadura' }
-const CONFIG_BRACO_DIR: ConfigMembro = { geo: geoBraco, comprimento: 0.26, pivotX: 0.17, pivotY: 0.52, papel: 'armadura' }
+const CONFIG_PERNA_ESQ: ConfigMembro = { geo: geoPerna, comprimento: 0.32, pivotX: -0.04, pivotY: 0.32, papel: 'armadura' }
+const CONFIG_PERNA_DIR: ConfigMembro = { geo: geoPerna, comprimento: 0.32, pivotX: 0.04, pivotY: 0.32, papel: 'armadura' }
+const CONFIG_BRACO_ESQ: ConfigMembro = { geo: geoBraco, comprimento: 0.26, pivotX: -0.085, pivotY: 0.52, papel: 'armadura' }
+const CONFIG_BRACO_DIR: ConfigMembro = { geo: geoBraco, comprimento: 0.26, pivotX: 0.085, pivotY: 0.52, papel: 'armadura' }
 
 /** Escala geral por tipo — só pra dar hierarquia de tamanho (rei/dama maiores, torre mais robusta). */
 const ESCALA_POR_TIPO: Record<string, number> = { p: 1, n: 1, b: 1.05, r: 1.1, q: 1.08, k: 1.15 }
@@ -333,6 +344,8 @@ function criarMembro(cfg: ConfigMembro, cor: 'w' | 'b'): THREE.Group {
 
 function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
   const grupo = new THREE.Group()
+  grupo.userData.tipo = tipo
+  grupo.userData.cor = cor
   for (const parte of geometriasDoTipo(tipo)) {
     const mesh = new THREE.Mesh(parte.geo, materialDaParte(parte.papel, cor))
     mesh.position.set(parte.x ?? 0, parte.y, parte.z ?? 0)
@@ -364,20 +377,20 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
     // bainha na cintura, do lado direito, em couro/madeira (cor fixa, não segue a facção —
     // por isso não usa 'detalhe' como o resto da armadura, senão ela sumiria misturada nos
     // outros acessórios azuis/vermelhos). Dois problemas descartaram as duas primeiras
-    // tentativas: (1) o braço direito pendurado (CONFIG_BRACO_DIR) cobre x:[0.125,0.215] em
-    // quase toda a altura da cintura, então em z~0 a bainha ficava atrás/colada nele,
-    // invisível; (2) deslocar em Z (pra frente do corpo) resolvia pro preto mas escondia nas
-    // brancas — as brancas giram 180° (rotation.y = PI mais abaixo) então o mesmo +Z que fica
-    // de frente pra câmera no preto vira de costas (escondido atrás do próprio corpo) no
-    // branco. A solução é ficar em z≈0 (puramente na lateral, sem comprometer frente/costas —
-    // assim não depende de qual lado a peça acaba olhando) e escapar do braço só em X, puxada
-    // bem pra fora do quadril. A espada em si só existe presa na mão durante o ataque, criada e
-    // destruída ali (ver animarAtaqueEspada) — o peão não anda por aí com ela desembainhada, só
-    // o cabo espia pra fora da boca da bainha.
-    const ANGULO_BAINHA = 0.32
-    const geoBainha = new THREE.BoxGeometry(0.045, 0.22, 0.05)
+    // tentativas: (1) o braço direito pendurado (CONFIG_BRACO_DIR) cobre boa parte da cintura em
+    // x, então em z~0 a bainha ficava atrás/colada nele, invisível; (2) deslocar em Z (pra
+    // frente do corpo) resolvia pro preto mas escondia nas brancas — as brancas giram 180°
+    // (rotation.y = PI mais abaixo) então o mesmo +Z que fica de frente pra câmera no preto vira
+    // de costas (escondido atrás do próprio corpo) no branco. A solução é ficar em z≈0
+    // (puramente na lateral, sem comprometer frente/costas) e escapar do braço só em X, puxada
+    // pra fora do quadril — os números aqui acompanham o braço bem mais fino do visual atual
+    // (ver geoBraco/CONFIG_BRACO_DIR). A espada em si só existe presa na mão durante o ataque,
+    // criada e destruída ali (ver animarAtaqueEspada) — o peão não anda por aí com ela
+    // desembainhada, só o cabo espia pra fora da boca da bainha.
+    const ANGULO_BAINHA = 0.174
+    const geoBainha = new THREE.BoxGeometry(0.032, 0.2, 0.038)
     const bainha = new THREE.Mesh(geoBainha, materialCaboEspada)
-    bainha.position.set(0.268, 0.34, 0)
+    bainha.position.set(0.143, 0.34, 0)
     bainha.rotation.z = ANGULO_BAINHA
     bainha.castShadow = true
     grupo.add(bainha)
@@ -388,7 +401,7 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
     grupo.add(contornoBainha)
 
     const caboNaBainha = new THREE.Mesh(geoCaboEspada, materialCaboEspada)
-    caboNaBainha.position.set(0.233, 0.445, 0)
+    caboNaBainha.position.set(0.125, 0.44, 0)
     caboNaBainha.rotation.z = ANGULO_BAINHA
     caboNaBainha.castShadow = true
     grupo.add(caboNaBainha)
@@ -551,8 +564,13 @@ function animarComemoracao(mesh: THREE.Object3D, atraso: number, duracaoMs: numb
 /** Duração do gesto amigável entre peças aliadas — bem mais longa e cadenciada, pra ficar mais
  * natural (dá tempo de perceber o movimento) em vez de um giro-e-volta rápido demais. O mortal é
  * um pouco mais curto (senão fica devagar demais pra dar uma volta inteira). */
-const DURACAO_GESTO_MS = 1900
-const DURACAO_MORTAL_MS = 1300
+const DURACAO_GESTO_MS = 2800
+const DURACAO_MORTAL_MS = 1800
+
+/** Meshes com um gesto amigável em andamento agora — sincronizarPecas() confere esse conjunto
+ * antes de recriar uma peça do zero, pra não cortar/acelerar a interação no meio caso um lance
+ * (do jogador ou da máquina) aconteça enquanto ela ainda está rolando. */
+const meshesEmGesto = new Set<THREE.Object3D>()
 
 /** Pool de gestos possíveis nas interações entre peças aliadas — sorteado a cada interação, pra
  * não ser sempre o mesmo movimento. Mesmo sendo peças de formas geométricas simples, os gestos
@@ -587,7 +605,7 @@ function animarGestoAmigavel(
       return
     }
     const t = Math.min(1, (agora - inicio) / duracao)
-    const giro = t < 0.2 ? t / 0.2 : t > 0.85 ? (1 - t) / 0.15 : 1
+    const giro = t < 0.25 ? t / 0.25 : t > 0.8 ? (1 - t) / 0.2 : 1
     if (tipo !== 'mortal') {
       mesh.rotation.y = rotYOriginal + (anguloAlvo - rotYOriginal) * giro
     }
@@ -637,6 +655,62 @@ function animarGestoAmigavel(
         membros.bracoEsq.rotation.x = base.bracoEsq
         membros.pernaEsq.rotation.x = base.pernaEsq
         membros.pernaDir.rotation.x = base.pernaDir
+      }
+      meshesEmGesto.delete(mesh)
+    }
+  }
+  meshesEmGesto.add(mesh)
+  requestAnimationFrame(passo)
+}
+
+/** Duração da recusa — rápida e seca (bem mais curta que o gesto amigável), pra ler como um "não,
+ * não é sua vez" imediato e não deixar o tabuleiro travado esperando por ela. */
+const DURACAO_RECUSA_MS = 900
+/** Quanto a peça avança na direção da câmera durante a recusa, antes de voltar. */
+const DISTANCIA_RECUSA = 0.16
+
+/**
+ * Reação de recusa: dispara quando o jogador clica numa peça do próprio time fora da sua vez (ou
+ * com a máquina jogando). A peça vira de frente pra câmera — o "para quem está olhando" que o
+ * jogador realmente vê, não uma direção fixa do tabuleiro —, dá um passo nessa direção, balança o
+ * corpo de um lado pro outro como um "não" físico com os dois braços erguidos num gesto de "pera,
+ * calma", e volta exatamente pra posição, rotação e pose que tinha antes.
+ */
+function animarRecusa(mesh: THREE.Object3D, direcaoCamera: { x: number; z: number }) {
+  const membros = mesh.userData.membros as MembrosPersonagem | undefined
+  const base = (mesh.userData.poseBase as PoseBaseMembros | undefined) ?? POSE_BASE_NEUTRA
+  const rotYOriginal = mesh.rotation.y
+  const posOriginal = { x: mesh.position.x, z: mesh.position.z }
+  const anguloAlvo = Math.atan2(direcaoCamera.x, direcaoCamera.z)
+  const inicio = performance.now()
+
+  function passo(agora: number) {
+    const t = Math.min(1, (agora - inicio) / DURACAO_RECUSA_MS)
+    const giro = t < 0.18 ? t / 0.18 : t > 0.85 ? (1 - t) / 0.15 : 1
+    // janela do balanço "não" — só depois que já virou de frente, e some antes da recuperação
+    const janela = Math.min(1, Math.max(0, (t - 0.18) / 0.67))
+    const balanco = Math.sin(janela * Math.PI * 4) * 0.2 * Math.sin(janela * Math.PI)
+    mesh.rotation.y = rotYOriginal + (anguloAlvo - rotYOriginal) * giro + balanco
+
+    const avanco = Math.sin(t * Math.PI) * DISTANCIA_RECUSA
+    mesh.position.x = posOriginal.x + direcaoCamera.x * avanco
+    mesh.position.z = posOriginal.z + direcaoCamera.z * avanco
+
+    if (membros) {
+      const bracos = t < 0.22 ? t / 0.22 : t > 0.8 ? (1 - t) / 0.2 : 1
+      membros.bracoEsq.rotation.x = base.bracoEsq - Math.PI * 0.32 * bracos
+      membros.bracoDir.rotation.x = base.bracoDir - Math.PI * 0.32 * bracos
+    }
+
+    if (t < 1) {
+      requestAnimationFrame(passo)
+    } else {
+      mesh.rotation.y = rotYOriginal
+      mesh.position.x = posOriginal.x
+      mesh.position.z = posOriginal.z
+      if (membros) {
+        membros.bracoEsq.rotation.x = base.bracoEsq
+        membros.bracoDir.rotation.x = base.bracoDir
       }
     }
   }
@@ -897,6 +971,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
   const [historicoAberto, setHistoricoAberto] = useState(false)
   const listaLancesRef = useRef<HTMLDivElement>(null)
   const [partidasEmAndamento, setPartidasEmAndamento] = useState<PartidaXadrez[]>([])
+  const [partidasAberto, setPartidasAberto] = useState(false)
   // true quando ainda não há partida em andamento e o jogador precisa escolher a cor antes de
   // começar (tanto na primeira vez quanto em "Novo jogo") — o admin logado já é o jogador fixo
   const [escolhendoCor, setEscolhendoCor] = useState(false)
@@ -985,10 +1060,14 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     container.appendChild(renderer.domElement)
 
     const controls = new OrbitControls(camera, renderer.domElement)
-    controls.target.set(0, 0, 0)
+    // o alvo fica na altura do corpo das peças (torso), não no chão do tabuleiro — senão o zoom
+    // aproxima em direção a um ponto na casca do tabuleiro, e a peça (que tem altura) acaba saindo
+    // por cima da tela bem antes da câmera "chegar" nela. Com o alvo na altura das peças, dá pra
+    // aproximar de verdade até ficar cara a cara com uma peça, em vez de mergulhar no tabuleiro.
+    controls.target.set(0, 0.4, 0)
     controls.enableDamping = true
     controls.dampingFactor = 0.08
-    controls.minDistance = 4
+    controls.minDistance = 2.2
     controls.maxDistance = 20
     controls.maxPolarAngle = Math.PI / 2 - 0.05
 
@@ -1082,17 +1161,35 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     // as peças usam geometria/material compartilhados (cache por tipo/cor), então aqui só
     // desmonta o grupo — nunca chama dispose(), senão quebraria as peças que ainda usam o cache
     function sincronizarPecas() {
-      piecesGroup.clear()
+      // reconstrói o tabuleiro inteiro a partir do estado do motor — mas se uma peça continua na
+      // mesma casa com o mesmo tipo/cor E está com um gesto amigável em andamento (meshesEmGesto),
+      // reaproveita o mesh como está em vez de recriar do zero: senão um lance acontecendo no meio
+      // de uma interação entre peças aliadas cortava/reiniciava a animação na hora
+      const meshesAntigos = new Map(pieceMeshBySquare)
       pieceMeshBySquare.clear()
       for (const linha of chessRef.current.board()) {
         for (const casa of linha) {
           if (!casa) continue
+          const existente = meshesAntigos.get(casa.square)
+          if (
+            existente &&
+            meshesEmGesto.has(existente) &&
+            existente.userData.tipo === casa.type &&
+            existente.userData.cor === casa.color
+          ) {
+            pieceMeshBySquare.set(casa.square, existente)
+            meshesAntigos.delete(casa.square)
+            continue
+          }
           const mesh = buildPieceMesh(casa.type, casa.color)
           const { x, z } = squareToPos(casa.square)
           mesh.position.set(x, 0.05, z)
           piecesGroup.add(mesh)
           pieceMeshBySquare.set(casa.square, mesh)
         }
+      }
+      for (const [, meshVelho] of meshesAntigos) {
+        piecesGroup.remove(meshVelho)
       }
     }
 
@@ -1450,7 +1547,19 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     function tentarSelecionar(square: Square) {
       if (!partidaAtualRef.current) return
       const chess = chessRef.current
-      if (chess.turn() !== corHumanoRef.current || vezDaMaquinaRef.current || chess.isGameOver()) return
+      if (chess.isGameOver()) return
+      if (chess.turn() !== corHumanoRef.current || vezDaMaquinaRef.current) {
+        // clicou numa peça do próprio time fora da vez — ela reage em vez de simplesmente ignorar
+        const pecaClicada = chess.get(square)
+        const mesh = pieceMeshBySquare.get(square)
+        if (pecaClicada && pecaClicada.color === corHumanoRef.current && mesh) {
+          const dx = camera.position.x - mesh.position.x
+          const dz = camera.position.z - mesh.position.z
+          const dist = Math.hypot(dx, dz) || 1
+          animarRecusa(mesh, { x: dx / dist, z: dz / dist })
+        }
+        return
+      }
       const peca = chess.get(square)
       if (!peca || peca.color !== corHumanoRef.current) {
         selecionadaRef.current = null
@@ -1702,25 +1811,6 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         </div>
       </div>
 
-      {partidasEmAndamento.length > 1 && (
-        <div className="flex flex-wrap gap-2">
-          {partidasEmAndamento.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => handleRetomarPartida(p)}
-              className={`pill-tab border ${
-                partidaAtualRef.current?.id === p.id
-                  ? 'bg-ink-950 border-ink-950 text-white'
-                  : 'border-ink-200 text-ink-600 hover:bg-ink-50'
-              }`}
-            >
-              Partida de {new Date(p.criadaEm).toLocaleDateString('pt-BR')}
-            </button>
-          ))}
-        </div>
-      )}
-
       {resultadoOverlay && (
         // banner fora do tabuleiro (não é um overlay por cima dele) — assim a comemoração das
         // peças no tabuleiro continua totalmente visível, em vez de escondida atrás de um fundo
@@ -1829,6 +1919,39 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
           </div>
         )}
       </div>
+
+      {partidasEmAndamento.length > 1 && (
+        <div className="rounded-xl border border-ink-200 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setPartidasAberto((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-50"
+          >
+            Partidas
+            <span aria-hidden className={`transition-transform ${partidasAberto ? 'rotate-180' : ''}`}>
+              ▾
+            </span>
+          </button>
+          {partidasAberto && (
+            <div className="flex flex-wrap gap-2 px-3 pb-3 pt-1 border-t border-ink-100">
+              {partidasEmAndamento.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handleRetomarPartida(p)}
+                  className={`pill-tab border ${
+                    partidaAtualRef.current?.id === p.id
+                      ? 'bg-ink-950 border-ink-950 text-white'
+                      : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+                  }`}
+                >
+                  Partida de {new Date(p.criadaEm).toLocaleDateString('pt-BR')}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <p className="text-xs text-ink-400">{livroInfo ?? 'Carregando arquivo de referência…'}</p>
     </div>
