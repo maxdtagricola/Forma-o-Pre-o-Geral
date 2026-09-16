@@ -173,8 +173,8 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
       partes = [
         { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
         { geo: new THREE.ConeGeometry(0.16, 0.28, 20), y: 0.5, papel: 'detalhe' },
-        // capa
-        { geo: new THREE.BoxGeometry(0.18, 0.32, 0.035), y: 0.46, z: -0.1, rotX: 0.08, papel: 'detalhe' },
+        // capa — bem mais ampla, cobrindo quase toda a altura do corpo
+        { geo: new THREE.BoxGeometry(0.28, 0.48, 0.04), y: 0.42, z: -0.13, rotX: 0.08, papel: 'detalhe' },
         // colar
         { geo: new THREE.TorusGeometry(0.078, 0.012, 8, 20), y: 0.63, rotX: Math.PI / 2, papel: 'coroa' },
         { geo: new THREE.SphereGeometry(0.095, 18, 14), y: 0.72, papel: 'armadura' },
@@ -193,7 +193,8 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
       partes = [
         { geo: new THREE.BoxGeometry(0.2, 0.08, 0.13), y: 0.36, papel: 'armadura' },
         { geo: new THREE.ConeGeometry(0.17, 0.3, 20), y: 0.51, papel: 'detalhe' },
-        { geo: new THREE.BoxGeometry(0.2, 0.34, 0.04), y: 0.46, z: -0.11, rotX: 0.1, papel: 'detalhe' },
+        // capa — bem mais ampla, cobrindo quase toda a altura do corpo
+        { geo: new THREE.BoxGeometry(0.31, 0.52, 0.045), y: 0.42, z: -0.14, rotX: 0.1, papel: 'detalhe' },
         // emblema no peito
         { geo: new THREE.BoxGeometry(0.055, 0.055, 0.018), y: 0.58, z: 0.115, rotZ: Math.PI / 4, papel: 'brilho' },
         { geo: new THREE.SphereGeometry(0.1, 18, 14), y: 0.74, papel: 'armadura' },
@@ -519,33 +520,79 @@ function animarComemoracao(mesh: THREE.Object3D, atraso: number) {
   requestAnimationFrame(passo)
 }
 
-/** Duração do golpe de espada do peão ao capturar — vira de frente pro alvo e desfere um corte rápido. */
-const DURACAO_ATAQUE_MS = 420
+/** Duração do golpe de espada do peão ao capturar — preparação, corte e recuperação. */
+const DURACAO_ATAQUE_MS = 520
+/** Fração da duração em que o golpe atinge o alvo — é aí que o efeito de impacto dispara. */
+const INSTANTE_IMPACTO = 0.55
+/** Quanto a peça avança fisicamente na direção do alvo durante o golpe (lunge), voltando depois. */
+const DISTANCIA_LUNGE = 0.14
 
 /**
- * Ataque de espada do peão ao capturar: vira de frente pra direção do alvo e desfere um golpe
- * (o braço vai da guarda até um corte à frente e volta) — só depois disso a peça capturada cai.
+ * Curva do balanço do braço em 3 tempos — bem mais dramática que um simples vaivém: puxa o braço
+ * pra trás (preparação), dispara num arco bem mais amplo que a guarda normal (corte) e só depois
+ * assenta de volta na pose de guarda (recuperação). Valor 0 = pose de guarda; positivo = à frente.
  */
-function animarAtaqueEspada(mesh: THREE.Object3D, direcao: { x: number; z: number }, aoTerminar: () => void) {
+function curvaDoGolpe(t: number): number {
+  if (t < 0.25) {
+    const k = t / 0.25
+    return -0.55 * k * k
+  }
+  if (t < INSTANTE_IMPACTO) {
+    const k = (t - 0.25) / (INSTANTE_IMPACTO - 0.25)
+    return -0.55 + 2.75 * (1 - Math.pow(1 - k, 3))
+  }
+  const k = (t - INSTANTE_IMPACTO) / (1 - INSTANTE_IMPACTO)
+  return 2.2 * (1 - k * k)
+}
+
+/**
+ * Ataque de espada do peão ao capturar: vira de frente pro alvo, avança um passo (lunge) e desfere
+ * um golpe bem mais amplo — preparação, corte e recuperação — antes de assentar de volta na guarda.
+ * `aoImpacto` dispara no instante exato em que o golpe atinge o alvo (pro efeito de impacto e a
+ * queda da peça atingida ficarem sincronizados com a espada, não só depois de tudo terminar).
+ */
+function animarAtaqueEspada(
+  mesh: THREE.Object3D,
+  direcao: { x: number; z: number },
+  aoImpacto: () => void,
+  aoTerminar: () => void,
+) {
   const membros = mesh.userData.membros as MembrosPersonagem | undefined
   const base = (mesh.userData.poseBase as PoseBaseMembros | undefined) ?? POSE_BASE_NEUTRA
   const rotYOriginal = mesh.rotation.y
+  const posOriginal = { x: mesh.position.x, z: mesh.position.z }
   const anguloAlvo = Math.atan2(direcao.x, direcao.z)
   const inicio = performance.now()
+  let impactoDisparado = false
+
   function passo(agora: number) {
     const t = Math.min(1, (agora - inicio) / DURACAO_ATAQUE_MS)
-    // vira de frente rápido, segura o giro durante o golpe e desfaz no fim
-    const giro = t < 0.3 ? t / 0.3 : t > 0.8 ? (1 - t) / 0.2 : 1
+    // vira de frente rápido, segura o giro durante o golpe e desfaz na recuperação
+    const giro = t < 0.2 ? t / 0.2 : t > 0.85 ? (1 - t) / 0.15 : 1
     mesh.rotation.y = rotYOriginal + (anguloAlvo - rotYOriginal) * giro
+
+    // avança um passo físico na direção do golpe (lunge) e volta, acompanhando o corte
+    const avanco = Math.max(0, Math.sin(Math.min(1, t / INSTANTE_IMPACTO) * Math.PI)) * DISTANCIA_LUNGE
+    mesh.position.x = posOriginal.x + direcao.x * avanco
+    mesh.position.z = posOriginal.z + direcao.z * avanco
+
     if (membros) {
-      const golpe = Math.sin(Math.min(1, t / 0.75) * Math.PI) // 0 -> 1 -> 0, golpe termina antes do giro desfazer
-      membros.bracoDir.rotation.x = base.bracoDir + golpe * 1.3
-      membros.bracoDir.rotation.z = golpe * -0.3
+      const golpe = curvaDoGolpe(t)
+      membros.bracoDir.rotation.x = base.bracoDir + golpe
+      membros.bracoDir.rotation.z = golpe * -0.35
     }
+
+    if (!impactoDisparado && t >= INSTANTE_IMPACTO) {
+      impactoDisparado = true
+      aoImpacto()
+    }
+
     if (t < 1) {
       requestAnimationFrame(passo)
     } else {
       mesh.rotation.y = rotYOriginal
+      mesh.position.x = posOriginal.x
+      mesh.position.z = posOriginal.z
       if (membros) {
         membros.bracoDir.rotation.x = base.bracoDir
         membros.bracoDir.rotation.z = 0
@@ -696,6 +743,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
   const [livroInfo, setLivroInfo] = useState<string | null>(null)
   const [historico, setHistorico] = useState<string[]>([])
   const [historicoAberto, setHistoricoAberto] = useState(false)
+  const listaLancesRef = useRef<HTMLDivElement>(null)
   const [partidasEmAndamento, setPartidasEmAndamento] = useState<PartidaXadrez[]>([])
   // true quando ainda não há partida em andamento e o jogador precisa escolher a cor antes de
   // começar (tanto na primeira vez quanto em "Novo jogo") — o admin logado já é o jogador fixo
@@ -703,6 +751,14 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
   const [emDemo, setEmDemo] = useState(false)
   const [demoPausado, setDemoPausado] = useState(false)
   const [resultadoOverlay, setResultadoOverlay] = useState<'venceu' | 'perdeu' | null>(null)
+
+  // acompanha os lances conforme são registrados — rola a lista pro fim assim que um novo lance
+  // entra, pra sempre mostrar o mais recente sem precisar rolar manualmente
+  useEffect(() => {
+    if (!historicoAberto) return
+    const el = listaLancesRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [historico, historicoAberto])
 
   useEffect(() => {
     carregarLivroDeAberturas().then((livro) => {
@@ -885,21 +941,29 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       }
     }
 
+    // true enquanto a aura pulsante da peça selecionada (abaixo) deve continuar rodando — vira
+    // false assim que os destaques são limpos, pra parar o loop de animação na próxima checagem
+    let auraSelecaoAtiva = false
+
     function limparDestaques() {
+      auraSelecaoAtiva = false
       descartarFilhos(highlightGroup)
     }
 
     function destacarSelecao(square: Square, destinos: Square[]) {
       limparDestaques()
+      const posSel = squareToPos(square)
+
+      // anel na casa atual (de onde a peça está saindo)
       const selMesh = new THREE.Mesh(
         new THREE.RingGeometry(0.28, 0.38, 32),
         new THREE.MeshBasicMaterial({ color: COR_SELECIONADA, side: THREE.DoubleSide }),
       )
       selMesh.rotation.x = -Math.PI / 2
-      const posSel = squareToPos(square)
       selMesh.position.set(posSel.x, 0.02, posSel.z)
       highlightGroup.add(selMesh)
 
+      // círculos nas casas de destino (pra onde a peça pode ir)
       const destGeo = new THREE.CircleGeometry(0.14, 24)
       const destMat = new THREE.MeshBasicMaterial({ color: COR_DESTINO })
       for (const dest of destinos) {
@@ -909,6 +973,25 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         destMesh.position.set(pos.x, 0.02, pos.z)
         highlightGroup.add(destMesh)
       }
+
+      // aura pulsante bem junto da própria peça — destaca a peça selecionada em si, não só a casa
+      const auraGeo = new THREE.RingGeometry(0.15, 0.2, 28)
+      const auraMat = new THREE.MeshBasicMaterial({ color: COR_SELECIONADA, side: THREE.DoubleSide, transparent: true })
+      const auraMesh = new THREE.Mesh(auraGeo, auraMat)
+      auraMesh.rotation.x = -Math.PI / 2
+      auraMesh.position.set(posSel.x, 0.045, posSel.z)
+      highlightGroup.add(auraMesh)
+
+      auraSelecaoAtiva = true
+      const inicioAura = performance.now()
+      function pulsar(agora: number) {
+        if (!auraSelecaoAtiva) return
+        const onda = (Math.sin(((agora - inicioAura) / 850) * Math.PI * 2) + 1) / 2
+        auraMesh.scale.setScalar(1 + onda * 0.22)
+        auraMat.opacity = 0.5 + onda * 0.5
+        requestAnimationFrame(pulsar)
+      }
+      requestAnimationFrame(pulsar)
     }
 
     // BRANCAS/PRETAS venceram, ou EMPATE — só chamar quando chess.isGameOver() for true
@@ -976,7 +1059,6 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     function atualizarStatusTexto() {
       const chess = chessRef.current
       setHistorico(chess.history())
-      salvarProgresso()
       const corHumano = corHumanoRef.current
       const labelCor = (c: 'w' | 'b') => (c === 'w' ? 'brancas' : 'pretas')
       if (!partidaAtualRef.current) {
@@ -1049,6 +1131,13 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         return
       }
 
+      // registra o lance assim que é aplicado no motor — atualiza a lista de "Lances" e salva no
+      // servidor na hora, sem esperar a animação (que numa captura leva vários segundos) terminar.
+      // Antes só acontecia no fim da animação: fechar a aba nesse meio-tempo perdia o último lance,
+      // e a lista de lances ficava visivelmente atrasada em relação ao que já tinha acontecido.
+      setHistorico(chess.history())
+      salvarProgresso()
+
       function seguirParaDestino() {
         if (meshMovendo && origem && destino) {
           const de = squareToPos(origem)
@@ -1073,13 +1162,19 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         const deAtaque = squareToPos(origem)
         const paraAtaque = squareToPos(destino)
         const direcao = { x: paraAtaque.x - deAtaque.x, z: paraAtaque.z - deAtaque.z }
-        animarAtaqueEspada(meshMovendo, direcao, () => {
-          animarImpacto(scene, vitima.position.x, vitima.position.z)
-          animarQuedaEDesaparecimento(vitima, () => {
-            piecesGroup.remove(vitima)
-            seguirParaDestino()
-          })
-        })
+        animarAtaqueEspada(
+          meshMovendo,
+          direcao,
+          () => {
+            // no instante exato do impacto — não espera a espada voltar pra guarda pra já cair
+            animarImpacto(scene, vitima.position.x, vitima.position.z)
+            animarQuedaEDesaparecimento(vitima, () => {
+              piecesGroup.remove(vitima)
+              seguirParaDestino()
+            })
+          },
+          () => {},
+        )
         return
       }
 
@@ -1391,6 +1486,41 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         </div>
       )}
 
+      {resultadoOverlay && (
+        // banner fora do tabuleiro (não é um overlay por cima dele) — assim a comemoração das
+        // peças no tabuleiro continua totalmente visível, em vez de escondida atrás de um fundo
+        // escurecido/borrado
+        <div
+          className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 ${
+            resultadoOverlay === 'venceu' ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'
+          }`}
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-3xl" aria-hidden>
+              {resultadoOverlay === 'venceu' ? '🏆' : '💀'}
+            </span>
+            <div>
+              <p
+                className={`font-display text-lg font-bold ${
+                  resultadoOverlay === 'venceu' ? 'text-emerald-700' : 'text-rose-700'
+                }`}
+              >
+                {resultadoOverlay === 'venceu' ? 'Você venceu!' : 'Você perdeu'}
+              </p>
+              <p className="text-xs text-ink-400">Xeque-mate — veja as peças comemorando no tabuleiro.</p>
+            </div>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <Button variant="ghost" onClick={() => setResultadoOverlay(null)}>
+              Fechar
+            </Button>
+            <Button variant="primary" onClick={handleNovoJogo}>
+              Novo jogo
+            </Button>
+          </div>
+        </div>
+      )}
+
       <div className="relative">
         <div
           ref={containerRef}
@@ -1432,32 +1562,6 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
             </div>
           </div>
         )}
-
-        {resultadoOverlay && (
-          <div className="absolute inset-0 z-20 flex items-center justify-center bg-ink-950/70 backdrop-blur-sm rounded-xl p-4">
-            <div className="w-full max-w-xs rounded-xl bg-white p-6 shadow-xl text-center">
-              <p className="text-4xl mb-2" aria-hidden>
-                {resultadoOverlay === 'venceu' ? '🏆' : '💀'}
-              </p>
-              <h3
-                className={`font-display text-2xl font-bold mb-1 ${
-                  resultadoOverlay === 'venceu' ? 'text-emerald-600' : 'text-rose-600'
-                }`}
-              >
-                {resultadoOverlay === 'venceu' ? 'Você venceu!' : 'Você perdeu'}
-              </h3>
-              <p className="text-xs text-ink-400 mb-5">Xeque-mate.</p>
-              <div className="flex gap-2 justify-center">
-                <Button variant="ghost" onClick={() => setResultadoOverlay(null)}>
-                  Fechar
-                </Button>
-                <Button variant="primary" onClick={handleNovoJogo}>
-                  Novo jogo
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
       <div className="rounded-xl border border-ink-200 overflow-hidden">
@@ -1472,7 +1576,10 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
           </span>
         </button>
         {historicoAberto && (
-          <div className="max-h-48 overflow-y-auto px-3 pb-2 text-xs text-ink-600 space-y-0.5 border-t border-ink-100 pt-2">
+          <div
+            ref={listaLancesRef}
+            className="max-h-48 overflow-y-auto px-3 pb-2 text-xs text-ink-600 space-y-0.5 border-t border-ink-100 pt-2"
+          >
             {paresLances.length === 0 ? (
               <p className="text-ink-400">Nenhum lance ainda.</p>
             ) : (
