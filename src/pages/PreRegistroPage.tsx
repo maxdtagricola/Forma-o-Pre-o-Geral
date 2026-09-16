@@ -17,6 +17,8 @@ export function PreRegistroPage({
   createdAt,
   dataSolicitacao,
   onChangeDataSolicitacao,
+  numeroCotacaoTransportadora,
+  onChangeNumeroCotacaoTransportadora,
   onAddItem,
   onRemoveItem,
   onPatchItem,
@@ -37,6 +39,8 @@ export function PreRegistroPage({
   createdAt?: number
   dataSolicitacao?: number
   onChangeDataSolicitacao: (ts: number | undefined) => void
+  numeroCotacaoTransportadora: string
+  onChangeNumeroCotacaoTransportadora: (v: string) => void
   onAddItem: () => void
   onRemoveItem: (id: string) => void
   onPatchItem: (id: string, patch: Partial<PreRegistroItem>) => void
@@ -156,6 +160,17 @@ export function PreRegistroPage({
               value={dateToInputValue(dataSolicitacao)}
               disabled={travadaPorOutro}
               onChange={(e) => onChangeDataSolicitacao(inputValueToDate(e.target.value))}
+            />
+          </label>
+          <label className="block">
+            <span className="field-label">Nº cotação transportadora</span>
+            <input
+              type="text"
+              className="field-input"
+              placeholder="informado pela transportadora"
+              value={numeroCotacaoTransportadora}
+              disabled={travadaPorOutro}
+              onChange={(e) => onChangeNumeroCotacaoTransportadora(e.target.value)}
             />
           </label>
         </div>

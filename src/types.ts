@@ -361,6 +361,8 @@ export interface QuoteRecord {
   pedidoCompra?: PedidoCompraInfo
   /** Data em que o cliente pediu a cotação (editável) — diferente de createdAt, que é quando o registro foi criado no sistema. */
   dataSolicitacao?: number
+  /** Número da cotação de frete que a transportadora informou, pra referência depois. */
+  numeroCotacaoTransportadora?: string
   createdAt: number
   updatedAt: number
   // resumo pré-calculado para exibição rápida na lista do histórico

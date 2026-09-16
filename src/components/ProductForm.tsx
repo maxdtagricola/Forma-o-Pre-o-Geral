@@ -107,6 +107,17 @@ export function ProductForm({
           onChange={(v) => onChange({ freteRate: v })}
           hint="% sobre o valor do produto"
         />
+        <NumberField
+          label="Valor do frete"
+          prefix="R$"
+          step={0.01}
+          value={(product.qtd || 0) * (product.valorUnt || 0) * (product.freteRate || 0)}
+          onChange={(v) => {
+            const vlrProduto = (product.qtd || 0) * (product.valorUnt || 0)
+            onChange({ freteRate: vlrProduto > 0 ? v / vlrProduto : 0 })
+          }}
+          hint="Digite o valor e a % acima se ajusta sozinha, ou vice-versa"
+        />
         <NumberField label="Quantidade" value={product.qtd} onChange={(v) => onChange({ qtd: v })} min={0} step={1} />
         <TextField
           label="Descrição do produto"

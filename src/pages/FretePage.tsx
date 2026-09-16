@@ -274,6 +274,7 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
   const [cotacaoId, setCotacaoId] = useState(cotacaoIdInicial ?? '')
   const [fornecedorId, setFornecedorId] = useState('')
   const [transportadoraAberta, setTransportadoraAberta] = useState<string | null>(null)
+  const [perguntandoFornecedor, setPerguntandoFornecedor] = useState(false)
 
   useEffect(() => {
     Promise.all([listEmpresas(), listFornecedores(), listQuotes(), getEmpresaPorTransportadora()])
@@ -303,24 +304,52 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
     if (encontrado) setFornecedorId(encontrado.id)
   }, [nomesFornecedorNaCotacao, fornecedores])
 
+  // ao chegar direto de uma cotação (botão "Ir para Frete" da Precificação) com mais de um
+  // fornecedor nos itens, pergunta qual é antes de mostrar o resto da página — sem isso os dados
+  // de peso/valor/descrição do pedido de frete juntariam itens de fornecedores diferentes
+  useEffect(() => {
+    if (cotacaoIdInicial && cotacaoId === cotacaoIdInicial && nomesFornecedorNaCotacao.length > 1 && !fornecedorId) {
+      setPerguntandoFornecedor(true)
+    }
+  }, [cotacaoIdInicial, cotacaoId, nomesFornecedorNaCotacao, fornecedorId])
+
+  function handleEscolherFornecedorDaPergunta(nome: string) {
+    const encontrado = fornecedores.find((f) => f.nome.trim().toLowerCase() === nome.toLowerCase())
+    if (encontrado) setFornecedorId(encontrado.id)
+    setPerguntandoFornecedor(false)
+  }
+
   const ctx: ContextoFrete = useMemo(() => {
     if (!cotacaoSelecionada) return contextoVazio
     const fornecedor = fornecedores.find((f) => f.id === fornecedorId) ?? null
     const empresa = empresas.find((e) => e.id === cotacaoSelecionada.empresaId) ?? null
-    const pesoTotal = cotacaoSelecionada.items.reduce((s, it) => s + (it.product.peso || 0) * (it.product.qtd || 0), 0)
-    const descricao = Array.from(new Set(cotacaoSelecionada.items.map((it) => it.product.descricao).filter(Boolean))).join(
-      '; ',
-    )
+    // só entram no pedido de frete os itens do fornecedor selecionado — cotação com mais de um
+    // fornecedor não pode juntar tudo num pedido só, já que cada um despacha de um lugar diferente.
+    // Sem fornecedor selecionado: usa todos os itens só se só existir um fornecedor na cotação
+    // (caso comum, nada a escolher); havendo mais de um, fica sem itens até alguém escolher.
+    const itensDoFornecedor = fornecedor
+      ? cotacaoSelecionada.items.filter(
+          (it) => it.product.fornecedor.trim().toLowerCase() === fornecedor.nome.trim().toLowerCase(),
+        )
+      : nomesFornecedorNaCotacao.length <= 1
+        ? cotacaoSelecionada.items
+        : []
+    const pesoTotal = itensDoFornecedor.reduce((s, it) => s + (it.product.peso || 0) * (it.product.qtd || 0), 0)
+    // valor da nota fiscal pro pedido de frete é o valor dos produtos (quantidade × valor unitário
+    // de compra — o que o fornecedor cobra, igual à Nota Fiscal dele) e não o preço de venda ao
+    // cliente: são grandezas diferentes, uma é custo de mercadoria, a outra já inclui a margem
+    const valorNF = itensDoFornecedor.reduce((s, it) => s + (it.product.qtd || 0) * (it.product.valorUnt || 0), 0)
+    const descricao = Array.from(new Set(itensDoFornecedor.map((it) => it.product.descricao).filter(Boolean))).join('; ')
     return {
       temCotacao: true,
       fornecedor,
       empresa,
       pesoTotal,
-      valorNF: cotacaoSelecionada.summary.precoVendaTotalGeral,
-      qtdVolumes: cotacaoSelecionada.items.length,
+      valorNF,
+      qtdVolumes: itensDoFornecedor.length,
       descricao,
     }
-  }, [cotacaoSelecionada, fornecedores, fornecedorId, empresas])
+  }, [cotacaoSelecionada, fornecedores, fornecedorId, empresas, nomesFornecedorNaCotacao])
 
   async function handleChangeEmpresa(transportadora: string, empresaId: string) {
     setEmpresaPorTransportadoraState((prev) => ({ ...prev, [transportadora]: empresaId }))
@@ -387,6 +416,29 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
               onToggle={() => setTransportadoraAberta((prev) => (prev === nome ? null : nome))}
             />
           ))}
+        </div>
+      )}
+
+      {perguntandoFornecedor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="card max-w-sm w-full">
+            <h3 className="font-display text-base font-semibold text-ink-900 mb-1">De qual fornecedor é esse frete?</h3>
+            <p className="text-sm text-ink-400 mb-4">
+              Essa cotação tem itens de mais de um fornecedor — escolha um pra não juntar tudo num pedido de frete só.
+            </p>
+            <div className="flex flex-col gap-2">
+              {nomesFornecedorNaCotacao.map((nome) => (
+                <button
+                  key={nome}
+                  type="button"
+                  onClick={() => handleEscolherFornecedorDaPergunta(nome)}
+                  className="rounded-lg border border-ink-200 px-4 py-2.5 text-left text-sm font-medium text-ink-700 hover:border-ink-400 hover:bg-ink-50 transition"
+                >
+                  {nome}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
     </div>

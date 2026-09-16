@@ -1,6 +1,6 @@
 import { dbDelete, dbGet, dbGetAll, dbPut } from './db'
 import { makeId } from '../utils'
-import type { Produto, QuoteRecord } from '../types'
+import type { PreRegistroItem, Produto, QuoteRecord } from '../types'
 
 const STORE_PRODUTOS = 'produtos'
 
@@ -22,6 +22,65 @@ export async function updateProduto(
 
 export async function deleteProduto(id: string): Promise<void> {
   await dbDelete(STORE_PRODUTOS, id)
+}
+
+/**
+ * Chamado ao clicar "Salvar" em Itens a cotar. Registra cada item no catálogo de produtos (casado
+ * por Interno, ou por Referência quando ainda não há Interno) — mas só grava de fato se ainda não
+ * existir registro dele lá, ou se o Interno definido agora for diferente do que já está salvo.
+ * Sem essa checagem, clicar "Salvar" de novo sem mudar nada ficaria reescrevendo o mesmo produto
+ * a cada vez.
+ */
+export async function registrarItensPreRegistro(itens: PreRegistroItem[]): Promise<void> {
+  const relevantes = itens.filter((it) => it.interno.trim() || it.referencia.trim())
+  if (relevantes.length === 0) return
+
+  const existentes = await dbGetAll<Produto>(STORE_PRODUTOS)
+  const porInterno = new Map(existentes.filter((p) => p.interno.trim()).map((p) => [p.interno.trim(), p] as const))
+  const porReferencia = new Map<string, Produto>()
+  for (const p of existentes) for (const r of p.referencias) porReferencia.set(r.trim().toLowerCase(), p)
+
+  const agora = Date.now()
+  const escritas: Promise<void>[] = []
+
+  for (const item of relevantes) {
+    const interno = item.interno.trim()
+    const referencia = item.referencia.trim()
+    const referenciaNorm = referencia.toLowerCase()
+    // tenta casar pelo Interno primeiro; se o Interno definido agora não bate com nenhum produto
+    // ainda (ex.: acabou de mudar), cai pra Referência — senão um Interno novo pra uma peça que já
+    // tem registro criaria um produto duplicado em vez de atualizar o Interno do existente
+    let existente = interno ? porInterno.get(interno) : undefined
+    if (!existente && referenciaNorm) existente = porReferencia.get(referenciaNorm)
+
+    if (existente && existente.interno.trim() === interno) {
+      continue // já registrado com o mesmo Interno (ou os dois sem Interno) — não regrava
+    }
+
+    if (existente) {
+      // já existe registro pra essa Referência, mas com um Interno diferente do definido agora —
+      // atualiza o Interno dele em vez de criar um produto separado pra mesma peça
+      const atualizado: Produto = { ...existente, interno, updatedAt: agora }
+      escritas.push(dbPut(STORE_PRODUTOS, atualizado))
+      if (interno) porInterno.set(interno, atualizado)
+    } else {
+      const novo: Produto = {
+        id: makeId(),
+        interno,
+        descricao: item.descricao ?? '',
+        referencias: referencia ? [referencia] : [],
+        ncm: '',
+        peso: 0,
+        createdAt: agora,
+        updatedAt: agora,
+      }
+      escritas.push(dbPut(STORE_PRODUTOS, novo))
+      if (interno) porInterno.set(interno, novo)
+      if (referenciaNorm) porReferencia.set(referenciaNorm, novo)
+    }
+  }
+
+  await Promise.all(escritas)
 }
 
 /**

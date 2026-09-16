@@ -36,6 +36,7 @@ import {
   type PricingGlobal,
 } from './db/configRepo'
 import { listEmpresas } from './db/empresasRepo'
+import { registrarItensPreRegistro } from './db/produtosRepo'
 import { clearCurrentAdmin, getCurrentAdmin, setCurrentAdmin } from './currentAdmin'
 import { clearCurrentPlayer, getCurrentPlayer, setCurrentPlayer } from './currentPlayer'
 import { getModoSessao, limparModoSessao, setModoSessao } from './session'
@@ -82,6 +83,7 @@ export default function App() {
   const [activeResponsavel, setActiveResponsavel] = useState('')
   const [activeCreatedAt, setActiveCreatedAt] = useState<number | undefined>(undefined)
   const [dataSolicitacao, setDataSolicitacao] = useState<number | undefined>(undefined)
+  const [numeroCotacaoTransportadora, setNumeroCotacaoTransportadora] = useState('')
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const [pricingGlobal, setPricingGlobalState] = useState<PricingGlobal>(DEFAULT_PRICING_GLOBAL)
   const [tabelasVersion, setTabelasVersion] = useState(0)
@@ -294,14 +296,15 @@ export default function App() {
 
   async function handleSalvarPreRegistro() {
     if (!editingQuoteId || !currentAdmin) return
-    await updateItensPreRegistro(editingQuoteId, preRegistroItems, currentAdmin, dataSolicitacao)
+    await updateItensPreRegistro(editingQuoteId, preRegistroItems, currentAdmin, dataSolicitacao, numeroCotacaoTransportadora)
+    await registrarItensPreRegistro(preRegistroItems)
     setHistoryRefreshKey((k) => k + 1)
     limparRascunho()
   }
 
   async function handleGoToPrecificacao() {
     if (!editingQuoteId || !currentAdmin) return
-    await updateItensPreRegistro(editingQuoteId, preRegistroItems, currentAdmin, dataSolicitacao)
+    await updateItensPreRegistro(editingQuoteId, preRegistroItems, currentAdmin, dataSolicitacao, numeroCotacaoTransportadora)
 
     let novosItems = items
     if (items.length === 0) {
@@ -426,6 +429,7 @@ export default function App() {
     setActiveResponsavel('')
     setActiveCreatedAt(undefined)
     setDataSolicitacao(undefined)
+    setNumeroCotacaoTransportadora('')
     setPreRegistroItems([])
     setPlanilhaOriginalState(undefined)
     limparRascunho()
@@ -447,6 +451,7 @@ export default function App() {
     setActiveResponsavel(record.responsavelStatus)
     setActiveCreatedAt(record.createdAt)
     setDataSolicitacao(record.dataSolicitacao)
+    setNumeroCotacaoTransportadora(record.numeroCotacaoTransportadora ?? '')
     setPreRegistroItems(record.itensPreRegistro ?? [])
     setPlanilhaOriginalState(record.planilhaOriginal)
     setTab('preregistro')
@@ -533,6 +538,8 @@ export default function App() {
           createdAt={activeCreatedAt}
           dataSolicitacao={dataSolicitacao}
           onChangeDataSolicitacao={setDataSolicitacao}
+          numeroCotacaoTransportadora={numeroCotacaoTransportadora}
+          onChangeNumeroCotacaoTransportadora={setNumeroCotacaoTransportadora}
           onAddItem={handleAddPreRegistroItem}
           onRemoveItem={handleRemovePreRegistroItem}
           onPatchItem={handlePatchPreRegistroItem}
