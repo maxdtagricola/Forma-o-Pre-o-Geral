@@ -76,7 +76,12 @@ function truncar2(value: number): number {
 
 const ALIQ_ICMS_RO_NORMAL = 0.195
 const ALIQ_ICMS_RO_RBC = 0.056
-const ALIQ_ICMS_ST_RO = 0.195
+// Alíquota do ICMS-ST na substituição (fórmula da coluna AK, "ICMS SUBSTITUIÇÃO", aba Analise) —
+// ao contrário da alíquota de venda acima (19,5% igual nas duas planilhas), essa varia por perfil:
+// conferido célula a célula nas planilhas Markup 5.0 — RO usa 19,5%, AC usa 19%. Usar a mesma
+// alíquota pras duas (como antes) inflava o custo final — e por tabela o preço de venda — de itens
+// ST no Acre.
+const ALIQ_ICMS_ST_POR_PERFIL: Record<EstadoDestino, number> = { RO: 0.195, AC: 0.19 }
 const PIS_RATE = 0.0165
 const COFINS_RATE = 0.076
 const BASE_REDUZIDA_STRBC = 0.2872
@@ -178,7 +183,7 @@ export function calculateItem(product: ProductInput, pricing: PricingConfig): Ca
   } else if (classificacaoIcms === 'ST RET') {
     icmsSubstituicao = U
   } else {
-    icmsSubstituicao = (baseSubstituicao ?? 0) * ALIQ_ICMS_ST_RO - (icmsCreditoCompra + AA)
+    icmsSubstituicao = (baseSubstituicao ?? 0) * ALIQ_ICMS_ST_POR_PERFIL[perfil] - (icmsCreditoCompra + AA)
   }
 
   // --- PIS/COFINS (colunas AF, AG, AH) -------------------------------------
