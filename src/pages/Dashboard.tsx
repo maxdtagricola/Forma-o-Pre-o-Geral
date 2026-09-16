@@ -5,12 +5,22 @@ import { ResultPanel } from '../components/ResultPanel'
 import { QuoteItemsList } from '../components/QuoteItemsList'
 import { FreightSplitPanel } from '../components/FreightSplitPanel'
 import { EnvioCotacaoModal } from '../components/EnvioCotacaoModal'
+import { ItensACotarCard } from '../components/ItensACotarCard'
 import { Button } from '../components/ui/Basics'
 import { SelectField, TextField } from '../components/ui/Field'
 import { calculateItem } from '../calc/calculator'
-import { formatCurrency } from '../utils'
+import { dateToInputValue, formatCurrency, formatDate, inputValueToDate } from '../utils'
 import { TIPOS_REFERENCIA, VENDEDORES } from '../types'
-import type { CalculationResult, Empresa, PricingConfig, ProductInput, QuoteItem, QuoteStatus, TipoReferencia } from '../types'
+import type {
+  CalculationResult,
+  Empresa,
+  PreRegistroItem,
+  PricingConfig,
+  ProductInput,
+  QuoteItem,
+  QuoteStatus,
+  TipoReferencia,
+} from '../types'
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
 const tipoReferenciaOptions = TIPOS_REFERENCIA.map((t) => ({ value: t.value, label: t.label }))
@@ -48,12 +58,23 @@ export function Dashboard({
   onSave,
   onNew,
   onGoToCotacoes,
-  onGoToPreRegistro,
   onGoToComparar,
   onGoToFrete,
   onEnviarCotacao,
   temPlanilhaCliente,
   onVerPlanilhaCliente,
+  createdAt,
+  dataSolicitacao,
+  onChangeDataSolicitacao,
+  numeroCotacaoTransportadora,
+  onChangeNumeroCotacaoTransportadora,
+  preRegistroItems,
+  onAddPreRegistroItem,
+  onRemovePreRegistroItem,
+  onPatchPreRegistroItem,
+  onSalvarPreRegistro,
+  onUsarPreRegistroNaPrecificacao,
+  onEncaminharFornecedores,
 }: {
   currentAdmin: string
   codigo: string
@@ -87,18 +108,30 @@ export function Dashboard({
   onSave: () => void
   onNew: () => void
   onGoToCotacoes: () => void
-  onGoToPreRegistro: () => void
   onGoToComparar: () => void
   onGoToFrete: () => void
   onEnviarCotacao: () => Promise<void>
   temPlanilhaCliente: boolean
   onVerPlanilhaCliente: () => void
+  createdAt?: number
+  dataSolicitacao?: number
+  onChangeDataSolicitacao: (ts: number | undefined) => void
+  numeroCotacaoTransportadora: string
+  onChangeNumeroCotacaoTransportadora: (v: string) => void
+  preRegistroItems: PreRegistroItem[]
+  onAddPreRegistroItem: () => void
+  onRemovePreRegistroItem: (id: string) => void
+  onPatchPreRegistroItem: (id: string, patch: Partial<PreRegistroItem>) => void
+  onSalvarPreRegistro: () => Promise<void>
+  onUsarPreRegistroNaPrecificacao: () => Promise<void>
+  onEncaminharFornecedores: () => Promise<void>
 }) {
   const [mostrarEnvioCotacao, setMostrarEnvioCotacao] = useState(false)
+  const [itensACotarAberto, setItensACotarAberto] = useState(false)
   const travadaPorOutro = activeStatus !== 'PENDENTE' && !!activeResponsavel && activeResponsavel !== currentAdmin
 
   const empresaOptions = [
-    { value: '', label: '— selecione —' },
+    { value: '', label: '— SELECIONE —' },
     ...empresas.map((e) => ({ value: e.id, label: e.nome })),
   ]
 
@@ -143,12 +176,6 @@ export function Dashboard({
                 Planilha do cliente
               </Button>
             )}
-            <Button variant="ghost" onClick={onGoToPreRegistro}>
-              Ver itens a cotar
-            </Button>
-            <Button variant="ghost" onClick={onGoToComparar}>
-              Comparar fornecedores
-            </Button>
             <Button variant="ghost" onClick={onGoToFrete}>
               Ir para Frete
             </Button>
@@ -176,6 +203,71 @@ export function Dashboard({
             hint={empresas.length === 0 ? 'Cadastre empresas em Configurações' : 'Usada pra carregar o frete automaticamente'}
           />
         </div>
+
+        <div className="mt-4 flex flex-wrap items-end gap-x-6 gap-y-3 rounded-lg border border-ink-100 bg-ink-50/60 px-3 py-2.5">
+          <div>
+            <p className="text-xs text-ink-400">Data criada</p>
+            <p className="text-sm text-ink-700">{createdAt ? formatDate(createdAt) : '—'}</p>
+          </div>
+          <label className="block">
+            <span className="field-label">Data de solicitação</span>
+            <input
+              type="date"
+              className="field-input"
+              value={dateToInputValue(dataSolicitacao)}
+              disabled={travadaPorOutro}
+              onChange={(e) => onChangeDataSolicitacao(inputValueToDate(e.target.value))}
+            />
+          </label>
+          <label className="block">
+            <span className="field-label">Nº cotação transportadora</span>
+            <input
+              type="text"
+              className="field-input"
+              placeholder="informado pela transportadora"
+              value={numeroCotacaoTransportadora}
+              disabled={travadaPorOutro}
+              onChange={(e) => onChangeNumeroCotacaoTransportadora(e.target.value)}
+            />
+          </label>
+        </div>
+      </div>
+
+      <div className="card">
+        <button
+          type="button"
+          onClick={() => setItensACotarAberto((v) => !v)}
+          className="w-full flex items-center justify-between gap-2 text-left"
+        >
+          <div>
+            <h2 className="font-display text-lg font-semibold text-ink-900">Itens a cotar</h2>
+            <p className="text-sm text-ink-400">
+              O que precisa ser cotado antes de ter preço de fornecedor — vale a pena antes de precificar de
+              verdade.
+              {preRegistroItems.length > 0 && ` ${preRegistroItems.length} item(ns) registrado(s).`}
+            </p>
+          </div>
+          <span aria-hidden className={`shrink-0 text-ink-400 transition-transform ${itensACotarAberto ? 'rotate-180' : ''}`}>
+            ▾
+          </span>
+        </button>
+        {itensACotarAberto && (
+          <div className="mt-4 pt-4 border-t border-ink-100">
+            <ItensACotarCard
+              travadaPorOutro={travadaPorOutro}
+              cliente={cliente}
+              maquina={maquina}
+              itens={preRegistroItems}
+              onAddItem={onAddPreRegistroItem}
+              onRemoveItem={onRemovePreRegistroItem}
+              onPatchItem={onPatchPreRegistroItem}
+              onSalvar={onSalvarPreRegistro}
+              onUsarNaPrecificacao={onUsarPreRegistroNaPrecificacao}
+              onEncaminharFornecedores={onEncaminharFornecedores}
+              onGoToComparar={onGoToComparar}
+            />
+          </div>
+        )}
       </div>
 
       <QuoteItemsList
@@ -192,7 +284,7 @@ export function Dashboard({
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         <div className="lg:col-span-3 space-y-6">
-          <ProductForm key={activeItemId} product={activeProduct} onChange={onProductChange} />
+          <ProductForm product={activeProduct} onChange={onProductChange} />
           <PricingConfigPanel key={activeItemId} pricing={activePricing} onChange={onPricingChange} />
         </div>
 

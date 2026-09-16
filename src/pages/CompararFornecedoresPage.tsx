@@ -141,7 +141,7 @@ export function CompararFornecedoresPage({
   onRemoveCotacao,
   onSalvar,
   onGoToCotacoes,
-  onGoToPreRegistro,
+  onGoToPrecificacao,
 }: {
   currentAdmin: string
   isEditing: boolean
@@ -152,7 +152,7 @@ export function CompararFornecedoresPage({
   onRemoveCotacao: (itemId: string, cotacaoId: string) => void
   onSalvar: () => Promise<void>
   onGoToCotacoes: () => void
-  onGoToPreRegistro: () => void
+  onGoToPrecificacao: () => void
 }) {
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [salvando, setSalvando] = useState(false)
@@ -211,8 +211,8 @@ export function CompararFornecedoresPage({
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
-            <Button variant="ghost" onClick={onGoToPreRegistro}>
-              Voltar para itens a cotar
+            <Button variant="ghost" onClick={onGoToPrecificacao}>
+              Voltar para Precificação
             </Button>
             <Button variant="primary" onClick={handleSalvar} disabled={travadaPorOutro || salvando}>
               Salvar

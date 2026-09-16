@@ -5,7 +5,6 @@ export type TabKey =
   | 'cotacoes'
   | 'analytics'
   | 'dashboard'
-  | 'preregistro'
   | 'comparar'
   | 'margins'
   | 'produtos'

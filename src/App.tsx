@@ -6,7 +6,6 @@ import { CotacoesPage } from './pages/CotacoesPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 import { ConfiguracoesPage } from './pages/ConfiguracoesPage'
 import { Dashboard } from './pages/Dashboard'
-import { PreRegistroPage } from './pages/PreRegistroPage'
 import { CompararFornecedoresPage } from './pages/CompararFornecedoresPage'
 import { MarginAnalysisPage } from './pages/MarginAnalysisPage'
 import { ProdutosPage } from './pages/ProdutosPage'
@@ -188,7 +187,20 @@ export default function App() {
     return { ...item, pricing: { ...item.pricing, ...pricingGlobal } }
   }
 
-  const activeItem = items.find((item) => item.id === activeItemId) ?? items[0] ?? criarItemComGlobais()
+  // Um item "em branco" (criado só de placeholder, sem nada preenchido) conta como se a
+  // cotação ainda não tivesse itens de verdade — usado em handleGoToPrecificacao pra decidir
+  // se ainda vale a pena substituir pelos itens a cotar.
+  function itemEstaEmBranco(item: QuoteItem): boolean {
+    return !item.product.interno.trim() && !item.product.referencia.trim() && !item.product.descricao.trim()
+  }
+
+  // Memoizado pra não gerar um item novo (com id novo) a cada render — se não, a key
+  // do ProductForm ficaria mudando sozinha e ele nunca ficaria "parado" na tela.
+  const activeItem = useMemo(
+    () => items.find((item) => item.id === activeItemId) ?? items[0] ?? criarItemComGlobais(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [items, activeItemId],
+  )
   const result = useMemo(
     () => calculateItem(activeItem.product, activeItem.pricing),
     [activeItem, tabelasVersion],
@@ -235,7 +247,7 @@ export default function App() {
     setActiveResponsavel(r.activeResponsavel)
     setPreRegistroItems(r.preRegistroItems)
     setPlanilhaOriginalState(r.planilhaOriginal)
-    setTab('preregistro')
+    setTab('dashboard')
     setRascunhoDisponivel(undefined)
   }
 
@@ -307,7 +319,7 @@ export default function App() {
     await updateItensPreRegistro(editingQuoteId, preRegistroItems, currentAdmin, dataSolicitacao, numeroCotacaoTransportadora)
 
     let novosItems = items
-    if (items.length === 0) {
+    if (items.length === 0 || (items.length === 1 && itemEstaEmBranco(items[0]))) {
       if (preRegistroItems.length > 0) {
         novosItems = await Promise.all(
           preRegistroItems.map(async (pre) => {
@@ -437,7 +449,10 @@ export default function App() {
 
   function handleLoad(record: QuoteRecord) {
     limparRascunho()
-    const loadedItems = record.items.map((item) => ({ ...item, pricing: { ...item.pricing, ...pricingGlobal } }))
+    const loadedItems =
+      record.items.length > 0
+        ? record.items.map((item) => ({ ...item, pricing: { ...item.pricing, ...pricingGlobal } }))
+        : [criarItemComGlobais()]
     setVendedor(record.vendedor)
     setTipoReferencia(record.tipoReferencia)
     setCliente(record.cliente)
@@ -454,7 +469,7 @@ export default function App() {
     setNumeroCotacaoTransportadora(record.numeroCotacaoTransportadora ?? '')
     setPreRegistroItems(record.itensPreRegistro ?? [])
     setPlanilhaOriginalState(record.planilhaOriginal)
-    setTab('preregistro')
+    setTab('dashboard')
   }
 
   async function handleCreateQuote(vendedorNovo: string, clienteNovo: string, maquinaNova: string, tipo: TipoReferencia) {
@@ -525,31 +540,6 @@ export default function App() {
         />
       )}
       {tab === 'analytics' && <AnalyticsPage />}
-      {tab === 'preregistro' && (
-        <PreRegistroPage
-          currentAdmin={currentAdmin}
-          isEditing={!!editingQuoteId}
-          codigo={codigoCotacao}
-          activeStatus={activeStatus}
-          activeResponsavel={activeResponsavel}
-          cliente={cliente}
-          maquina={maquina}
-          itens={preRegistroItems}
-          createdAt={activeCreatedAt}
-          dataSolicitacao={dataSolicitacao}
-          onChangeDataSolicitacao={setDataSolicitacao}
-          numeroCotacaoTransportadora={numeroCotacaoTransportadora}
-          onChangeNumeroCotacaoTransportadora={setNumeroCotacaoTransportadora}
-          onAddItem={handleAddPreRegistroItem}
-          onRemoveItem={handleRemovePreRegistroItem}
-          onPatchItem={handlePatchPreRegistroItem}
-          onSalvar={handleSalvarPreRegistro}
-          onIrParaPrecificacao={handleGoToPrecificacao}
-          onEncaminharFornecedores={handleEncaminharFornecedores}
-          onGoToCotacoes={() => setTab('cotacoes')}
-          onGoToComparar={() => setTab('comparar')}
-        />
-      )}
       {tab === 'comparar' && (
         <CompararFornecedoresPage
           currentAdmin={currentAdmin}
@@ -561,7 +551,7 @@ export default function App() {
           onRemoveCotacao={handleRemoveCotacaoFornecedor}
           onSalvar={handleSalvarPreRegistro}
           onGoToCotacoes={() => setTab('cotacoes')}
-          onGoToPreRegistro={() => setTab('preregistro')}
+          onGoToPrecificacao={() => setTab('dashboard')}
         />
       )}
       {tab === 'dashboard' && (
@@ -598,12 +588,23 @@ export default function App() {
           onSave={handleSave}
           onNew={handleNew}
           onGoToCotacoes={() => setTab('cotacoes')}
-          onGoToPreRegistro={() => setTab('preregistro')}
           onGoToComparar={() => setTab('comparar')}
           onGoToFrete={() => setTab('frete')}
           onEnviarCotacao={handleEnviarCotacao}
           temPlanilhaCliente={!!planilhaOriginal}
           onVerPlanilhaCliente={() => setMostrarPlanilhaCliente(true)}
+          createdAt={activeCreatedAt}
+          dataSolicitacao={dataSolicitacao}
+          onChangeDataSolicitacao={setDataSolicitacao}
+          numeroCotacaoTransportadora={numeroCotacaoTransportadora}
+          onChangeNumeroCotacaoTransportadora={setNumeroCotacaoTransportadora}
+          preRegistroItems={preRegistroItems}
+          onAddPreRegistroItem={handleAddPreRegistroItem}
+          onRemovePreRegistroItem={handleRemovePreRegistroItem}
+          onPatchPreRegistroItem={handlePatchPreRegistroItem}
+          onSalvarPreRegistro={handleSalvarPreRegistro}
+          onUsarPreRegistroNaPrecificacao={handleGoToPrecificacao}
+          onEncaminharFornecedores={handleEncaminharFornecedores}
         />
       )}
       {tab === 'margins' && <MarginAnalysisPage product={activeItem.product} pricing={activeItem.pricing} />}
