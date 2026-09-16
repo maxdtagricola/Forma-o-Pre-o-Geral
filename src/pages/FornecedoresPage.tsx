@@ -69,7 +69,16 @@ export function FornecedoresPage() {
   }
 
   function handleEdit(f: Fornecedor) {
-    setForm({ cnpj: f.cnpj, nome: f.nome, cep: f.cep, rua: f.rua, numero: f.numero, cidade: f.cidade, estado: f.estado })
+    setForm({
+      cnpj: f.cnpj,
+      nome: f.nome,
+      cep: f.cep,
+      rua: f.rua,
+      numero: f.numero,
+      bairro: f.bairro,
+      cidade: f.cidade,
+      estado: f.estado,
+    })
     setEditingId(f.id)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
@@ -141,6 +150,7 @@ export function FornecedoresPage() {
             cep: item.cep,
             rua: item.rua,
             numero: item.numero,
+            bairro: item.bairro,
             cidade: item.cidade,
             estado: item.estado,
           },
@@ -183,6 +193,7 @@ export function FornecedoresPage() {
           <TextField label="CEP" value={form.cep} onChange={(v) => patch({ cep: v })} placeholder="00000-000" />
           <TextField label="Rua" value={form.rua} onChange={(v) => patch({ rua: v })} />
           <TextField label="Número" value={form.numero} onChange={(v) => patch({ numero: v })} />
+          <TextField label="Setor / Bairro" value={form.bairro} onChange={(v) => patch({ bairro: v })} />
           <TextField label="Cidade" value={form.cidade} onChange={(v) => patch({ cidade: v })} />
           <SelectField label="Estado" value={form.estado} onChange={(v) => patch({ estado: v })} options={estadoOptions} />
         </div>
@@ -203,7 +214,8 @@ export function FornecedoresPage() {
         <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Importar planilha</h2>
         <p className="text-sm text-ink-400 mb-4">
           Envie uma planilha com os fornecedores — a linha com "Nome" (ou "Fornecedor") é o cabeçalho, e as colunas
-          CNPJ, CEP, Rua, Número, Cidade e Estado são lidas pelo texto do cabeçalho (todas opcionais, menos o nome).
+          CNPJ, CEP, Rua, Número, Setor/Bairro, Cidade e Estado são lidas pelo texto do cabeçalho (todas opcionais,
+          menos o nome).
           Quem já tiver o mesmo CNPJ (ou o mesmo nome, se não houver CNPJ) é atualizado em vez de duplicado.
         </p>
         <label className="block mb-4">
@@ -338,7 +350,8 @@ export function FornecedoresPage() {
                   <p className="font-medium text-ink-900 truncate">{f.nome}</p>
                   <p className="text-xs text-ink-400 truncate">
                     CNPJ {f.cnpj || '—'} · {f.rua || '—'}
-                    {f.numero ? `, ${f.numero}` : ''} · {f.cidade || '—'}
+                    {f.numero ? `, ${f.numero}` : ''}
+                    {f.bairro ? ` - ${f.bairro}` : ''} · {f.cidade || '—'}
                     {f.cidade && f.estado ? ' - ' : ''}
                     {f.estado || ''}
                   </p>

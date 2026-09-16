@@ -400,6 +400,7 @@ export interface Fornecedor {
   cep: string
   rua: string
   numero: string
+  bairro: string
   cidade: string
   estado: string
 }
@@ -410,6 +411,7 @@ export const DEFAULT_FORNECEDOR: Omit<Fornecedor, 'id'> = {
   cep: '',
   rua: '',
   numero: '',
+  bairro: '',
   cidade: '',
   estado: 'RO',
 }
