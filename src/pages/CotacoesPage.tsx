@@ -11,12 +11,11 @@ import { arquivoParaBase64 } from '../planilhaCliente'
 import { gerarPreviaPlanilha, type PreviaPlanilha } from '../xlsxSheetUtil'
 import { formatCurrency, formatDate, selecionarTudoAoFocar } from '../utils'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
-import { QUOTE_STATUSES, TIPOS_REFERENCIA, VENDEDORES } from '../types'
+import { QUOTE_STATUSES, VENDEDORES } from '../types'
 import type { PedidoCompraInfo, QuoteRecord, QuoteStatus, TipoReferencia } from '../types'
 import { useEstadoPersistente } from '../estadoPersistente'
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
-const tipoOptions = TIPOS_REFERENCIA.map((t) => ({ value: t.value, label: t.label }))
 const NOVO = '__novo__'
 
 /** Correspondências case-insensitive, por igualdade ou substring em qualquer direção. */
@@ -233,7 +232,6 @@ export function CotacoesPage({
   const [vendedor, setVendedor] = useState('')
   const [cliente, setCliente] = useState('')
   const [maquina, setMaquina] = useState('')
-  const [tipo, setTipo] = useState<TipoReferencia>('itens')
   const [criando, setCriando] = useState(false)
   const [pedidoModalRecord, setPedidoModalRecord] = useState<QuoteRecord | undefined>(undefined)
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
@@ -405,11 +403,10 @@ export function CotacoesPage({
     }
     setCriando(true)
     try {
-      await onCreateQuote(vendedor, cliente, maquina, tipo)
+      await onCreateQuote(vendedor, cliente, maquina, 'itens')
       setVendedor('')
       setCliente('')
       setMaquina('')
-      setTipo('itens')
     } finally {
       setCriando(false)
     }
@@ -479,18 +476,12 @@ export function CotacoesPage({
         {modoNovo === 'manual' ? (
           <>
             <p className="text-sm text-ink-400 mb-4">
-              Identifique o vendedor, o cliente, a máquina e a que se refere — depois é só registrar os itens a cotar.
+              Identifique o vendedor, o cliente e a máquina — depois é só registrar os itens a cotar.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
               <SelectField label="Vendedor" value={vendedor} onChange={setVendedor} options={vendedorOptions} />
               <TextField label="Cliente" value={cliente} onChange={setCliente} uppercase />
               <TextField label="Máquina" value={maquina} onChange={setMaquina} />
-              <SelectField
-                label="Refere-se a"
-                value={tipo}
-                onChange={(v) => setTipo(v as TipoReferencia)}
-                options={tipoOptions}
-              />
             </div>
             <Button variant="primary" onClick={handleCriar} disabled={criando}>
               Criar cotação e registrar itens
