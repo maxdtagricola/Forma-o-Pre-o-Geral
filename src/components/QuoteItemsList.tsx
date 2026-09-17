@@ -1,6 +1,6 @@
 import { useState, type MouseEvent } from 'react'
-import { calculateItem } from '../calc/calculator'
 import { formatCurrency, selecionarTudoAoFocar } from '../utils'
+import { ESTADOS } from '../data/estados'
 import type { ProductInput, QuoteItem } from '../types'
 
 export function QuoteItemsList({
@@ -11,6 +11,7 @@ export function QuoteItemsList({
   onRemove,
   onPatchItem,
   onApplyMarginToAll,
+  onGoToComparar,
 }: {
   items: QuoteItem[]
   activeItemId: string
@@ -19,6 +20,7 @@ export function QuoteItemsList({
   onRemove: (id: string) => void
   onPatchItem: (id: string, patch: Partial<ProductInput>) => void
   onApplyMarginToAll: (lucroPct: number) => void
+  onGoToComparar: () => void
 }) {
   const [margemUnica, setMargemUnica] = useState('')
 
@@ -48,13 +50,22 @@ export function QuoteItemsList({
             Edite direto na planilha — clique numa linha pra ver os campos avançados dela abaixo.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onAdd}
-          className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 transition"
-        >
-          + Adicionar item
-        </button>
+        <div className="flex gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={onGoToComparar}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 px-3 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50 transition"
+          >
+            Comparar fornecedores
+          </button>
+          <button
+            type="button"
+            onClick={onAdd}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 transition"
+          >
+            + Adicionar item
+          </button>
+        </div>
       </div>
 
       {items.length > 1 && (
@@ -86,10 +97,12 @@ export function QuoteItemsList({
               <th className="py-2 px-2 font-medium min-w-[7rem]">Interno</th>
               <th className="py-2 px-2 font-medium min-w-[8rem]">Referência</th>
               <th className="py-2 px-2 font-medium min-w-[12rem]">Descrição</th>
+              <th className="py-2 px-2 font-medium min-w-[7rem]">NCM</th>
               <th className="py-2 px-2 font-medium min-w-[9rem]">Fornecedor</th>
+              <th className="py-2 px-2 font-medium w-16">UF</th>
               <th className="py-2 px-2 font-medium w-20 text-right">Qtd</th>
               <th className="py-2 px-2 font-medium w-28 text-right">Valor unt.</th>
-              <th className="py-2 px-2 font-medium w-24 text-right">Peso (kg)</th>
+              <th className="py-2 px-2 font-medium w-20 text-right">Frete</th>
               <th className="py-2 px-2 font-medium min-w-[7rem]">Prazo</th>
               <th className="py-2 px-2 font-medium w-32 text-right">Total</th>
               <th className="w-8"></th>
@@ -98,7 +111,7 @@ export function QuoteItemsList({
           <tbody>
             {items.map((item, index) => {
               const isActive = item.id === activeItemId
-              const result = calculateItem(item.product, item.pricing)
+              const totalItens = (item.product.qtd || 0) * (item.product.valorUnt || 0)
               return (
                 <tr
                   key={item.id}
@@ -132,11 +145,34 @@ export function QuoteItemsList({
                   </td>
                   <td className={cellCls}>
                     <input
+                      className={`${inputCls} font-mono`}
+                      placeholder="0000.00.00"
+                      value={item.product.ncm}
+                      onChange={(e) => onPatchItem(item.id, { ncm: e.target.value })}
+                      onClick={stop}
+                    />
+                  </td>
+                  <td className={cellCls}>
+                    <input
                       className={inputCls}
                       value={item.product.fornecedor}
                       onChange={(e) => onPatchItem(item.id, { fornecedor: e.target.value })}
                       onClick={stop}
                     />
+                  </td>
+                  <td className={cellCls}>
+                    <select
+                      className={inputCls}
+                      value={item.product.estadoOrigem}
+                      onChange={(e) => onPatchItem(item.id, { estadoOrigem: e.target.value })}
+                      onClick={stop}
+                    >
+                      {ESTADOS.map((e) => (
+                        <option key={e.uf} value={e.uf}>
+                          {e.uf}
+                        </option>
+                      ))}
+                    </select>
                   </td>
                   <td className={cellCls}>
                     <input
@@ -165,10 +201,10 @@ export function QuoteItemsList({
                     <input
                       type="number"
                       min={0}
-                      step={0.01}
+                      step={0.1}
                       className={`${inputCls} text-right tabular-nums`}
-                      value={item.product.peso}
-                      onChange={(e) => onPatchItem(item.id, { peso: Number(e.target.value) || 0 })}
+                      value={Math.round((item.product.freteRate || 0) * 10000) / 100}
+                      onChange={(e) => onPatchItem(item.id, { freteRate: (Number(e.target.value) || 0) / 100 })}
                       onClick={stop}
                       onFocus={selecionarTudoAoFocar}
                     />
@@ -183,7 +219,7 @@ export function QuoteItemsList({
                     />
                   </td>
                   <td className={`${cellCls} text-right font-mono tabular-nums text-ink-800 pr-3`}>
-                    {formatCurrency(result.precoVendaTotal)}
+                    {formatCurrency(totalItens)}
                   </td>
                   <td className={`${cellCls} text-center`}>
                     {items.length > 1 && (

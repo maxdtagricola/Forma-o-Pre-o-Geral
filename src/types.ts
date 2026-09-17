@@ -124,6 +124,8 @@ export interface ProductInput {
   peso: number
   /** Prazo de entrega (texto livre, ex.: "IMEDIATO", "2 DIAS") — usado ao devolver a planilha do cliente preenchida. */
   prazoEntrega: string
+  /** Cotações de fornecedores registradas em "Comparar fornecedores" — a mais barata preenche fornecedor/marca/valorUnt automaticamente. */
+  cotacoesFornecedores: CotacaoFornecedorItem[]
 
   // Campos avançados — existem na planilha (colunas U, V, W, Y, Z, AA) mas
   // não fazem parte da entrada principal pedida. Têm padrão 0.
@@ -149,6 +151,7 @@ export const DEFAULT_PRODUCT_INPUT: ProductInput = {
   valorUnt: 0,
   peso: 0,
   prazoEntrega: '',
+  cotacoesFornecedores: [],
   stRetido: 0,
   outrasDespesas: 0,
   desconto: 0,

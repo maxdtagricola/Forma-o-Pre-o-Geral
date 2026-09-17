@@ -1,6 +1,7 @@
+import { MARGENS_RAPIDAS } from '../types'
 import type { CalculationResult } from '../types'
 import { Badge } from './ui/Basics'
-import { formatCurrency, formatNumber, formatPercent } from '../utils'
+import { formatCurrency, formatNumber, formatPercent, selecionarTudoAoFocar } from '../utils'
 
 const CLASS_TONE: Record<CalculationResult['classificacaoIcms'], 'brand' | 'amber' | 'danger' | 'neutral'> = {
   Normal: 'neutral',
@@ -18,7 +19,17 @@ function Row({ label, value, muted }: { label: string; value: string; muted?: bo
   )
 }
 
-export function ResultPanel({ result, qtd }: { result: CalculationResult; qtd: number }) {
+export function ResultPanel({
+  result,
+  qtd,
+  lucroPct,
+  onChangeLucroPct,
+}: {
+  result: CalculationResult
+  qtd: number
+  lucroPct: number
+  onChangeLucroPct: (v: number) => void
+}) {
   const { breakdown } = result
 
   if (!result.viavel) {
@@ -61,6 +72,38 @@ export function ResultPanel({ result, qtd }: { result: CalculationResult; qtd: n
             Total ({formatNumber(qtd, 0)} un.): <span className="text-white font-mono">{formatCurrency(result.precoVendaTotal)}</span>
           </span>
           <span>Markup {formatNumber(result.markupMultiplicador, 3)}x</span>
+        </div>
+      </div>
+
+      <div className="mb-5 flex flex-wrap items-center gap-1.5">
+        <span className="text-xs text-ink-400 mr-0.5 shrink-0">Margem:</span>
+        {MARGENS_RAPIDAS.map((m) => {
+          const active = Math.abs(m - lucroPct) < 1e-6
+          return (
+            <button
+              key={m}
+              type="button"
+              onClick={() => onChangeLucroPct(m)}
+              className={`pill-tab border ${
+                active
+                  ? 'bg-brand-600 border-brand-600 text-white'
+                  : 'border-ink-200 text-ink-600 hover:border-brand-300 hover:text-brand-700'
+              }`}
+            >
+              {formatPercent(m, 0)}
+            </button>
+          )
+        })}
+        <div className="relative ml-auto">
+          <input
+            type="number"
+            step={0.1}
+            className="field-input field-input-mono w-20 py-1 text-sm pr-6"
+            value={Math.round(lucroPct * 10000) / 100}
+            onChange={(e) => onChangeLucroPct((e.target.valueAsNumber || 0) / 100)}
+            onFocus={selecionarTudoAoFocar}
+          />
+          <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-ink-400 text-xs">%</span>
         </div>
       </div>
 

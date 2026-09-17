@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { Button } from '../components/ui/Basics'
 import { AutocompleteField, TextField, NumberField } from '../components/ui/Field'
 import { listFornecedores } from '../db/fornecedoresRepo'
-import { formatCurrency } from '../utils'
-import type { CotacaoFornecedorItem, Fornecedor, PreRegistroItem, QuoteStatus } from '../types'
+import { formatCurrency, makeId, melhorCotacaoFornecedor } from '../utils'
+import type { CotacaoFornecedorItem, Fornecedor, ProductInput, QuoteItem, QuoteStatus } from '../types'
 
 function LinhaNovaCotacao({
   fornecedorSuggestions,
@@ -52,22 +52,22 @@ function CardItem({
   onRemoveCotacao,
   travadaPorOutro,
 }: {
-  item: PreRegistroItem
+  item: QuoteItem
   fornecedorSuggestions: { value: string; label: string }[]
   onAddCotacao: (cotacao: Omit<CotacaoFornecedorItem, 'id'>) => void
   onRemoveCotacao: (cotacaoId: string) => void
   travadaPorOutro: boolean
 }) {
-  const cotacoes = item.cotacoesFornecedores ?? []
+  const cotacoes = item.product.cotacoesFornecedores ?? []
   const menorValor = cotacoes.length > 0 ? Math.min(...cotacoes.map((c) => c.valorUnitario)) : undefined
 
   return (
     <div className="card">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div>
-          <p className="font-medium text-ink-900">{item.referencia || '(sem referência)'}</p>
+          <p className="font-medium text-ink-900">{item.product.referencia || '(sem referência)'}</p>
           <p className="text-xs text-ink-400">
-            {item.descricao || '—'} · Qtd {item.quantidade}
+            {item.product.descricao || '—'} · Qtd {item.product.qtd}
           </p>
         </div>
         {menorValor !== undefined && (
@@ -131,15 +131,20 @@ function CardItem({
   )
 }
 
+/**
+ * Compara cotações de fornecedores por item da cotação — direto em cima dos itens reais (ver
+ * QuoteItem), não mais numa lista de pré-registro separada. A cada cotação adicionada/removida, a
+ * mais barata já atualiza fornecedor/marca/valor unitário do item automaticamente (via onPatchItem,
+ * o mesmo callback usado pra edição inline em "Itens da cotação"), então não existe um passo
+ * separado de "aplicar" ou "salvar" aqui — é só mais uma forma de editar o mesmo item.
+ */
 export function CompararFornecedoresPage({
   currentAdmin,
   isEditing,
   activeStatus,
   activeResponsavel,
-  itens,
-  onAddCotacao,
-  onRemoveCotacao,
-  onSalvar,
+  items,
+  onPatchItem,
   onGoToCotacoes,
   onGoToPrecificacao,
 }: {
@@ -147,15 +152,12 @@ export function CompararFornecedoresPage({
   isEditing: boolean
   activeStatus: QuoteStatus
   activeResponsavel: string
-  itens: PreRegistroItem[]
-  onAddCotacao: (itemId: string, cotacao: Omit<CotacaoFornecedorItem, 'id'>) => void
-  onRemoveCotacao: (itemId: string, cotacaoId: string) => void
-  onSalvar: () => Promise<void>
+  items: QuoteItem[]
+  onPatchItem: (id: string, patch: Partial<ProductInput>) => void
   onGoToCotacoes: () => void
   onGoToPrecificacao: () => void
 }) {
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
-  const [salvando, setSalvando] = useState(false)
 
   useEffect(() => {
     listFornecedores()
@@ -168,15 +170,22 @@ export function CompararFornecedoresPage({
   const travadaPorOutro = activeStatus !== 'PENDENTE' && !!activeResponsavel && activeResponsavel !== currentAdmin
   const fornecedorSuggestions = fornecedores.map((f) => ({ value: f.id, label: f.nome }))
 
-  async function handleSalvar() {
-    setSalvando(true)
-    try {
-      await onSalvar()
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
-    } finally {
-      setSalvando(false)
-    }
+  function handleAddCotacao(item: QuoteItem, cotacao: Omit<CotacaoFornecedorItem, 'id'>) {
+    const novasCotacoes = [...(item.product.cotacoesFornecedores ?? []), { ...cotacao, id: makeId() }]
+    aplicarCotacoes(item.id, novasCotacoes)
+  }
+
+  function handleRemoveCotacao(item: QuoteItem, cotacaoId: string) {
+    const novasCotacoes = (item.product.cotacoesFornecedores ?? []).filter((c) => c.id !== cotacaoId)
+    aplicarCotacoes(item.id, novasCotacoes)
+  }
+
+  function aplicarCotacoes(itemId: string, cotacoes: CotacaoFornecedorItem[]) {
+    const melhor = melhorCotacaoFornecedor(cotacoes)
+    onPatchItem(itemId, {
+      cotacoesFornecedores: cotacoes,
+      ...(melhor ? { valorUnt: melhor.valorUnitario, fornecedor: melhor.fornecedor, marca: melhor.marca } : {}),
+    })
   }
 
   if (!isEditing) {
@@ -206,34 +215,29 @@ export function CompararFornecedoresPage({
           <div>
             <h2 className="font-display text-lg font-semibold text-ink-900">Comparar fornecedores</h2>
             <p className="text-sm text-ink-400">
-              Vá registrando as cotações que os fornecedores devolverem — a mais barata de cada item já entra
-              pré-preenchida quando você for pra precificação.
+              Vá registrando as cotações que os fornecedores devolverem — a mais barata de cada item já atualiza o
+              fornecedor e o valor unitário automaticamente.
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
-            <Button variant="ghost" onClick={onGoToPrecificacao}>
-              Voltar para Precificação
-            </Button>
-            <Button variant="primary" onClick={handleSalvar} disabled={travadaPorOutro || salvando}>
-              Salvar
-            </Button>
-          </div>
+          <Button variant="ghost" onClick={onGoToPrecificacao} className="shrink-0">
+            Voltar para Precificação
+          </Button>
         </div>
       </div>
 
-      {itens.length === 0 ? (
+      {items.length === 0 ? (
         <div className="card text-center py-10">
-          <p className="text-sm text-ink-400">Nenhum item registrado ainda — volte em "Itens a cotar" pra adicionar.</p>
+          <p className="text-sm text-ink-400">Nenhum item registrado ainda — volte em "Itens da cotação" pra adicionar.</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {itens.map((item) => (
+          {items.map((item) => (
             <CardItem
               key={item.id}
               item={item}
               fornecedorSuggestions={fornecedorSuggestions}
-              onAddCotacao={(cotacao) => onAddCotacao(item.id, cotacao)}
-              onRemoveCotacao={(cotacaoId) => onRemoveCotacao(item.id, cotacaoId)}
+              onAddCotacao={(cotacao) => handleAddCotacao(item, cotacao)}
+              onRemoveCotacao={(cotacaoId) => handleRemoveCotacao(item, cotacaoId)}
               travadaPorOutro={travadaPorOutro}
             />
           ))}

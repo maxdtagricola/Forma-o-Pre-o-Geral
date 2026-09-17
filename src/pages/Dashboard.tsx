@@ -1,29 +1,17 @@
 import { useMemo, useState } from 'react'
 import { ProductForm } from '../components/ProductForm'
-import { PricingConfigPanel } from '../components/PricingConfigPanel'
 import { ResultPanel } from '../components/ResultPanel'
 import { QuoteItemsList } from '../components/QuoteItemsList'
 import { FreightSplitPanel } from '../components/FreightSplitPanel'
 import { EnvioCotacaoModal } from '../components/EnvioCotacaoModal'
-import { ItensACotarCard } from '../components/ItensACotarCard'
 import { Button } from '../components/ui/Basics'
 import { SelectField, TextField } from '../components/ui/Field'
 import { calculateItem } from '../calc/calculator'
 import { dateToInputValue, formatCurrency, formatDate, inputValueToDate } from '../utils'
-import { TIPOS_REFERENCIA, VENDEDORES } from '../types'
-import type {
-  CalculationResult,
-  Empresa,
-  PreRegistroItem,
-  PricingConfig,
-  ProductInput,
-  QuoteItem,
-  QuoteStatus,
-  TipoReferencia,
-} from '../types'
+import { VENDEDORES } from '../types'
+import type { CalculationResult, Empresa, PricingConfig, ProductInput, QuoteItem, QuoteStatus } from '../types'
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
-const tipoReferenciaOptions = TIPOS_REFERENCIA.map((t) => ({ value: t.value, label: t.label }))
 
 export function Dashboard({
   currentAdmin,
@@ -31,13 +19,11 @@ export function Dashboard({
   activeStatus,
   activeResponsavel,
   vendedor,
-  tipoReferencia,
   cliente,
   maquina,
   empresaId,
   empresas,
   onVendedorChange,
-  onTipoReferenciaChange,
   onClienteChange,
   onMaquinaChange,
   onEmpresaIdChange,
@@ -68,26 +54,17 @@ export function Dashboard({
   onChangeDataSolicitacao,
   numeroCotacaoTransportadora,
   onChangeNumeroCotacaoTransportadora,
-  preRegistroItems,
-  onAddPreRegistroItem,
-  onRemovePreRegistroItem,
-  onPatchPreRegistroItem,
-  onSalvarPreRegistro,
-  onUsarPreRegistroNaPrecificacao,
-  onEncaminharFornecedores,
 }: {
   currentAdmin: string
   codigo: string
   activeStatus: QuoteStatus
   activeResponsavel: string
   vendedor: string
-  tipoReferencia: TipoReferencia
   cliente: string
   maquina: string
   empresaId: string
   empresas: Empresa[]
   onVendedorChange: (value: string) => void
-  onTipoReferenciaChange: (value: TipoReferencia) => void
   onClienteChange: (value: string) => void
   onMaquinaChange: (value: string) => void
   onEmpresaIdChange: (value: string) => void
@@ -118,16 +95,8 @@ export function Dashboard({
   onChangeDataSolicitacao: (ts: number | undefined) => void
   numeroCotacaoTransportadora: string
   onChangeNumeroCotacaoTransportadora: (v: string) => void
-  preRegistroItems: PreRegistroItem[]
-  onAddPreRegistroItem: () => void
-  onRemovePreRegistroItem: (id: string) => void
-  onPatchPreRegistroItem: (id: string, patch: Partial<PreRegistroItem>) => void
-  onSalvarPreRegistro: () => Promise<void>
-  onUsarPreRegistroNaPrecificacao: () => Promise<void>
-  onEncaminharFornecedores: () => Promise<void>
 }) {
   const [mostrarEnvioCotacao, setMostrarEnvioCotacao] = useState(false)
-  const [itensACotarAberto, setItensACotarAberto] = useState(false)
   const travadaPorOutro = activeStatus !== 'PENDENTE' && !!activeResponsavel && activeResponsavel !== currentAdmin
 
   const empresaOptions = [
@@ -187,12 +156,6 @@ export function Dashboard({
         <p className="text-sm text-ink-400 mb-4">Informações gerais — servem de base pra recursos futuros.</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <SelectField label="Vendedor" value={vendedor} onChange={onVendedorChange} options={vendedorOptions} />
-          <SelectField
-            label="Refere-se a"
-            value={tipoReferencia}
-            onChange={(v) => onTipoReferenciaChange(v as TipoReferencia)}
-            options={tipoReferenciaOptions}
-          />
           <TextField label="Cliente" value={cliente} onChange={onClienteChange} uppercase />
           <TextField label="Máquina" value={maquina} onChange={onMaquinaChange} />
           <SelectField
@@ -212,9 +175,15 @@ export function Dashboard({
           <label className="block">
             <span className="field-label">Data de solicitação</span>
             <input
+              // não-controlado (defaultValue, não value): um <input type="date"> controlado fica
+              // com o .value vazio enquanto o ano não tem os 4 dígitos completos — isso zerava
+              // dataSolicitacao a cada tecla e o campo voltava pro vazio, brigando com quem tava
+              // digitando o ano na mão. Só remonta (e recarrega o valor certo) quando a key muda,
+              // isto é, ao trocar de cotação — dentro da mesma cotação o campo edita livre.
+              key={codigo || 'nova'}
               type="date"
               className="field-input"
-              value={dateToInputValue(dataSolicitacao)}
+              defaultValue={dateToInputValue(dataSolicitacao)}
               disabled={travadaPorOutro}
               onChange={(e) => onChangeDataSolicitacao(inputValueToDate(e.target.value))}
             />
@@ -233,43 +202,6 @@ export function Dashboard({
         </div>
       </div>
 
-      <div className="card">
-        <button
-          type="button"
-          onClick={() => setItensACotarAberto((v) => !v)}
-          className="w-full flex items-center justify-between gap-2 text-left"
-        >
-          <div>
-            <h2 className="font-display text-lg font-semibold text-ink-900">Itens a cotar</h2>
-            <p className="text-sm text-ink-400">
-              O que precisa ser cotado antes de ter preço de fornecedor — vale a pena antes de precificar de
-              verdade.
-              {preRegistroItems.length > 0 && ` ${preRegistroItems.length} item(ns) registrado(s).`}
-            </p>
-          </div>
-          <span aria-hidden className={`shrink-0 text-ink-400 transition-transform ${itensACotarAberto ? 'rotate-180' : ''}`}>
-            ▾
-          </span>
-        </button>
-        {itensACotarAberto && (
-          <div className="mt-4 pt-4 border-t border-ink-100">
-            <ItensACotarCard
-              travadaPorOutro={travadaPorOutro}
-              cliente={cliente}
-              maquina={maquina}
-              itens={preRegistroItems}
-              onAddItem={onAddPreRegistroItem}
-              onRemoveItem={onRemovePreRegistroItem}
-              onPatchItem={onPatchPreRegistroItem}
-              onSalvar={onSalvarPreRegistro}
-              onUsarNaPrecificacao={onUsarPreRegistroNaPrecificacao}
-              onEncaminharFornecedores={onEncaminharFornecedores}
-              onGoToComparar={onGoToComparar}
-            />
-          </div>
-        )}
-      </div>
-
       <QuoteItemsList
         items={items}
         activeItemId={activeItemId}
@@ -278,6 +210,7 @@ export function Dashboard({
         onRemove={onRemoveItem}
         onPatchItem={onPatchItem}
         onApplyMarginToAll={onApplyMarginToAll}
+        onGoToComparar={onGoToComparar}
       />
 
       <FreightSplitPanel items={items} onApply={onApplyFreightSplit} />
@@ -285,12 +218,16 @@ export function Dashboard({
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         <div className="lg:col-span-3 space-y-6">
           <ProductForm product={activeProduct} onChange={onProductChange} />
-          <PricingConfigPanel key={activeItemId} pricing={activePricing} onChange={onPricingChange} />
         </div>
 
         <div className="lg:col-span-2 space-y-4">
           <div className="sticky top-6 space-y-4">
-            <ResultPanel result={result} qtd={activeProduct.qtd || 1} />
+            <ResultPanel
+              result={result}
+              qtd={activeProduct.qtd || 1}
+              lucroPct={activePricing.lucroPct}
+              onChangeLucroPct={(v) => onPricingChange({ lucroPct: v })}
+            />
 
             {items.length > 1 && (
               <div className="card flex items-center justify-between">
@@ -301,7 +238,7 @@ export function Dashboard({
 
             <div className="flex gap-2">
               <Button variant="primary" className="flex-1" onClick={onSave} disabled={travadaPorOutro}>
-                Atualizar cotação
+                Salvar cotação
               </Button>
               <Button variant="secondary" onClick={onNew}>
                 Nova cotação

@@ -19,13 +19,7 @@ import { PlanilhaClienteModal } from './components/PlanilhaClienteModal'
 import { RecuperarRascunhoModal } from './components/RecuperarRascunhoModal'
 import { lerRascunho, limparRascunho, salvarRascunho, type RascunhoCotacao } from './rascunhoCotacao'
 import { calculateItem, definirTabelasCustomizadas } from './calc/calculator'
-import {
-  findByInterno,
-  saveQuote,
-  setPlanilhaOriginal,
-  updateItensPreRegistro,
-  updateQuoteStatus,
-} from './db/analysesRepo'
+import { saveQuote, setPlanilhaOriginal, updateQuoteStatus } from './db/analysesRepo'
 import {
   DEFAULT_PRICING_GLOBAL,
   getPlanilhaAtivaIds,
@@ -35,19 +29,15 @@ import {
   type PricingGlobal,
 } from './db/configRepo'
 import { listEmpresas } from './db/empresasRepo'
-import { registrarItensPreRegistro } from './db/produtosRepo'
 import { clearCurrentAdmin, getCurrentAdmin, setCurrentAdmin } from './currentAdmin'
 import { clearCurrentPlayer, getCurrentPlayer, setCurrentPlayer } from './currentPlayer'
 import { getModoSessao, limparModoSessao, setModoSessao } from './session'
 import { createQuoteItem } from './types'
-import { makeId, melhorCotacaoFornecedor } from './utils'
 import type { ItemCotacaoImportado } from './quoteImport'
 import type {
   AdminName,
-  CotacaoFornecedorItem,
   Empresa,
   EstadoDestino,
-  PreRegistroItem,
   PricingConfig,
   ProductInput,
   QuoteItem,
@@ -86,7 +76,6 @@ export default function App() {
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const [pricingGlobal, setPricingGlobalState] = useState<PricingGlobal>(DEFAULT_PRICING_GLOBAL)
   const [tabelasVersion, setTabelasVersion] = useState(0)
-  const [preRegistroItems, setPreRegistroItems] = useState<PreRegistroItem[]>([])
   const [planilhaOriginal, setPlanilhaOriginalState] = useState<
     { nomeArquivo: string; conteudoBase64: string } | undefined
   >(undefined)
@@ -116,7 +105,6 @@ export default function App() {
         activeItemId,
         activeStatus,
         activeResponsavel,
-        preRegistroItems,
         planilhaOriginal,
       })
     }, 1500)
@@ -133,7 +121,6 @@ export default function App() {
     activeItemId,
     activeStatus,
     activeResponsavel,
-    preRegistroItems,
     planilhaOriginal,
   ])
 
@@ -187,13 +174,6 @@ export default function App() {
     return { ...item, pricing: { ...item.pricing, ...pricingGlobal } }
   }
 
-  // Um item "em branco" (criado só de placeholder, sem nada preenchido) conta como se a
-  // cotação ainda não tivesse itens de verdade — usado em handleGoToPrecificacao pra decidir
-  // se ainda vale a pena substituir pelos itens a cotar.
-  function itemEstaEmBranco(item: QuoteItem): boolean {
-    return !item.product.interno.trim() && !item.product.referencia.trim() && !item.product.descricao.trim()
-  }
-
   // Memoizado pra não gerar um item novo (com id novo) a cada render — se não, a key
   // do ProductForm ficaria mudando sozinha e ele nunca ficaria "parado" na tela.
   const activeItem = useMemo(
@@ -245,7 +225,6 @@ export default function App() {
     setCodigoCotacao(r.codigo)
     setActiveStatus(r.activeStatus)
     setActiveResponsavel(r.activeResponsavel)
-    setPreRegistroItems(r.preRegistroItems)
     setPlanilhaOriginalState(r.planilhaOriginal)
     setTab('dashboard')
     setRascunhoDisponivel(undefined)
@@ -272,107 +251,6 @@ export default function App() {
   }
   function handleApplyMarginToAll(lucroPct: number) {
     setItems((prev) => prev.map((item) => ({ ...item, pricing: { ...item.pricing, lucroPct } })))
-  }
-
-  function handleAddPreRegistroItem() {
-    setPreRegistroItems((prev) => [
-      ...prev,
-      { id: makeId(), interno: '', referencia: '', descricao: '', quantidade: 1, cotacoesFornecedores: [] },
-    ])
-  }
-  function handleRemovePreRegistroItem(id: string) {
-    setPreRegistroItems((prev) => prev.filter((item) => item.id !== id))
-  }
-  function handlePatchPreRegistroItem(id: string, patch: Partial<PreRegistroItem>) {
-    setPreRegistroItems((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)))
-  }
-
-  function handleAddCotacaoFornecedor(itemId: string, cotacao: Omit<CotacaoFornecedorItem, 'id'>) {
-    setPreRegistroItems((prev) =>
-      prev.map((item) =>
-        item.id === itemId
-          ? { ...item, cotacoesFornecedores: [...(item.cotacoesFornecedores ?? []), { ...cotacao, id: makeId() }] }
-          : item,
-      ),
-    )
-  }
-  function handleRemoveCotacaoFornecedor(itemId: string, cotacaoId: string) {
-    setPreRegistroItems((prev) =>
-      prev.map((item) =>
-        item.id === itemId
-          ? { ...item, cotacoesFornecedores: (item.cotacoesFornecedores ?? []).filter((c) => c.id !== cotacaoId) }
-          : item,
-      ),
-    )
-  }
-
-  async function handleSalvarPreRegistro() {
-    if (!editingQuoteId || !currentAdmin) return
-    await updateItensPreRegistro(editingQuoteId, preRegistroItems, currentAdmin, dataSolicitacao, numeroCotacaoTransportadora)
-    await registrarItensPreRegistro(preRegistroItems)
-    setHistoryRefreshKey((k) => k + 1)
-    limparRascunho()
-  }
-
-  async function handleGoToPrecificacao() {
-    if (!editingQuoteId || !currentAdmin) return
-    await updateItensPreRegistro(editingQuoteId, preRegistroItems, currentAdmin, dataSolicitacao, numeroCotacaoTransportadora)
-
-    let novosItems = items
-    if (items.length === 0 || (items.length === 1 && itemEstaEmBranco(items[0]))) {
-      if (preRegistroItems.length > 0) {
-        novosItems = await Promise.all(
-          preRegistroItems.map(async (pre) => {
-            const item = criarItemComGlobais()
-            const encontrado = await findByInterno(pre.interno)
-            const melhorCotacao = melhorCotacaoFornecedor(pre.cotacoesFornecedores)
-            return {
-              ...item,
-              product: {
-                ...item.product,
-                ...(encontrado ?? {}),
-                interno: pre.interno,
-                referencia: pre.referencia || encontrado?.referencia || '',
-                descricao: pre.descricao || encontrado?.descricao || '',
-                qtd: pre.quantidade || 1,
-                ...(melhorCotacao
-                  ? {
-                      valorUnt: melhorCotacao.valorUnitario,
-                      fornecedor: melhorCotacao.fornecedor,
-                      marca: melhorCotacao.marca,
-                    }
-                  : {}),
-              },
-            }
-          }),
-        )
-      } else {
-        novosItems = [criarItemComGlobais()]
-      }
-      setItems(novosItems)
-      setActiveItemId(novosItems[0].id)
-      await saveQuote(currentAdmin, vendedor, tipoReferencia, cliente, maquina, novosItems, editingQuoteId, empresaId)
-      setHistoryRefreshKey((k) => k + 1)
-    }
-
-    if (activeStatus === 'PENDENTE') {
-      await updateQuoteStatus(editingQuoteId, 'ANALISANDO VALORES', currentAdmin)
-      setActiveStatus('ANALISANDO VALORES')
-      setActiveResponsavel(currentAdmin)
-      setHistoryRefreshKey((k) => k + 1)
-    }
-    setTab('dashboard')
-    limparRascunho()
-  }
-
-  async function handleEncaminharFornecedores() {
-    if (!editingQuoteId || !currentAdmin) return
-    if (activeStatus !== 'PENDENTE') return
-    await updateQuoteStatus(editingQuoteId, 'AGUARDANDO FORNECEDOR', currentAdmin)
-    setActiveStatus('AGUARDANDO FORNECEDOR')
-    setActiveResponsavel(currentAdmin)
-    setHistoryRefreshKey((k) => k + 1)
-    limparRascunho()
   }
 
   async function handleEnviarCotacao() {
@@ -417,7 +295,18 @@ export default function App() {
   async function handleSave() {
     if (!currentAdmin) return
     try {
-      const record = await saveQuote(currentAdmin, vendedor, tipoReferencia, cliente, maquina, items, editingQuoteId, empresaId)
+      const record = await saveQuote(
+        currentAdmin,
+        vendedor,
+        tipoReferencia,
+        cliente,
+        maquina,
+        items,
+        editingQuoteId,
+        empresaId,
+        dataSolicitacao,
+        numeroCotacaoTransportadora,
+      )
       setEditingQuoteId(record.id)
       setHistoryRefreshKey((k) => k + 1)
       limparRascunho()
@@ -442,7 +331,6 @@ export default function App() {
     setActiveCreatedAt(undefined)
     setDataSolicitacao(undefined)
     setNumeroCotacaoTransportadora('')
-    setPreRegistroItems([])
     setPlanilhaOriginalState(undefined)
     limparRascunho()
   }
@@ -467,7 +355,6 @@ export default function App() {
     setActiveCreatedAt(record.createdAt)
     setDataSolicitacao(record.dataSolicitacao)
     setNumeroCotacaoTransportadora(record.numeroCotacaoTransportadora ?? '')
-    setPreRegistroItems(record.itensPreRegistro ?? [])
     setPlanilhaOriginalState(record.planilhaOriginal)
     setTab('dashboard')
   }
@@ -491,15 +378,14 @@ export default function App() {
     planilha: { nomeArquivo: string; conteudoBase64: string },
   ) {
     if (!currentAdmin) return
-    const record = await saveQuote(currentAdmin, vendedorNovo, 'itens', clienteNovo, maquinaNova, [], undefined)
-    const itens: PreRegistroItem[] = itensImportados.map((it) => ({
-      id: makeId(),
-      interno: '',
-      referencia: it.referencia,
-      descricao: it.descricao,
-      quantidade: it.quantidade,
-    }))
-    await updateItensPreRegistro(record.id, itens, currentAdmin)
+    const itens: QuoteItem[] = itensImportados.map((it) => {
+      const item = criarItemComGlobais()
+      return {
+        ...item,
+        product: { ...item.product, referencia: it.referencia, descricao: it.descricao, qtd: it.quantidade || 1 },
+      }
+    })
+    const record = await saveQuote(currentAdmin, vendedorNovo, 'itens', clienteNovo, maquinaNova, itens, undefined)
     const registroFinal = await setPlanilhaOriginal(record.id, planilha)
     setHistoryRefreshKey((k) => k + 1)
     handleLoad(registroFinal)
@@ -546,10 +432,8 @@ export default function App() {
           isEditing={!!editingQuoteId}
           activeStatus={activeStatus}
           activeResponsavel={activeResponsavel}
-          itens={preRegistroItems}
-          onAddCotacao={handleAddCotacaoFornecedor}
-          onRemoveCotacao={handleRemoveCotacaoFornecedor}
-          onSalvar={handleSalvarPreRegistro}
+          items={items}
+          onPatchItem={patchItemProduct}
           onGoToCotacoes={() => setTab('cotacoes')}
           onGoToPrecificacao={() => setTab('dashboard')}
         />
@@ -561,13 +445,11 @@ export default function App() {
           activeStatus={activeStatus}
           activeResponsavel={activeResponsavel}
           vendedor={vendedor}
-          tipoReferencia={tipoReferencia}
           cliente={cliente}
           maquina={maquina}
           empresaId={empresaId}
           empresas={empresas}
           onVendedorChange={setVendedor}
-          onTipoReferenciaChange={setTipoReferencia}
           onClienteChange={setCliente}
           onMaquinaChange={setMaquina}
           onEmpresaIdChange={setEmpresaId}
@@ -598,13 +480,6 @@ export default function App() {
           onChangeDataSolicitacao={setDataSolicitacao}
           numeroCotacaoTransportadora={numeroCotacaoTransportadora}
           onChangeNumeroCotacaoTransportadora={setNumeroCotacaoTransportadora}
-          preRegistroItems={preRegistroItems}
-          onAddPreRegistroItem={handleAddPreRegistroItem}
-          onRemovePreRegistroItem={handleRemovePreRegistroItem}
-          onPatchPreRegistroItem={handlePatchPreRegistroItem}
-          onSalvarPreRegistro={handleSalvarPreRegistro}
-          onUsarPreRegistroNaPrecificacao={handleGoToPrecificacao}
-          onEncaminharFornecedores={handleEncaminharFornecedores}
         />
       )}
       {tab === 'margins' && <MarginAnalysisPage product={activeItem.product} pricing={activeItem.pricing} />}
