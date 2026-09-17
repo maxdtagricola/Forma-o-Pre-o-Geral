@@ -34,6 +34,7 @@ export function DonutChart({
   valueFormatter,
   chartValueFormatter,
   emptyText,
+  compact,
 }: {
   data: DonutDatum[]
   centerLabel: string
@@ -42,6 +43,10 @@ export function DonutChart({
   /** Formata o valor mostrado dentro da fatia — mais curto que o da legenda, já que a fatia tem pouco espaço. Usa valueFormatter se não for passado. */
   chartValueFormatter?: (v: number) => string
   emptyText: string
+  /** Pra caber numa coluna estreita (ex.: barra lateral): SVG menor e sempre empilhado — sem o
+   * "lado a lado a partir de md", que olha só a largura da tela, não a do container, e estourava
+   * a barra lateral mesmo ela sendo bem mais estreita que a tela toda. */
+  compact?: boolean
 }) {
   const formatarNaFatia = chartValueFormatter ?? valueFormatter
   const total = data.reduce((s, d) => s + d.value, 0)
@@ -50,16 +55,17 @@ export function DonutChart({
     return <p className="text-sm text-ink-400 text-center py-8">{emptyText}</p>
   }
 
-  const size = 240
+  const size = compact ? 180 : 240
   const cx = size / 2
   const cy = size / 2
   // o raio externo de cada fatia varia com o valor dela — quanto maior a quantidade/porcentagem,
   // mais longe do centro ela se estende; a menor fatia do conjunto fica pertinho do centro (perto
   // de rInner), a maior vai até rOuterMax. Assim o tamanho da "rosca" também comunica a grandeza,
   // não só o ângulo da fatia.
-  const rOuterMax = 110
-  const rOuterMin = 82
-  const rInner = 66
+  const escala = compact ? 0.75 : 1
+  const rOuterMax = 110 * escala
+  const rOuterMin = 82 * escala
+  const rInner = 66 * escala
   const gapDeg = 1.5
 
   const valoresPositivos = data.filter((d) => d.value > 0).map((d) => d.value)
@@ -86,7 +92,7 @@ export function DonutChart({
     })
 
   return (
-    <div className="flex flex-col md:flex-row items-center gap-6">
+    <div className={`flex flex-col items-center gap-6 ${compact ? '' : 'md:flex-row'}`}>
       <svg
         width={size}
         height={size}
@@ -104,7 +110,7 @@ export function DonutChart({
                 y={s.labelPos.y}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fontSize="12"
+                fontSize={compact ? 10 : 12}
                 fontWeight="700"
                 fill={corTexto(s.color)}
               >
@@ -113,7 +119,7 @@ export function DonutChart({
             ),
         )}
         <circle cx={cx} cy={cy} r={rInner - 6} style={{ fill: 'rgb(var(--surface))' }} />
-        <text x={cx} y={cy - 6} textAnchor="middle" fontSize="20" fontWeight="700" style={{ fill: 'rgb(var(--ink-900))' }}>
+        <text x={cx} y={cy - 6} textAnchor="middle" fontSize={compact ? 17 : 20} fontWeight="700" style={{ fill: 'rgb(var(--ink-900))' }}>
           {centerValue}
         </text>
         <text x={cx} y={cy + 16} textAnchor="middle" fontSize="11" style={{ fill: 'rgb(var(--ink-400))' }}>
@@ -121,7 +127,7 @@ export function DonutChart({
         </text>
       </svg>
 
-      <div className="flex-1 min-w-0 w-full grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5">
+      <div className={`flex-1 min-w-0 w-full grid grid-cols-1 gap-x-4 gap-y-1.5 ${compact ? '' : 'sm:grid-cols-2'}`}>
         {data
           .filter((d) => d.value > 0)
           .map((d, i) => (
