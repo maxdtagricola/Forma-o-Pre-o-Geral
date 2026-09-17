@@ -15,3 +15,4 @@ vite.config.d.ts
 
 # screenshots de verificação visual (Playwright) — só pra conferência local, não faz parte do app
 scripts/screenshots/
+scripts/**/screenshots/
