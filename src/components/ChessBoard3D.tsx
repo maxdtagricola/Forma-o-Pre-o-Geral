@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { clone as clonarComEsqueleto } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { Chess, type Square } from 'chess.js'
 import { Button } from './ui/Basics'
 import { carregarLivroDeAberturas, type LivroDeAberturas } from '../chess/pgnBook'
@@ -228,6 +230,112 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
 }
 
 // ---------------------------------------------------------------------------
+// Primeiro passo rumo ao visual "RPG": o peão pode vir de um modelo .glb externo (malha +
+// esqueleto + animações, feito no Blender) em vez de só primitivas geométricas — carregado uma
+// vez só, em segundo plano, e reaproveitado (clonado) pra cada peão no tabuleiro. Se o arquivo não
+// existir ou falhar ao carregar, o peão cai de volta pro modelo geométrico de sempre — nunca quebra
+// o tabuleiro por causa disso.
+// ---------------------------------------------------------------------------
+interface ModeloRPG {
+  cena: THREE.Object3D
+  clipes: THREE.AnimationClip[]
+}
+let modeloPeaoRPG: ModeloRPG | null | undefined // undefined = ainda não tentou, null = tentou e falhou
+let carregamentoPeaoRPG: Promise<void> | null = null
+
+/** Dispara (uma única vez) o carregamento do modelo RPG do peão; chama `aoResolver` quando
+ * terminar (com sucesso ou falha) — usado pra re-sincronizar o tabuleiro e trocar os peões já
+ * desenhados pelo modelo novo assim que ele chegar. */
+function garantirModeloPeaoRPG(aoResolver: () => void) {
+  if (modeloPeaoRPG !== undefined) {
+    aoResolver()
+    return
+  }
+  if (!carregamentoPeaoRPG) {
+    const loader = new GLTFLoader()
+    carregamentoPeaoRPG = new Promise<void>((resolve) => {
+      loader.load(
+        `${import.meta.env.BASE_URL}models/peao_rpg.glb`,
+        (gltf) => {
+          modeloPeaoRPG = { cena: gltf.scene, clipes: gltf.animations }
+          resolve()
+        },
+        undefined,
+        () => {
+          // sem modelo ainda (ou falhou) — segue com o peão geométrico normal, sem quebrar nada
+          modeloPeaoRPG = null
+          resolve()
+        },
+      )
+    })
+  }
+  carregamentoPeaoRPG.then(aoResolver)
+}
+
+/** Monta o grupo do peão a partir do modelo RPG carregado — mesmo "contrato" do peão geométrico
+ * (posição/rotação/escala aplicadas por fora, em buildPieceMesh), mas com esqueleto de verdade em
+ * vez de pivôs manuais: guarda o AnimationMixer em userData pro laço de render atualizar, e as
+ * ações (clipes) nomeadas em userData.acoesRPG pra outras funções (ataque, etc.) poderem tocar.
+ */
+function buildPeaoRPG(modelo: ModeloRPG, cor: 'w' | 'b'): THREE.Group {
+  const grupo = new THREE.Group()
+  const clone = clonarComEsqueleto(modelo.cena) as THREE.Object3D
+
+  // mesmo material toon (com o gradiente em degraus) das peças geométricas — reaproveitado, não
+  // clonado, igual ao resto do tabuleiro — pra esse peão não destoar visualmente dos outros
+  const materialFaccao = materiaisPorFaccao[cor].armadura
+  clone.traverse((filho) => {
+    if (filho instanceof THREE.SkinnedMesh) {
+      filho.material = materialFaccao
+      filho.castShadow = true
+      filho.receiveShadow = true
+
+      // contorno tipo desenho, igual ao resto das peças (casco invertido, maior, visto só por
+      // dentro/atrás) — preso no MESMO esqueleto da malha visível (mesmo bind), então acompanha a
+      // animação sozinho, sem precisar de outro mixer nem duplicar o cálculo de pose
+      const contorno = new THREE.SkinnedMesh(filho.geometry, materialContorno)
+      contorno.bind(filho.skeleton, filho.bindMatrix)
+      contorno.scale.setScalar(1.06)
+      contorno.castShadow = false
+      clone.add(contorno)
+    }
+  })
+  grupo.add(clone)
+
+  const mixer = new THREE.AnimationMixer(clone)
+  const acoes: Record<string, THREE.AnimationAction> = {}
+  for (const clipe of modelo.clipes) {
+    acoes[clipe.name] = mixer.clipAction(clipe)
+  }
+  acoes.Idle?.play()
+  grupo.userData.mixer = mixer
+  grupo.userData.acoesRPG = acoes
+
+  return grupo
+}
+
+/** Toca um clipe nomeado (ex.: "Attack") uma vez só e volta pro "Idle" em seguida — silencioso se
+ * a peça não tiver esse clipe (peça geométrica, ou modelo sem essa animação). */
+function tocarClipeRPGUmaVez(mesh: THREE.Object3D, nomeClipe: string) {
+  const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
+  const acao = acoes?.[nomeClipe]
+  if (!acao) return
+  const idle = acoes?.Idle
+  acao.reset()
+  acao.setLoop(THREE.LoopOnce, 1)
+  acao.clampWhenFinished = true
+  idle?.crossFadeTo(acao, 0.1, false)
+  acao.play()
+  const mixer = mesh.userData.mixer as THREE.AnimationMixer
+  const aoTerminar = (evento: { action: THREE.AnimationAction }) => {
+    if (evento.action !== acao) return
+    mixer.removeEventListener('finished', aoTerminar)
+    if (idle) acao.crossFadeTo(idle, 0.2, false)
+  }
+  mixer.addEventListener('finished', aoTerminar)
+}
+
+// ---------------------------------------------------------------------------
 // Braços e pernas — mesma geometria pra todas as peças, com o pivô na
 // articulação (quadril/ombro) em vez do centro da peça, pra poder balançar
 // como uma caminhada de verdade durante a animação do lance. Bem mais finos que antes — é a peça
@@ -349,6 +457,18 @@ function criarMembro(cfg: ConfigMembro, cor: 'w' | 'b'): THREE.Group {
 }
 
 function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
+  // peão com o modelo RPG carregado (malha + esqueleto + animações do Blender) em vez do
+  // geométrico de sempre — mesmo "contrato" externo (userData.tipo/cor, rotação por cor, escala),
+  // só a montagem interna que muda. Sem sheath/espada procedural aqui: esse modelo é autocontido.
+  if (tipo === 'p' && modeloPeaoRPG) {
+    const grupo = buildPeaoRPG(modeloPeaoRPG, cor)
+    grupo.userData.tipo = tipo
+    grupo.userData.cor = cor
+    grupo.rotation.y = cor === 'w' ? Math.PI : 0
+    grupo.scale.setScalar(ESCALA_POR_TIPO[tipo] ?? 1)
+    return grupo
+  }
+
   const grupo = new THREE.Group()
   grupo.userData.tipo = tipo
   grupo.userData.cor = cor
@@ -1440,6 +1560,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         const direcao = { x: paraAtaque.x - deAtaque.x, z: paraAtaque.z - deAtaque.z }
         // sorteia o estilo do golpe a cada captura, pra não ser sempre a mesma animação
         const estilo: EstiloAtaque = Math.random() < 0.5 ? 'corte' : 'derrubada'
+        tocarClipeRPGUmaVez(meshMovendo, 'Attack')
         animarAtaqueEspada(
           meshMovendo,
           direcao,
@@ -1693,9 +1814,21 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     sincronizarPecas()
     atualizarStatusTexto()
 
+    // o modelo RPG do peão carrega em segundo plano — quando (e se) chegar, re-sincroniza pra
+    // trocar os peões já desenhados (geométricos) pelo modelo novo, sem precisar recarregar a página
+    let montado = true
+    garantirModeloPeaoRPG(() => {
+      if (montado) sincronizarPecas()
+    })
+
+    const relogio = new THREE.Clock()
     let frameId = 0
     function animate() {
       frameId = requestAnimationFrame(animate)
+      const delta = relogio.getDelta()
+      for (const peca of piecesGroup.children) {
+        ;(peca.userData.mixer as THREE.AnimationMixer | undefined)?.update(delta)
+      }
       controls.update()
       renderer.render(scene, camera)
     }
@@ -1746,6 +1879,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     agendarProximaInteracaoAmigavel()
 
     return () => {
+      montado = false
       pararDemo()
       window.clearTimeout(interacaoTimeoutId)
       window.removeEventListener('resize', onResize)

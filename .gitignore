@@ -16,3 +16,6 @@ vite.config.d.ts
 # screenshots de verificação visual (Playwright) — só pra conferência local, não faz parte do app
 scripts/screenshots/
 scripts/**/screenshots/
+
+# backup automático do Blender ao salvar (.blend1, .blend2...) — só o .blend atual importa
+*.blend[0-9]
