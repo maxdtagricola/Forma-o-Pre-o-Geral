@@ -240,13 +240,31 @@ export default function App() {
     setPricingGlobalState(valores)
   }
 
+  // assim que um valor unitário é preenchido, a cotação sai de "pendente" pra "analisando
+  // valores" sozinha — não precisa mais passar por "itens a cotar"/"usar na precificação" pra
+  // isso acontecer. Dispara sem esperar (a tela já reflete o status novo na hora; se o servidor
+  // falhar, o pior caso é o status ficar desatualizado até a próxima ação, sem travar a digitação)
+  function promoverStatusPorValorUnitario() {
+    if (!editingQuoteId || !currentAdmin || activeStatus !== 'PENDENTE') return
+    setActiveStatus('ANALISANDO VALORES')
+    setActiveResponsavel(currentAdmin)
+    updateQuoteStatus(editingQuoteId, 'ANALISANDO VALORES', currentAdmin)
+      .then(() => setHistoryRefreshKey((k) => k + 1))
+      .catch(() => {
+        // não interrompe a digitação por causa disso — na pior das hipóteses o status na tela
+        // fica um passo à frente do servidor até a próxima ação bem-sucedida
+      })
+  }
+
   function patchActiveProduct(patch: Partial<ProductInput>) {
+    if (patch.valorUnt !== undefined) promoverStatusPorValorUnitario()
     setItems((prev) => prev.map((item) => (item.id === activeItemId ? { ...item, product: { ...item.product, ...patch } } : item)))
   }
   function patchActivePricing(patch: Partial<PricingConfig>) {
     setItems((prev) => prev.map((item) => (item.id === activeItemId ? { ...item, pricing: { ...item.pricing, ...patch } } : item)))
   }
   function patchItemProduct(id: string, patch: Partial<ProductInput>) {
+    if (patch.valorUnt !== undefined) promoverStatusPorValorUnitario()
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, product: { ...item.product, ...patch } } : item)))
   }
   function handleApplyMarginToAll(lucroPct: number) {
