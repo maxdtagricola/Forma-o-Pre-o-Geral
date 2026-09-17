@@ -104,8 +104,14 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
         { geo: new THREE.BoxGeometry(0.1, 0.08, 0.075), y: 0.36, papel: 'armadura' },
         { geo: new THREE.BoxGeometry(0.08, 0.025, 0.08), y: 0.4, papel: 'detalhe' },
         { geo: new THREE.CylinderGeometry(0.055, 0.065, 0.2, 12), y: 0.48, papel: 'armadura' },
-        { geo: new THREE.SphereGeometry(0.026, 10, 8), x: -0.075, y: 0.55, papel: 'detalhe' },
-        { geo: new THREE.SphereGeometry(0.026, 10, 8), x: 0.075, y: 0.55, papel: 'detalhe' },
+        // juntas esféricas nos ombros e quadris, bem mais largas que o membro fino que sai delas —
+        // o visual de "boneco de brinquedo articulado" da foto de referência (bolinha grande na
+        // dobradiça). Centralizadas exatamente no pivô do braço/perna (CONFIG_BRACO/PERNA_*), pra
+        // o membro parecer emergir de dentro da esfera em vez de só encostar nela.
+        { geo: new THREE.SphereGeometry(0.036, 12, 10), x: -0.085, y: 0.52, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.036, 12, 10), x: 0.085, y: 0.52, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.032, 12, 10), x: -0.04, y: 0.32, papel: 'detalhe' },
+        { geo: new THREE.SphereGeometry(0.032, 12, 10), x: 0.04, y: 0.32, papel: 'detalhe' },
         { geo: new THREE.SphereGeometry(0.085, 16, 12), y: 0.68, papel: 'armadura' },
         { geo: new THREE.ConeGeometry(0.048, 0.1, 12), y: 0.785, papel: 'detalhe' },
         { geo: new THREE.BoxGeometry(0.06, 0.018, 0.018), y: 0.685, z: 0.078, papel: 'brilho' },
