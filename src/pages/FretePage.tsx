@@ -60,6 +60,10 @@ function cidadeUf(municipio?: string, uf?: string): string {
   if (!municipio && !uf) return ''
   return [municipio, uf].filter(Boolean).join(' / ')
 }
+function cidadeUfOrigem(f: Fornecedor | null): string {
+  if (!f) return ''
+  return cidadeUf(f.cidade, f.estado)
+}
 
 const CAMPOS_POR_TRANSPORTADORA: Record<string, CampoFrete[]> = {
   EUCATUR: [
@@ -78,7 +82,9 @@ const CAMPOS_POR_TRANSPORTADORA: Record<string, CampoFrete[]> = {
       opcoes: OPCOES_CIF_FOB,
     },
     { chave: 'cepOrigem', label: 'CEP de origem', valorInicial: (c) => c.fornecedor?.cep ?? '' },
+    { chave: 'cidadeOrigem', label: 'Cidade/UF de origem', valorInicial: (c) => cidadeUfOrigem(c.fornecedor) },
     { chave: 'cepDestino', label: 'CEP de destino', valorInicial: (c) => c.empresa?.cep ?? '' },
+    { chave: 'cidadeDestino', label: 'Cidade/UF de destino', valorInicial: (c) => cidadeUf(c.empresa?.municipio, c.empresa?.uf) },
     { chave: 'valorNF', label: 'Valor da Nota Fiscal (NFe)', valorInicial: (c) => (c.temCotacao ? formatCurrency(c.valorNF) : '') },
     { chave: 'volumes', label: 'Quantidade de volumes', valorInicial: (c) => String(c.qtdVolumes || '') },
     { chave: 'pesoBruto', label: 'Peso bruto', valorInicial: (c) => (c.pesoTotal ? `${formatNumber(c.pesoTotal, 2)} kg` : '') },
@@ -88,7 +94,9 @@ const CAMPOS_POR_TRANSPORTADORA: Record<string, CampoFrete[]> = {
     { chave: 'descricaoProduto', label: 'Descrição do produto', valorInicial: (c) => c.descricao },
   ],
   VAPTLOG: [
-    { chave: 'cidadeOrigem', label: 'Cidade origem', valorInicial: (c) => c.fornecedor?.cidade ?? '' },
+    { chave: 'cepOrigem', label: 'CEP de origem', valorInicial: (c) => c.fornecedor?.cep ?? '' },
+    { chave: 'cidadeOrigem', label: 'Cidade origem', valorInicial: (c) => cidadeUfOrigem(c.fornecedor) },
+    { chave: 'cepDestino', label: 'CEP de destino', valorInicial: (c) => c.empresa?.cep ?? '' },
     { chave: 'destino', label: 'Destino', valorInicial: (c) => cidadeUf(c.empresa?.municipio, c.empresa?.uf) },
     { chave: 'peso', label: 'Peso', valorInicial: (c) => (c.pesoTotal ? `${formatNumber(c.pesoTotal, 2)} kg` : '') },
     { chave: 'alturaTotal', label: 'Medidas — altura total', valorInicial: () => '' },
@@ -98,14 +106,16 @@ const CAMPOS_POR_TRANSPORTADORA: Record<string, CampoFrete[]> = {
     { chave: 'cnpjRemetente', label: 'CNPJ remetente', valorInicial: (c) => c.fornecedor?.cnpj ?? '' },
     { chave: 'cnpjDestinatario', label: 'CNPJ destinatário', valorInicial: (c) => c.empresa?.cnpj ?? '' },
     { chave: 'pagador', label: 'Pagador do frete', valorInicial: () => '', opcoes: OPCOES_CIF_FOB },
-    { chave: 'email', label: 'E-mail', valorInicial: () => '' },
+    { chave: 'email', label: 'E-mail', valorInicial: (c) => c.empresa?.email ?? '' },
   ],
   CARVALIMA: [
     { chave: 'cnpjPagador', label: 'CNPJ do pagador do frete', valorInicial: () => '' },
     { chave: 'cnpjRemetente', label: 'CNPJ do remetente', valorInicial: (c) => c.fornecedor?.cnpj ?? '' },
     { chave: 'cnpjDestinatario', label: 'CNPJ do destinatário', valorInicial: (c) => c.empresa?.cnpj ?? '' },
     { chave: 'cepOrigem', label: 'CEP de origem', valorInicial: (c) => c.fornecedor?.cep ?? '' },
+    { chave: 'cidadeOrigem', label: 'Cidade/UF de origem', valorInicial: (c) => cidadeUfOrigem(c.fornecedor) },
     { chave: 'cepDestino', label: 'CEP de destino', valorInicial: (c) => c.empresa?.cep ?? '' },
+    { chave: 'cidadeDestino', label: 'Cidade/UF de destino', valorInicial: (c) => cidadeUf(c.empresa?.municipio, c.empresa?.uf) },
     { chave: 'tipoMaterial', label: 'Tipo de material', valorInicial: () => '' },
     { chave: 'tipoEmbalagem', label: 'Tipo de embalagem', valorInicial: () => '' },
     { chave: 'valorNF', label: 'Valor da nota fiscal', valorInicial: (c) => (c.temCotacao ? formatCurrency(c.valorNF) : '') },
@@ -114,12 +124,12 @@ const CAMPOS_POR_TRANSPORTADORA: Record<string, CampoFrete[]> = {
     { chave: 'cubagem', label: 'Cubagem (altura, largura, comprimento)', valorInicial: () => '' },
   ],
   RODONAVES: [
-    { chave: 'cidadeOrigem', label: 'Cidade origem', valorInicial: (c) => c.fornecedor?.cidade ?? '' },
     { chave: 'cepOrigem', label: 'CEP (origem)', valorInicial: (c) => c.fornecedor?.cep ?? '' },
-    { chave: 'enderecoDestino', label: 'Destino da entrega — endereço', valorInicial: (c) => enderecoDestino(c.empresa) },
-    { chave: 'bairroDestino', label: 'Bairro', valorInicial: (c) => c.empresa?.bairro ?? '' },
+    { chave: 'cidadeOrigem', label: 'Cidade origem', valorInicial: (c) => cidadeUfOrigem(c.fornecedor) },
     { chave: 'cepDestino', label: 'CEP (destino)', valorInicial: (c) => c.empresa?.cep ?? '' },
     { chave: 'cidadeUfDestino', label: 'Cidade/UF (destino)', valorInicial: (c) => cidadeUf(c.empresa?.municipio, c.empresa?.uf) },
+    { chave: 'enderecoDestino', label: 'Destino da entrega — endereço', valorInicial: (c) => enderecoDestino(c.empresa) },
+    { chave: 'bairroDestino', label: 'Bairro', valorInicial: (c) => c.empresa?.bairro ?? '' },
     { chave: 'peso', label: 'Peso', valorInicial: (c) => (c.pesoTotal ? `${formatNumber(c.pesoTotal, 2)} kg` : '') },
     { chave: 'volumes', label: 'Volumes', valorInicial: (c) => String(c.qtdVolumes || '') },
     { chave: 'valorTotalNF', label: 'Valor total NF', valorInicial: (c) => (c.temCotacao ? formatCurrency(c.valorNF) : '') },
@@ -127,14 +137,16 @@ const CAMPOS_POR_TRANSPORTADORA: Record<string, CampoFrete[]> = {
     { chave: 'cnpjRemetente', label: 'CNPJ remetente', valorInicial: (c) => c.fornecedor?.cnpj ?? '' },
     { chave: 'cnpjDestinatario', label: 'CNPJ destinatário', valorInicial: (c) => c.empresa?.cnpj ?? '' },
     { chave: 'pagador', label: 'Pagador do frete', valorInicial: () => '', opcoes: OPCOES_CIF_FOB },
-    { chave: 'email', label: 'E-mail', valorInicial: () => '' },
+    { chave: 'email', label: 'E-mail', valorInicial: (c) => c.empresa?.email ?? '' },
   ],
   // modelo da Granexpress ainda não recebido — usa os campos comuns às outras por enquanto
   GRANEXPRESS: [
     { chave: 'cnpjRemetente', label: 'CNPJ remetente', valorInicial: (c) => c.fornecedor?.cnpj ?? '' },
     { chave: 'cnpjDestinatario', label: 'CNPJ destinatário', valorInicial: (c) => c.empresa?.cnpj ?? '' },
     { chave: 'cepOrigem', label: 'CEP de origem', valorInicial: (c) => c.fornecedor?.cep ?? '' },
+    { chave: 'cidadeOrigem', label: 'Cidade/UF de origem', valorInicial: (c) => cidadeUfOrigem(c.fornecedor) },
     { chave: 'cepDestino', label: 'CEP de destino', valorInicial: (c) => c.empresa?.cep ?? '' },
+    { chave: 'cidadeDestino', label: 'Cidade/UF de destino', valorInicial: (c) => cidadeUf(c.empresa?.municipio, c.empresa?.uf) },
     { chave: 'valorNF', label: 'Valor da nota fiscal', valorInicial: (c) => (c.temCotacao ? formatCurrency(c.valorNF) : '') },
     { chave: 'volumes', label: 'Quantidade de volumes', valorInicial: (c) => String(c.qtdVolumes || '') },
     { chave: 'peso', label: 'Peso', valorInicial: (c) => (c.pesoTotal ? `${formatNumber(c.pesoTotal, 2)} kg` : '') },

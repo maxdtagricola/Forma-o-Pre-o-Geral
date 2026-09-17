@@ -434,6 +434,7 @@ export interface Empresa {
   cep: string
   municipio: string
   uf: string
+  email: string
 }
 
 export const DEFAULT_EMPRESA: Omit<Empresa, 'id'> = {
@@ -444,4 +445,5 @@ export const DEFAULT_EMPRESA: Omit<Empresa, 'id'> = {
   cep: '',
   municipio: '',
   uf: 'RO',
+  email: '',
 }

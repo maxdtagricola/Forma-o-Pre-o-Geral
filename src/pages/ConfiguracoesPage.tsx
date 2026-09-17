@@ -140,7 +140,16 @@ export function ConfiguracoesPage({
   }
 
   function handleEditEmpresa(e: Empresa) {
-    setFormEmpresa({ nome: e.nome, cnpj: e.cnpj, endereco: e.endereco, bairro: e.bairro, cep: e.cep, municipio: e.municipio, uf: e.uf })
+    setFormEmpresa({
+      nome: e.nome,
+      cnpj: e.cnpj,
+      endereco: e.endereco,
+      bairro: e.bairro,
+      cep: e.cep,
+      municipio: e.municipio,
+      uf: e.uf,
+      email: e.email ?? '',
+    })
     setEditingEmpresaId(e.id)
     cardEmpresasRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
@@ -459,6 +468,13 @@ export function ConfiguracoesPage({
           <TextField label="CEP" value={formEmpresa.cep} onChange={(v) => patchEmpresa({ cep: v })} placeholder="00000-000" />
           <TextField label="Município" value={formEmpresa.municipio} onChange={(v) => patchEmpresa({ municipio: v })} />
           <SelectField label="UF" value={formEmpresa.uf} onChange={(v) => patchEmpresa({ uf: v })} options={estadoOptions} />
+          <TextField
+            label="E-mail"
+            value={formEmpresa.email}
+            onChange={(v) => patchEmpresa({ email: v })}
+            placeholder="contato@empresa.com.br"
+            hint="Carrega sozinho no pedido de frete, quando o modelo da transportadora pedir e-mail"
+          />
         </div>
 
         <label className="block mt-4 max-w-[12rem]">
