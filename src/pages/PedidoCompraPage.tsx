@@ -80,11 +80,17 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
     refresh().finally(() => setLoading(false))
   }, [])
 
-  // cotações em "PEDIDO DE COMPRA" aparecem sozinhas aqui, sem precisar procurar — assim que o
-  // status muda em Cotações, na próxima vez que essa aba abre a cotação já está na lista
+  // cotações a partir de "PEDIDO DE COMPRA" (esse status em diante, no fluxo de QUOTE_STATUSES)
+  // aparecem sozinhas aqui, sem precisar procurar — assim que o status muda em Cotações, na
+  // próxima vez que essa aba abre a cotação já está na lista, e continua aparecendo enquanto
+  // avança pelo resto do fluxo (confirmado, em transporte, entregue etc.)
+  const indicePedidoDeCompra = QUOTE_STATUSES.indexOf('PEDIDO DE COMPRA')
   const cotacoesEmPedido = useMemo(
-    () => quotes.filter((q) => q.status === 'PEDIDO DE COMPRA').sort((a, b) => b.updatedAt - a.updatedAt),
-    [quotes],
+    () =>
+      quotes
+        .filter((q) => QUOTE_STATUSES.indexOf(q.status) >= indicePedidoDeCompra)
+        .sort((a, b) => b.updatedAt - a.updatedAt),
+    [quotes, indicePedidoDeCompra],
   )
 
   const cotacao = useMemo(() => quotes.find((q) => q.id === cotacaoId), [quotes, cotacaoId])
@@ -209,10 +215,18 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                   cotacaoId === q.id ? 'border-brand-400 bg-brand-50' : 'border-ink-100 hover:border-ink-300 hover:bg-ink-50'
                 }`}
               >
-                <span className="font-medium text-ink-800">
-                  {q.codigo || 'sem código'} — {q.cliente || 'sem cliente'}
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className="font-medium text-ink-800 truncate">
+                    {q.codigo || 'sem código'} — {q.cliente || 'sem cliente'}
+                  </span>
+                  <span
+                    className="shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+                    style={{ backgroundColor: corPadraoDoStatus(q.status), color: corTexto(corPadraoDoStatus(q.status)) }}
+                  >
+                    {q.status}
+                  </span>
                 </span>
-                <span className="text-ink-400">{q.maquina}</span>
+                <span className="text-ink-400 shrink-0">{q.maquina}</span>
               </button>
             ))}
           </div>
