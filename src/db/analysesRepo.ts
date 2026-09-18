@@ -38,7 +38,7 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
       tipoReferencia: 'itens',
       cliente: '',
       maquina: '',
-      items: [{ id: makeId(), product: record.product, pricing: record.pricing }],
+      items: [{ id: makeId(), product: { ...record.product, estadoOrigem: record.product.estadoOrigem || 'SP' }, pricing: record.pricing }],
       itensPreRegistro: [],
       status: 'PENDENTE',
       responsavelStatus: '',
@@ -60,6 +60,12 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
     tipoReferencia: record.tipoReferencia ?? 'itens',
     cliente: record.cliente ?? '',
     maquina: record.maquina ?? '',
+    // itens salvos antes do campo UF existir (ou salvos em branco) ficam sem nenhuma opção
+    // selecionada no <select> — cai pra SP, o mesmo padrão de item novo
+    items: (record.items ?? []).map((item) => ({
+      ...item,
+      product: { ...item.product, estadoOrigem: item.product.estadoOrigem || 'SP' },
+    })),
     itensPreRegistro: record.itensPreRegistro ?? [],
     status: record.status ?? 'PENDENTE',
     responsavelStatus: record.responsavelStatus ?? '',
@@ -236,6 +242,21 @@ export async function findByInterno(interno: string): Promise<ProductInput | und
   for (const quote of quotes) {
     for (const item of quote.items) {
       if (item.product.interno.trim().toLowerCase() === target) {
+        return item.product
+      }
+    }
+  }
+  return undefined
+}
+
+/** Mesma busca de `findByInterno`, mas pelo código "Referência". */
+export async function findByReferencia(referencia: string): Promise<ProductInput | undefined> {
+  const target = referencia.trim().toLowerCase()
+  if (!target) return undefined
+  const quotes = await listQuotes()
+  for (const quote of quotes) {
+    for (const item of quote.items) {
+      if (item.product.referencia.trim().toLowerCase() === target) {
         return item.product
       }
     }

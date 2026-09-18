@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { formatCurrency, selecionarTudoAoFocar } from '../utils'
 import { ESTADOS } from '../data/estados'
 import { listFornecedores } from '../db/fornecedoresRepo'
+import { findByInterno, findByReferencia } from '../db/analysesRepo'
 import type { Fornecedor, ProductInput, QuoteItem } from '../types'
 
 type ModoFrete = 'pct' | 'valor'
@@ -236,6 +237,42 @@ function LinhaItem({
     onFecharFornecedor()
   }
 
+  // ao achar um produto já cadastrado com o mesmo Interno/Referência, carrega os demais dados
+  // dele — menos qtd (quantidade é sempre desse pedido, não do histórico) e as cotações de
+  // fornecedor registradas (pertencem à análise antiga, não fazem sentido aqui)
+  function aplicarProdutoEncontrado(found: ProductInput) {
+    onPatch({
+      perfil: found.perfil,
+      referencia: found.referencia,
+      ncm: found.ncm,
+      interno: found.interno,
+      fornecedor: found.fornecedor,
+      marca: found.marca,
+      freteRate: found.freteRate,
+      estadoOrigem: found.estadoOrigem,
+      descricao: found.descricao,
+      valorUnt: found.valorUnt,
+      peso: found.peso,
+      prazoEntrega: found.prazoEntrega,
+      stRetido: found.stRetido,
+      outrasDespesas: found.outrasDespesas,
+      desconto: found.desconto,
+      ipi: found.ipi,
+      freteAdicional: found.freteAdicional,
+      credIcmsFrete: found.credIcmsFrete,
+    })
+  }
+
+  async function handleInternoBlur() {
+    const found = await findByInterno(item.product.interno)
+    if (found) aplicarProdutoEncontrado(found)
+  }
+
+  async function handleReferenciaBlur() {
+    const found = await findByReferencia(item.product.referencia)
+    if (found) aplicarProdutoEncontrado(found)
+  }
+
   return (
     <tr onClick={onSelect} className={`cursor-pointer transition ${isActive ? 'bg-brand-50' : 'hover:bg-ink-50'}`}>
       <td className={`${cellCls} text-ink-400 text-xs text-center`}>{index + 1}</td>
@@ -244,6 +281,7 @@ function LinhaItem({
           className={`${inputCls} font-mono`}
           value={item.product.interno}
           onChange={(e) => onPatch({ interno: e.target.value })}
+          onBlur={handleInternoBlur}
           onClick={stop}
         />
       </td>
@@ -252,6 +290,7 @@ function LinhaItem({
           className={inputCls}
           value={item.product.referencia}
           onChange={(e) => onPatch({ referencia: e.target.value })}
+          onBlur={handleReferenciaBlur}
           onClick={stop}
         />
       </td>
