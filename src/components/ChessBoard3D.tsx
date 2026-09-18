@@ -316,6 +316,9 @@ function buildPeaoRPG(modelo: ModeloRPG, cor: 'w' | 'b'): THREE.Group {
   acoes.Idle?.play()
   grupo.userData.mixer = mixer
   grupo.userData.acoesRPG = acoes
+  // ponto de fixação da espada durante o golpe (ver animarAtaqueEspada) — osso sem malha própria,
+  // só existe pra pendurar algo na mão direita
+  grupo.userData.maoDireitaRPG = clone.getObjectByName('Hand_R')
 
   return grupo
 }
@@ -912,6 +915,7 @@ function animarAtaqueEspada(
   aoTerminar: () => void,
 ) {
   const membros = mesh.userData.membros as MembrosPersonagem | undefined
+  const maoDireitaRPG = mesh.userData.maoDireitaRPG as THREE.Object3D | undefined
   const base = (mesh.userData.poseBase as PoseBaseMembros | undefined) ?? POSE_BASE_NEUTRA
   const rotYOriginal = mesh.rotation.y
   const posOriginal = { x: mesh.position.x, z: mesh.position.z }
@@ -920,12 +924,22 @@ function animarAtaqueEspada(
   let impactoDisparado = false
 
   // desembainha — a espada só existe presa na mão durante o golpe; o resto do tempo o peão só
-  // tem o cabo na bainha (parte fixa do corpo). Guardada de volta ao fim do ataque.
+  // tem o cabo na bainha (parte fixa do corpo, do lado esquerdo — ver criar_peao_rpg.py). Guardada
+  // de volta ao fim do ataque. Peça geométrica pendura no pivô do braço (membros); peão RPG
+  // pendura no osso da mão direita (Hand_R, ver buildPeaoRPG) — os dois nunca coexistem na mesma
+  // peça, cada uma usa só o seu.
   const espadaDesembainhada = criarEspadaDoPeao()
-  espadaDesembainhada.position.y = -CONFIG_BRACO_DIR.comprimento
-  espadaDesembainhada.rotation.z = Math.PI * 0.15
-  espadaDesembainhada.scale.setScalar(1.5)
-  membros?.bracoDir.add(espadaDesembainhada)
+  if (maoDireitaRPG) {
+    espadaDesembainhada.rotation.x = Math.PI * 0.5
+    espadaDesembainhada.position.y = -0.03
+    espadaDesembainhada.scale.setScalar(0.55)
+    maoDireitaRPG.add(espadaDesembainhada)
+  } else {
+    espadaDesembainhada.position.y = -CONFIG_BRACO_DIR.comprimento
+    espadaDesembainhada.rotation.z = Math.PI * 0.15
+    espadaDesembainhada.scale.setScalar(1.5)
+    membros?.bracoDir.add(espadaDesembainhada)
+  }
 
   function passo(agora: number) {
     const t = Math.min(1, (agora - inicio) / DURACAO_ATAQUE_MS)
@@ -966,6 +980,7 @@ function animarAtaqueEspada(
         membros.bracoDir.rotation.z = 0
         membros.bracoDir.remove(espadaDesembainhada)
       }
+      maoDireitaRPG?.remove(espadaDesembainhada)
       aoTerminar()
     }
   }
