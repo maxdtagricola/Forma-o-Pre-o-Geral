@@ -1122,6 +1122,8 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
   const listaLancesRef = useRef<HTMLDivElement>(null)
   const [partidasEmAndamento, setPartidasEmAndamento] = useState<PartidaXadrez[]>([])
   const [partidasAberto, setPartidasAberto] = useState(false)
+  const [partidasFinalizadas, setPartidasFinalizadas] = useState<PartidaXadrez[]>([])
+  const [partidasFinalizadasAberto, setPartidasFinalizadasAberto] = useState(false)
   // true quando ainda não há partida em andamento e o jogador precisa escolher a cor antes de
   // começar (tanto na primeira vez quanto em "Novo jogo") — o admin logado já é o jogador fixo
   const [escolhendoCor, setEscolhendoCor] = useState(false)
@@ -1156,6 +1158,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       .then((partidas) => {
         if (cancelado) return
         const emAndamento = partidas.filter((p) => p.status === 'EM_ANDAMENTO')
+        setPartidasFinalizadas(partidas.filter((p) => p.status === 'FINALIZADA'))
         if (emAndamento.length > 0) {
           partidaAtualRef.current = emAndamento[0]
           setPartidasEmAndamento(emAndamento)
@@ -1445,6 +1448,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         .then(() => {
           if (finalizouAgora) {
             setPartidasEmAndamento((prev) => prev.filter((p) => p.id !== partida.id))
+            setPartidasFinalizadas((prev) => [partida, ...prev])
           }
         })
         .catch(() => {
@@ -1941,6 +1945,19 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     acoesRef.current?.carregarPgn('', cor)
   }
 
+  // recarrega o PGN igual a retomar uma partida em andamento — como o jogo já terminou (xeque-mate,
+  // afogamento ou empate), não sobra nenhum lance legal pro chess.js aceitar, então o tabuleiro fica
+  // naturalmente travado só de olhar, sem precisar de nenhuma trava extra
+  function handleVerPartidaFinalizada(partida: PartidaXadrez) {
+    handleRetomarPartida(partida)
+  }
+
+  function resultadoPartida(partida: PartidaXadrez): 'venceu' | 'perdeu' | 'empate' {
+    if (partida.resultado?.startsWith('Você venceu')) return 'venceu'
+    if (partida.resultado?.startsWith('A máquina venceu')) return 'perdeu'
+    return 'empate'
+  }
+
   function handleRetomarPartida(partida: PartidaXadrez) {
     partidaAtualRef.current = partida
     acoesRef.current?.carregarPgn(partida.pgn, partida.corJogador)
@@ -2112,6 +2129,48 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
                   Partida de {new Date(p.criadaEm).toLocaleDateString('pt-BR')}
                 </button>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {partidasFinalizadas.length > 0 && (
+        <div className="rounded-xl border border-ink-200 overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setPartidasFinalizadasAberto((v) => !v)}
+            className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-ink-700 hover:bg-ink-50"
+          >
+            Partidas finalizadas
+            <span aria-hidden className={`transition-transform ${partidasFinalizadasAberto ? 'rotate-180' : ''}`}>
+              ▾
+            </span>
+          </button>
+          {partidasFinalizadasAberto && (
+            <div className="flex flex-wrap gap-2 px-3 pb-3 pt-1 border-t border-ink-100">
+              {partidasFinalizadas.map((p) => {
+                const resultado = resultadoPartida(p)
+                const ativa = partidaAtualRef.current?.id === p.id
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => handleVerPartidaFinalizada(p)}
+                    title={p.resultado}
+                    className={`pill-tab border ${
+                      ativa
+                        ? 'bg-ink-950 border-ink-950 text-white'
+                        : resultado === 'venceu'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                          : resultado === 'perdeu'
+                            ? 'border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                            : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+                    }`}
+                  >
+                    Partida de {new Date(p.criadaEm).toLocaleDateString('pt-BR')}
+                  </button>
+                )
+              })}
             </div>
           )}
         </div>
