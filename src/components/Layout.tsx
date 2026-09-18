@@ -75,12 +75,16 @@ export function Layout({
   onChangeTab,
   currentAdmin,
   onSwitchAdmin,
+  podeVoltar,
+  onVoltar,
   children,
 }: {
   active: TabKey
   onChangeTab: (tab: TabKey) => void
   currentAdmin: string
   onSwitchAdmin: () => void
+  podeVoltar: boolean
+  onVoltar: () => void
   children: ReactNode
 }) {
   // recolhido por padrão (igual ao menu do celular, que começa fechado) — só fica expandido se o usuário escolher
@@ -119,6 +123,21 @@ export function Layout({
               <p className="text-[11px] text-ink-400 truncate">Markup, ICMS-ST, RBC e PIS/COFINS</p>
             </div>
           )}
+        </div>
+
+        <div className="px-2 pt-2">
+          <button
+            type="button"
+            onClick={onVoltar}
+            disabled={!podeVoltar}
+            title="Voltar pra tela anterior"
+            className={`w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition text-ink-500 ${
+              podeVoltar ? 'hover:bg-ink-100 hover:text-ink-800' : 'opacity-30 cursor-not-allowed'
+            } ${collapsed ? 'justify-center' : ''}`}
+          >
+            <span aria-hidden>←</span>
+            {!collapsed && <span>Voltar</span>}
+          </button>
         </div>
 
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">

@@ -59,6 +59,23 @@ export default function App() {
     const admin = getModoSessao() === 'admin' ? getCurrentAdmin() : null
     return admin === 'Max' ? 'acompanhamentoNotas' : 'telaInicial'
   })
+  // pilha de telas visitadas, pro botão "Voltar" — só empilha quando a aba realmente muda (evita
+  // entradas repetidas se algo chamar changeTab pra aba em que já se está)
+  const [tabHistory, setTabHistory] = useState<TabKey[]>([])
+  function changeTab(novaTab: TabKey) {
+    setTab((atual) => {
+      if (atual !== novaTab) setTabHistory((prev) => [...prev, atual])
+      return novaTab
+    })
+  }
+  function handleVoltar() {
+    setTabHistory((prev) => {
+      if (prev.length === 0) return prev
+      const proxima = prev.slice(0, -1)
+      setTab(prev[prev.length - 1])
+      return proxima
+    })
+  }
   const [vendedor, setVendedor] = useState('')
   const [tipoReferencia, setTipoReferencia] = useState<TipoReferencia>('itens')
   const [cliente, setCliente] = useState('')
@@ -227,7 +244,7 @@ export default function App() {
     setActiveStatus(r.activeStatus)
     setActiveResponsavel(r.activeResponsavel)
     setPlanilhaOriginalState(r.planilhaOriginal)
-    setTab('dashboard')
+    changeTab('dashboard')
     setRascunhoDisponivel(undefined)
   }
 
@@ -366,7 +383,7 @@ export default function App() {
     setDataSolicitacao(record.dataSolicitacao)
     setNumeroCotacaoTransportadora(record.numeroCotacaoTransportadora ?? '')
     setPlanilhaOriginalState(record.planilhaOriginal)
-    setTab('dashboard')
+    changeTab('dashboard')
   }
 
   async function handleCreateQuote(vendedorNovo: string, clienteNovo: string, maquinaNova: string, tipo: TipoReferencia) {
@@ -424,7 +441,14 @@ export default function App() {
   }
 
   return (
-    <Layout active={tab} onChangeTab={setTab} currentAdmin={currentAdmin} onSwitchAdmin={handleSwitchAdmin}>
+    <Layout
+      active={tab}
+      onChangeTab={changeTab}
+      currentAdmin={currentAdmin}
+      onSwitchAdmin={handleSwitchAdmin}
+      podeVoltar={tabHistory.length > 0}
+      onVoltar={handleVoltar}
+    >
       {tab === 'telaInicial' && <TelaInicialPage jogador={currentAdmin} />}
       {tab === 'cotacoes' && (
         <CotacoesPage
@@ -444,8 +468,8 @@ export default function App() {
           activeResponsavel={activeResponsavel}
           items={items}
           onPatchItem={patchItemProduct}
-          onGoToCotacoes={() => setTab('cotacoes')}
-          onGoToPrecificacao={() => setTab('dashboard')}
+          onGoToCotacoes={() => changeTab('cotacoes')}
+          onGoToPrecificacao={() => changeTab('dashboard')}
         />
       )}
       {tab === 'dashboard' && (
@@ -478,9 +502,9 @@ export default function App() {
           onPricingChange={patchActivePricing}
           onSave={handleSave}
           onNew={handleNew}
-          onGoToCotacoes={() => setTab('cotacoes')}
-          onGoToComparar={() => setTab('comparar')}
-          onGoToFrete={() => setTab('frete')}
+          onGoToCotacoes={() => changeTab('cotacoes')}
+          onGoToComparar={() => changeTab('comparar')}
+          onGoToFrete={() => changeTab('frete')}
           onEnviarCotacao={handleEnviarCotacao}
           temPlanilhaCliente={!!planilhaOriginal}
           onVerPlanilhaCliente={() => setMostrarPlanilhaCliente(true)}
