@@ -124,5 +124,30 @@ export async function lerPlanilhaCotacao(arquivo: File): Promise<ResultadoImport
     throw new Error('Não encontrei itens marcados como "COTAR" (com entrega em branco) nessa planilha.')
   }
 
-  return { cliente, equipamento, vendedor, itens }
+  return { cliente, equipamento, vendedor, itens: sintetizarPorReferencia(itens) }
+}
+
+/**
+ * Quando a mesma referência aparece em mais de uma linha da planilha (pedidos
+ * parcelados, por exemplo), soma as quantidades num item só em vez de duplicar
+ * a linha na cotação. Referência em branco não é uma chave confiável (pode
+ * repetir sem ser o mesmo item de verdade), então essas linhas nunca são
+ * mescladas entre si — cada uma vira seu próprio item, como já era.
+ */
+function sintetizarPorReferencia(itens: ItemCotacaoImportado[]): ItemCotacaoImportado[] {
+  const resultado: ItemCotacaoImportado[] = []
+  const indicePorReferencia = new Map<string, number>()
+
+  for (const item of itens) {
+    const chave = item.referencia.trim().toLowerCase()
+    const indiceExistente = chave ? indicePorReferencia.get(chave) : undefined
+    if (indiceExistente !== undefined) {
+      resultado[indiceExistente].quantidade += item.quantidade
+      continue
+    }
+    resultado.push({ ...item })
+    if (chave) indicePorReferencia.set(chave, resultado.length - 1)
+  }
+
+  return resultado
 }
