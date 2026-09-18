@@ -1,17 +1,17 @@
 import { useMemo, useState } from 'react'
-import { ProductForm } from '../components/ProductForm'
 import { ResultPanel } from '../components/ResultPanel'
 import { QuoteItemsList } from '../components/QuoteItemsList'
-import { FreightSplitPanel } from '../components/FreightSplitPanel'
+import { ProductValuesTable } from '../components/ProductValuesTable'
 import { EnvioCotacaoModal } from '../components/EnvioCotacaoModal'
 import { Button } from '../components/ui/Basics'
 import { SelectField, TextField } from '../components/ui/Field'
 import { calculateItem } from '../calc/calculator'
 import { dateToInputValue, formatCurrency, formatDate, inputValueToDate } from '../utils'
-import { VENDEDORES } from '../types'
-import type { CalculationResult, Empresa, PricingConfig, ProductInput, QuoteItem, QuoteStatus } from '../types'
+import { ESTADOS_DESTINO, VENDEDORES } from '../types'
+import type { CalculationResult, Empresa, EstadoDestino, PricingConfig, ProductInput, QuoteItem, QuoteStatus } from '../types'
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
+const perfilOptions = ESTADOS_DESTINO.map((e) => ({ value: e.value, label: e.label }))
 
 export function Dashboard({
   currentAdmin,
@@ -36,10 +36,9 @@ export function Dashboard({
   onSelectItem,
   onAddItem,
   onRemoveItem,
-  onApplyFreightSplit,
   onPatchItem,
   onApplyMarginToAll,
-  onProductChange,
+  onApplyPerfilToAll,
   onPricingChange,
   onSave,
   onNew,
@@ -77,10 +76,9 @@ export function Dashboard({
   onSelectItem: (id: string) => void
   onAddItem: () => void
   onRemoveItem: (id: string) => void
-  onApplyFreightSplit: (valores: Record<string, number>) => void
   onPatchItem: (id: string, patch: Partial<ProductInput>) => void
   onApplyMarginToAll: (lucroPct: number) => void
-  onProductChange: (patch: Partial<ProductInput>) => void
+  onApplyPerfilToAll: (perfil: EstadoDestino) => void
   onPricingChange: (patch: Partial<PricingConfig>) => void
   onSave: () => void
   onNew: () => void
@@ -202,6 +200,23 @@ export function Dashboard({
         </div>
       </div>
 
+      <div className="card">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg font-semibold text-ink-900">Perfil de cálculo</h2>
+            <p className="text-sm text-ink-400">Estado de destino usado no cálculo (RBC/ICMS-ST) de todos os itens desta cotação.</p>
+          </div>
+          <div className="w-full sm:w-56">
+            <SelectField
+              label="Perfil"
+              value={activeProduct.perfil}
+              onChange={(v) => onApplyPerfilToAll(v as EstadoDestino)}
+              options={perfilOptions}
+            />
+          </div>
+        </div>
+      </div>
+
       <QuoteItemsList
         items={items}
         activeItemId={activeItemId}
@@ -213,11 +228,9 @@ export function Dashboard({
         onGoToComparar={onGoToComparar}
       />
 
-      <FreightSplitPanel items={items} onApply={onApplyFreightSplit} />
-
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         <div className="lg:col-span-3 space-y-6">
-          <ProductForm product={activeProduct} onChange={onProductChange} />
+          <ProductValuesTable items={items} />
         </div>
 
         <div className="lg:col-span-2 space-y-4">

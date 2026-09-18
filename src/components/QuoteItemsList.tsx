@@ -1,11 +1,93 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react'
+import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
 import { formatCurrency, selecionarTudoAoFocar } from '../utils'
+import { calculateItem } from '../calc/calculator'
 import { ESTADOS } from '../data/estados'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { findByInterno, findByReferencia } from '../db/analysesRepo'
 import type { Fornecedor, ProductInput, QuoteItem } from '../types'
 
 type ModoFrete = 'pct' | 'valor'
+
+type ColunaKey =
+  | 'interno'
+  | 'referencia'
+  | 'descricao'
+  | 'ncm'
+  | 'fornecedor'
+  | 'uf'
+  | 'qtd'
+  | 'peso'
+  | 'valorUnt'
+  | 'precoVenda'
+  | 'frete'
+  | 'prazo'
+  | 'total'
+
+const COLUNAS_PADRAO: ColunaKey[] = [
+  'interno',
+  'referencia',
+  'descricao',
+  'ncm',
+  'fornecedor',
+  'uf',
+  'qtd',
+  'peso',
+  'valorUnt',
+  'precoVenda',
+  'frete',
+  'prazo',
+  'total',
+]
+
+const LABEL_COLUNA: Record<ColunaKey, string> = {
+  interno: 'Interno',
+  referencia: 'Referência',
+  descricao: 'Descrição',
+  ncm: 'NCM',
+  fornecedor: 'Fornecedor',
+  uf: 'UF',
+  qtd: 'Qtd',
+  peso: 'Peso (kg)',
+  valorUnt: 'Valor unt.',
+  precoVenda: 'Preço de venda',
+  frete: 'Frete',
+  prazo: 'Prazo',
+  total: 'Total',
+}
+
+const CLASSE_COLUNA: Record<ColunaKey, string> = {
+  interno: 'min-w-[7rem]',
+  referencia: 'min-w-[8rem]',
+  descricao: 'min-w-[12rem]',
+  ncm: 'min-w-[7rem]',
+  fornecedor: 'min-w-[10rem]',
+  uf: 'w-24',
+  qtd: 'w-20 text-right',
+  peso: 'w-24 text-right',
+  valorUnt: 'w-28 text-right',
+  precoVenda: 'w-28 text-right',
+  frete: 'w-32',
+  prazo: 'min-w-[7rem]',
+  total: 'w-32 text-right',
+}
+
+// preferência só de exibição (não é dado da cotação) — guardada no navegador de quem está usando,
+// pra continuar do jeito que a pessoa deixou da última vez
+const CHAVE_ORDEM_COLUNAS = 'itensCotacao:ordemColunas'
+
+function carregarOrdemColunas(): ColunaKey[] {
+  try {
+    const bruto = localStorage.getItem(CHAVE_ORDEM_COLUNAS)
+    if (!bruto) return COLUNAS_PADRAO
+    const salvo = JSON.parse(bruto)
+    // só aceita se tiver exatamente o mesmo conjunto de colunas de hoje — evita ordem quebrada se
+    // uma coluna for adicionada/removida numa atualização futura do app
+    const valido = Array.isArray(salvo) && salvo.length === COLUNAS_PADRAO.length && COLUNAS_PADRAO.every((c) => salvo.includes(c))
+    return valido ? (salvo as ColunaKey[]) : COLUNAS_PADRAO
+  } catch {
+    return COLUNAS_PADRAO
+  }
+}
 
 export function QuoteItemsList({
   items,
@@ -30,6 +112,8 @@ export function QuoteItemsList({
   const [modoFrete, setModoFrete] = useState<ModoFrete>('pct')
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [fornecedorAbertoId, setFornecedorAbertoId] = useState<string | null>(null)
+  const [ordemColunas, setOrdemColunas] = useState<ColunaKey[]>(carregarOrdemColunas)
+  const [colunaArrastada, setColunaArrastada] = useState<ColunaKey | null>(null)
 
   useEffect(() => {
     listFornecedores()
@@ -46,6 +130,14 @@ export function QuoteItemsList({
     document.addEventListener('mousedown', fecharAoClicarFora)
     return () => document.removeEventListener('mousedown', fecharAoClicarFora)
   }, [])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAVE_ORDEM_COLUNAS, JSON.stringify(ordemColunas))
+    } catch {
+      // sem localStorage disponível — a ordem só não persiste entre sessões, sem quebrar a tela
+    }
+  }, [ordemColunas])
 
   const cellCls = 'px-1 py-1 border-t border-ink-100'
   const inputCls =
@@ -64,13 +156,81 @@ export function QuoteItemsList({
     onApplyMarginToAll(valor / 100)
   }
 
+  function moverColuna(origem: ColunaKey, destino: ColunaKey) {
+    if (origem === destino) return
+    setOrdemColunas((prev) => {
+      const indiceOrigem = prev.indexOf(origem)
+      const indiceDestino = prev.indexOf(destino)
+      if (indiceOrigem === -1 || indiceDestino === -1) return prev
+      const proxima = [...prev]
+      proxima.splice(indiceOrigem, 1)
+      // tira a coluna de origem primeiro desloca tudo que vinha depois dela um índice pra trás —
+      // se o destino tava depois da origem, o índice dele nessa cópia já encolheu junto
+      const indiceInsercao = indiceOrigem < indiceDestino ? indiceDestino - 1 : indiceDestino
+      proxima.splice(indiceInsercao, 0, origem)
+      return proxima
+    })
+  }
+
+  function renderCabecalho(chave: ColunaKey) {
+    const conteudo =
+      chave === 'frete' ? (
+        <div className="flex items-center justify-end gap-1">
+          <span>Frete</span>
+          <span className="inline-flex rounded-md border border-ink-200 overflow-hidden shrink-0">
+            <button
+              type="button"
+              onClick={() => setModoFrete('pct')}
+              className={`px-1.5 py-0.5 text-[10px] font-medium transition ${
+                modoFrete === 'pct' ? 'bg-ink-950 text-white' : 'bg-white text-ink-500 hover:bg-ink-50'
+              }`}
+            >
+              %
+            </button>
+            <button
+              type="button"
+              onClick={() => setModoFrete('valor')}
+              className={`px-1.5 py-0.5 text-[10px] font-medium border-l border-ink-200 transition ${
+                modoFrete === 'valor' ? 'bg-ink-950 text-white' : 'bg-white text-ink-500 hover:bg-ink-50'
+              }`}
+            >
+              R$
+            </button>
+          </span>
+        </div>
+      ) : (
+        LABEL_COLUNA[chave]
+      )
+
+    return (
+      <th
+        key={chave}
+        draggable
+        onDragStart={() => setColunaArrastada(chave)}
+        onDragOver={(e: DragEvent) => e.preventDefault()}
+        onDrop={(e: DragEvent) => {
+          e.preventDefault()
+          if (colunaArrastada) moverColuna(colunaArrastada, chave)
+          setColunaArrastada(null)
+        }}
+        onDragEnd={() => setColunaArrastada(null)}
+        title="Arraste pra reordenar as colunas"
+        className={`py-2 px-2 font-medium cursor-move select-none transition ${CLASSE_COLUNA[chave]} ${
+          colunaArrastada === chave ? 'opacity-40' : ''
+        }`}
+      >
+        {conteudo}
+      </th>
+    )
+  }
+
   return (
     <div className="card">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div>
           <h2 className="font-display text-lg font-semibold text-ink-900">Itens da cotação</h2>
           <p className="text-sm text-ink-400">
-            Edite direto na planilha — clique numa linha pra ver os campos avançados dela abaixo.
+            Edite direto na planilha — arraste o cabeçalho pra reordenar as colunas do seu jeito.
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
@@ -117,41 +277,7 @@ export function QuoteItemsList({
           <thead>
             <tr className="bg-ink-50 text-left text-ink-400">
               <th className="py-2 px-2 font-medium w-8">#</th>
-              <th className="py-2 px-2 font-medium min-w-[7rem]">Interno</th>
-              <th className="py-2 px-2 font-medium min-w-[8rem]">Referência</th>
-              <th className="py-2 px-2 font-medium min-w-[12rem]">Descrição</th>
-              <th className="py-2 px-2 font-medium min-w-[7rem]">NCM</th>
-              <th className="py-2 px-2 font-medium min-w-[10rem]">Fornecedor</th>
-              <th className="py-2 px-2 font-medium w-24">UF</th>
-              <th className="py-2 px-2 font-medium w-20 text-right">Qtd</th>
-              <th className="py-2 px-2 font-medium w-28 text-right">Valor unt.</th>
-              <th className="py-2 px-2 font-medium w-32">
-                <div className="flex items-center justify-end gap-1">
-                  <span>Frete</span>
-                  <span className="inline-flex rounded-md border border-ink-200 overflow-hidden shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setModoFrete('pct')}
-                      className={`px-1.5 py-0.5 text-[10px] font-medium transition ${
-                        modoFrete === 'pct' ? 'bg-ink-950 text-white' : 'bg-white text-ink-500 hover:bg-ink-50'
-                      }`}
-                    >
-                      %
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setModoFrete('valor')}
-                      className={`px-1.5 py-0.5 text-[10px] font-medium border-l border-ink-200 transition ${
-                        modoFrete === 'valor' ? 'bg-ink-950 text-white' : 'bg-white text-ink-500 hover:bg-ink-50'
-                      }`}
-                    >
-                      R$
-                    </button>
-                  </span>
-                </div>
-              </th>
-              <th className="py-2 px-2 font-medium min-w-[7rem]">Prazo</th>
-              <th className="py-2 px-2 font-medium w-32 text-right">Total</th>
+              {ordemColunas.map((chave) => renderCabecalho(chave))}
               <th className="w-8"></th>
             </tr>
           </thead>
@@ -178,6 +304,7 @@ export function QuoteItemsList({
                   cellCls={cellCls}
                   inputCls={inputCls}
                   stop={stop}
+                  ordemColunas={ordemColunas}
                 />
               )
             })}
@@ -205,6 +332,7 @@ function LinhaItem({
   cellCls,
   inputCls,
   stop,
+  ordemColunas,
 }: {
   item: QuoteItem
   index: number
@@ -222,9 +350,14 @@ function LinhaItem({
   cellCls: string
   inputCls: string
   stop: (e: MouseEvent) => void
+  ordemColunas: ColunaKey[]
 }) {
   const vlrProduto = (item.product.qtd || 0) * (item.product.valorUnt || 0)
   const valorFreteAtual = vlrProduto * (item.product.freteRate || 0)
+  const precoVendaUnitario = useMemo(
+    () => calculateItem(item.product, item.pricing).precoVendaUnitario,
+    [item.product, item.pricing],
+  )
 
   const sugestoesFornecedor = useMemo(() => {
     const termo = item.product.fornecedor.trim().toLowerCase()
@@ -273,10 +406,9 @@ function LinhaItem({
     if (found) aplicarProdutoEncontrado(found)
   }
 
-  return (
-    <tr onClick={onSelect} className={`cursor-pointer transition ${isActive ? 'bg-brand-50' : 'hover:bg-ink-50'}`}>
-      <td className={`${cellCls} text-ink-400 text-xs text-center`}>{index + 1}</td>
-      <td className={cellCls}>
+  const celulas: Record<ColunaKey, JSX.Element> = {
+    interno: (
+      <td key="interno" className={cellCls}>
         <input
           className={`${inputCls} font-mono`}
           value={item.product.interno}
@@ -285,7 +417,9 @@ function LinhaItem({
           onClick={stop}
         />
       </td>
-      <td className={cellCls}>
+    ),
+    referencia: (
+      <td key="referencia" className={cellCls}>
         <input
           className={inputCls}
           value={item.product.referencia}
@@ -294,7 +428,9 @@ function LinhaItem({
           onClick={stop}
         />
       </td>
-      <td className={cellCls}>
+    ),
+    descricao: (
+      <td key="descricao" className={cellCls}>
         <input
           className={inputCls}
           value={item.product.descricao}
@@ -302,7 +438,9 @@ function LinhaItem({
           onClick={stop}
         />
       </td>
-      <td className={cellCls}>
+    ),
+    ncm: (
+      <td key="ncm" className={cellCls}>
         <input
           className={`${inputCls} font-mono`}
           placeholder="0000.00.00"
@@ -311,7 +449,9 @@ function LinhaItem({
           onClick={stop}
         />
       </td>
-      <td className={`${cellCls} relative`}>
+    ),
+    fornecedor: (
+      <td key="fornecedor" className={`${cellCls} relative`}>
         <input
           className={inputCls}
           value={item.product.fornecedor}
@@ -345,7 +485,9 @@ function LinhaItem({
           </div>
         )}
       </td>
-      <td className={cellCls}>
+    ),
+    uf: (
+      <td key="uf" className={cellCls}>
         <select
           className={inputCls}
           value={item.product.estadoOrigem}
@@ -359,7 +501,9 @@ function LinhaItem({
           ))}
         </select>
       </td>
-      <td className={cellCls}>
+    ),
+    qtd: (
+      <td key="qtd" className={cellCls}>
         <input
           type="number"
           min={0}
@@ -370,7 +514,23 @@ function LinhaItem({
           onFocus={selecionarTudoAoFocar}
         />
       </td>
-      <td className={cellCls}>
+    ),
+    peso: (
+      <td key="peso" className={cellCls}>
+        <input
+          type="number"
+          min={0}
+          step={0.01}
+          className={`${inputCls} text-right tabular-nums`}
+          value={item.product.peso}
+          onChange={(e) => onPatch({ peso: Number(e.target.value) || 0 })}
+          onClick={stop}
+          onFocus={selecionarTudoAoFocar}
+        />
+      </td>
+    ),
+    valorUnt: (
+      <td key="valorUnt" className={cellCls}>
         <input
           type="number"
           min={0}
@@ -382,7 +542,14 @@ function LinhaItem({
           onFocus={selecionarTudoAoFocar}
         />
       </td>
-      <td className={cellCls}>
+    ),
+    precoVenda: (
+      <td key="precoVenda" className={`${cellCls} text-right font-mono tabular-nums text-ink-800`}>
+        {formatCurrency(precoVendaUnitario)}
+      </td>
+    ),
+    frete: (
+      <td key="frete" className={cellCls}>
         {modoFrete === 'pct' ? (
           <input
             type="number"
@@ -410,7 +577,9 @@ function LinhaItem({
           />
         )}
       </td>
-      <td className={cellCls}>
+    ),
+    prazo: (
+      <td key="prazo" className={cellCls}>
         <input
           className={inputCls}
           placeholder="ex.: 2 DIAS"
@@ -419,7 +588,18 @@ function LinhaItem({
           onClick={stop}
         />
       </td>
-      <td className={`${cellCls} text-right font-mono tabular-nums text-ink-800 pr-3`}>{formatCurrency(totalItens)}</td>
+    ),
+    total: (
+      <td key="total" className={`${cellCls} text-right font-mono tabular-nums text-ink-800 pr-3`}>
+        {formatCurrency(totalItens)}
+      </td>
+    ),
+  }
+
+  return (
+    <tr onClick={onSelect} className={`cursor-pointer transition ${isActive ? 'bg-brand-50' : 'hover:bg-ink-50'}`}>
+      <td className={`${cellCls} text-ink-400 text-xs text-center`}>{index + 1}</td>
+      {ordemColunas.map((chave) => celulas[chave])}
       <td className={`${cellCls} text-center`}>
         {podeRemover && (
           <button

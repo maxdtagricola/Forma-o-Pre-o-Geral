@@ -256,10 +256,6 @@ export default function App() {
       })
   }
 
-  function patchActiveProduct(patch: Partial<ProductInput>) {
-    if (patch.valorUnt !== undefined) promoverStatusPorValorUnitario()
-    setItems((prev) => prev.map((item) => (item.id === activeItemId ? { ...item, product: { ...item.product, ...patch } } : item)))
-  }
   function patchActivePricing(patch: Partial<PricingConfig>) {
     setItems((prev) => prev.map((item) => (item.id === activeItemId ? { ...item, pricing: { ...item.pricing, ...patch } } : item)))
   }
@@ -269,6 +265,9 @@ export default function App() {
   }
   function handleApplyMarginToAll(lucroPct: number) {
     setItems((prev) => prev.map((item) => ({ ...item, pricing: { ...item.pricing, lucroPct } })))
+  }
+  function handleApplyPerfilToAll(perfil: EstadoDestino) {
+    setItems((prev) => prev.map((item) => ({ ...item, product: { ...item.product, perfil } })))
   }
 
   async function handleEnviarCotacao() {
@@ -285,14 +284,6 @@ export default function App() {
     const item = criarItemComGlobais()
     setItems((prev) => [...prev, item])
     setActiveItemId(item.id)
-  }
-
-  function handleApplyFreightSplit(valores: Record<string, number>) {
-    setItems((prev) =>
-      prev.map((item) =>
-        item.id in valores ? { ...item, product: { ...item.product, freteAdicional: valores[item.id] } } : item,
-      ),
-    )
   }
 
   function handleRemoveItem(id: string) {
@@ -480,10 +471,9 @@ export default function App() {
           onSelectItem={setActiveItemId}
           onAddItem={handleAddItem}
           onRemoveItem={handleRemoveItem}
-          onApplyFreightSplit={handleApplyFreightSplit}
           onPatchItem={patchItemProduct}
           onApplyMarginToAll={handleApplyMarginToAll}
-          onProductChange={patchActiveProduct}
+          onApplyPerfilToAll={handleApplyPerfilToAll}
           onPricingChange={patchActivePricing}
           onSave={handleSave}
           onNew={handleNew}
