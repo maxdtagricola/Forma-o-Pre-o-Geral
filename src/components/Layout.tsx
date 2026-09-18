@@ -7,6 +7,7 @@ export type TabKey =
   | 'dashboard'
   | 'comparar'
   | 'margins'
+  | 'pedidoCompra'
   | 'produtos'
   | 'fornecedores'
   | 'frete'
@@ -38,6 +39,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { key: 'cotacoes', label: 'Cotações' },
       { key: 'dashboard', label: 'Precificação' },
+      { key: 'pedidoCompra', label: 'Pedido de Compra' },
       { key: 'margins', label: 'Análise de Margens' },
       { key: 'acompanhamentoNotas', label: 'Transferências Fiscais', somenteAdmin: 'Max' },
       { key: 'notasFiscais', label: 'Notas Fiscais', somenteAdmin: 'Max' },

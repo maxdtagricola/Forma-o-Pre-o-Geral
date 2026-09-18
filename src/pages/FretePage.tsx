@@ -4,10 +4,10 @@ import { SelectField } from '../components/ui/Field'
 import { getEmpresaPorTransportadora, setEmpresaPorTransportadora } from '../db/configRepo'
 import { listEmpresas } from '../db/empresasRepo'
 import { listFornecedores } from '../db/fornecedoresRepo'
-import { listQuotes } from '../db/analysesRepo'
+import { listQuotes, salvarFreteTransportadora } from '../db/analysesRepo'
 import { formatCurrency, formatNumber } from '../utils'
 import { TRANSPORTADORAS } from '../types'
-import type { Empresa, Fornecedor, QuoteRecord } from '../types'
+import type { DadosFreteTransportadora, Empresa, Fornecedor, QuoteRecord } from '../types'
 
 // ---------------------------------------------------------------------------
 // Cada transportadora pede um conjunto diferente de dados pro pedido de frete
@@ -155,16 +155,35 @@ const CAMPOS_POR_TRANSPORTADORA: Record<string, CampoFrete[]> = {
   ],
 }
 
-function FormularioFrete({ transportadora, ctx }: { transportadora: string; ctx: ContextoFrete }) {
+function FormularioFrete({
+  transportadora,
+  ctx,
+  dadosSalvos,
+  podeSalvar,
+  onSalvar,
+}: {
+  transportadora: string
+  ctx: ContextoFrete
+  dadosSalvos?: DadosFreteTransportadora
+  podeSalvar: boolean
+  onSalvar: (dados: DadosFreteTransportadora) => Promise<void>
+}) {
   const campos = CAMPOS_POR_TRANSPORTADORA[transportadora] ?? []
   const [valores, setValores] = useState<Record<string, string>>({})
+  const [valorCotacao, setValorCotacao] = useState('')
+  const [numeroCotacao, setNumeroCotacao] = useState('')
   const [copiado, setCopiado] = useState(false)
+  const [salvando, setSalvando] = useState(false)
+  const [salvo, setSalvo] = useState(false)
 
   useEffect(() => {
     const iniciais: Record<string, string> = {}
-    for (const campo of campos) iniciais[campo.chave] = campo.valorInicial(ctx)
+    for (const campo of campos) iniciais[campo.chave] = dadosSalvos?.camposPedido[campo.chave] ?? campo.valorInicial(ctx)
     setValores(iniciais)
+    setValorCotacao(dadosSalvos?.valorCotacao ?? '')
+    setNumeroCotacao(dadosSalvos?.numeroCotacao ?? '')
     setCopiado(false)
+    setSalvo(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transportadora, ctx])
 
@@ -176,6 +195,21 @@ function FormularioFrete({ transportadora, ctx }: { transportadora: string; ctx:
       setTimeout(() => setCopiado(false), 2000)
     } catch {
       alert('Não foi possível copiar automaticamente — selecione e copie manualmente.')
+    }
+  }
+
+  async function handleSalvar() {
+    if (!podeSalvar) {
+      alert('Escolha uma cotação antes de salvar os dados de frete.')
+      return
+    }
+    setSalvando(true)
+    try {
+      await onSalvar({ camposPedido: valores, valorCotacao, numeroCotacao })
+      setSalvo(true)
+      setTimeout(() => setSalvo(false), 2000)
+    } finally {
+      setSalvando(false)
     }
   }
 
@@ -212,11 +246,41 @@ function FormularioFrete({ transportadora, ctx }: { transportadora: string; ctx:
           ),
         )}
       </div>
+
+      <div className="rounded-lg border border-brand-200 bg-brand-50/40 p-3">
+        <p className="text-xs font-medium text-ink-600 mb-2">Retorno da transportadora</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label>
+            <span className="field-label">Valor da cotação</span>
+            <input
+              type="text"
+              className="field-input"
+              placeholder="ex.: 350,00"
+              value={valorCotacao}
+              onChange={(e) => setValorCotacao(e.target.value)}
+            />
+          </label>
+          <label>
+            <span className="field-label">Número da cotação</span>
+            <input
+              type="text"
+              className="field-input"
+              value={numeroCotacao}
+              onChange={(e) => setNumeroCotacao(e.target.value)}
+            />
+          </label>
+        </div>
+      </div>
+
       <div className="flex items-center gap-3">
         <Button variant="secondary" onClick={handleCopiar}>
           Copiar dados
         </Button>
+        <Button variant="primary" onClick={handleSalvar} disabled={salvando}>
+          Salvar dados
+        </Button>
         {copiado && <span className="text-xs text-emerald-600">Copiado!</span>}
+        {salvo && <span className="text-xs text-emerald-600">Salvo!</span>}
       </div>
     </div>
   )
@@ -230,6 +294,9 @@ function CardTransportadora({
   ctx,
   aberta,
   onToggle,
+  dadosSalvos,
+  podeSalvar,
+  onSalvar,
 }: {
   nome: string
   empresas: Empresa[]
@@ -238,6 +305,9 @@ function CardTransportadora({
   ctx: ContextoFrete
   aberta: boolean
   onToggle: () => void
+  dadosSalvos?: DadosFreteTransportadora
+  podeSalvar: boolean
+  onSalvar: (dados: DadosFreteTransportadora) => Promise<void>
 }) {
   const empresa = empresas.find((e) => e.id === empresaId)
   const empresaOptions = [{ value: '', label: '— selecione —' }, ...empresas.map((e) => ({ value: e.id, label: e.nome }))]
@@ -267,10 +337,26 @@ function CardTransportadora({
           </p>
         </div>
       )}
+      {!aberta && (dadosSalvos?.valorCotacao || dadosSalvos?.numeroCotacao) && (
+        <div className="mt-3 rounded-lg border border-brand-200 bg-brand-50/40 p-2.5 text-xs text-ink-700">
+          {dadosSalvos.valorCotacao && (
+            <p>
+              Cotação: <span className="font-mono font-medium">R$ {dadosSalvos.valorCotacao}</span>
+            </p>
+          )}
+          {dadosSalvos.numeroCotacao && (
+            <p>
+              Nº <span className="font-mono font-medium">{dadosSalvos.numeroCotacao}</span>
+            </p>
+          )}
+        </div>
+      )}
       <button type="button" onClick={onToggle} className="mt-3 text-xs font-medium text-ink-600 underline hover:text-ink-900">
         {aberta ? 'Ocultar dados de pedido de frete' : 'Gerar dados de pedido de frete'}
       </button>
-      {aberta && <FormularioFrete transportadora={nome} ctx={ctx} />}
+      {aberta && (
+        <FormularioFrete transportadora={nome} ctx={ctx} dadosSalvos={dadosSalvos} podeSalvar={podeSalvar} onSalvar={onSalvar} />
+      )}
     </div>
   )
 }
@@ -372,6 +458,16 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
     }
   }
 
+  async function handleSalvarFreteTransportadora(transportadora: string, dados: DadosFreteTransportadora) {
+    if (!cotacaoSelecionada) return
+    try {
+      const atualizado = await salvarFreteTransportadora(cotacaoSelecionada.id, transportadora, dados)
+      setQuotes((prev) => prev.map((q) => (q.id === atualizado.id ? atualizado : q)))
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
+    }
+  }
+
   const cotacaoOptions = [
     { value: '', label: '— selecione uma cotação —' },
     ...quotes.map((q) => ({ value: q.id, label: `${q.codigo || 'sem código'} — ${q.cliente || 'sem cliente'}` })),
@@ -426,6 +522,9 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
               ctx={ctx}
               aberta={transportadoraAberta === nome}
               onToggle={() => setTransportadoraAberta((prev) => (prev === nome ? null : nome))}
+              dadosSalvos={cotacaoSelecionada?.freteTransportadoras?.[nome]}
+              podeSalvar={!!cotacaoSelecionada}
+              onSalvar={(dados) => handleSalvarFreteTransportadora(nome, dados)}
             />
           ))}
         </div>

@@ -310,6 +310,15 @@ export interface PedidoCompraInfo {
   itemIds: string[]
 }
 
+/** Valores "fechados" de um item na aba Pedido de Compra — separados de item.product de propósito:
+ * a negociação inicial (feita na correria) e o que realmente saiu no fechamento com o fornecedor
+ * costumam ser diferentes, e a comparação entre os dois só funciona se um não sobrescrever o outro. */
+export interface ItemFechado {
+  qtd: number
+  valorUnt: number
+  freteRate: number
+}
+
 // ---------------------------------------------------------------------------
 // Pré-registro — lista rápida (Interno, Referência, Quantidade) dos itens que
 // ainda precisam ser cotados, preenchida antes de ir pra precificação.
@@ -337,6 +346,15 @@ export interface PreRegistroItem {
 // Registro salvo no histórico (IndexedDB) — uma cotação inteira, com um ou
 // mais itens.
 // ---------------------------------------------------------------------------
+
+/** Dados do pedido de frete salvos por transportadora numa cotação — tanto os campos do
+ * formulário de pedido (CNPJ, CEP, peso etc.) quanto o retorno dela (valor e número da cotação). */
+export interface DadosFreteTransportadora {
+  camposPedido: Record<string, string>
+  valorCotacao: string
+  numeroCotacao: string
+}
+
 export interface QuoteRecord {
   id: string
   /** Código sequencial (ex.: "COT-0001") pra facilitar o acompanhamento — registros antigos podem não ter. */
@@ -366,6 +384,10 @@ export interface QuoteRecord {
   dataSolicitacao?: number
   /** Número da cotação de frete que a transportadora informou, pra referência depois. */
   numeroCotacaoTransportadora?: string
+  /** Dados de pedido de frete + retorno (valor, número) salvos por transportadora, ver Frete. */
+  freteTransportadoras?: Record<string, DadosFreteTransportadora>
+  /** Valores fechados por item na aba Pedido de Compra — chave é o id do QuoteItem. */
+  itensFechados?: Record<string, ItemFechado>
   createdAt: number
   updatedAt: number
   // resumo pré-calculado para exibição rápida na lista do histórico

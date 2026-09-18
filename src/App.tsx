@@ -11,6 +11,7 @@ import { MarginAnalysisPage } from './pages/MarginAnalysisPage'
 import { ProdutosPage } from './pages/ProdutosPage'
 import { FornecedoresPage } from './pages/FornecedoresPage'
 import { FretePage } from './pages/FretePage'
+import { PedidoCompraPage } from './pages/PedidoCompraPage'
 import { AcompanhamentoNotasPage } from './pages/AcompanhamentoNotasPage'
 import { NotasFiscaisPage } from './pages/NotasFiscaisPage'
 import { NotasFiscaisDashboardPage } from './pages/NotasFiscaisDashboardPage'
@@ -494,6 +495,7 @@ export default function App() {
       {tab === 'produtos' && <ProdutosPage currentAdmin={currentAdmin} />}
       {tab === 'fornecedores' && <FornecedoresPage />}
       {tab === 'frete' && <FretePage cotacaoIdInicial={editingQuoteId} />}
+      {tab === 'pedidoCompra' && <PedidoCompraPage currentAdmin={currentAdmin} />}
       {tab === 'configuracoes' && (
         <ConfiguracoesPage
           currentAdmin={currentAdmin}

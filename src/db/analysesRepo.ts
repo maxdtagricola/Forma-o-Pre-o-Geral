@@ -3,6 +3,8 @@ import { dbDelete, dbGet, dbGetAll, dbPut, STORE_ANALISES } from './db'
 import { proximoCodigoCotacao } from './configRepo'
 import { makeId } from '../utils'
 import type {
+  DadosFreteTransportadora,
+  ItemFechado,
   PedidoCompraInfo,
   PreRegistroItem,
   PricingConfig,
@@ -67,6 +69,8 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
       product: { ...item.product, estadoOrigem: item.product.estadoOrigem || 'SP' },
     })),
     itensPreRegistro: record.itensPreRegistro ?? [],
+    freteTransportadoras: record.freteTransportadoras ?? {},
+    itensFechados: record.itensFechados ?? {},
     status: record.status ?? 'PENDENTE',
     responsavelStatus: record.responsavelStatus ?? '',
     statusHistory:
@@ -217,6 +221,36 @@ export async function setPlanilhaOriginal(
   if (!atual) throw new Error('Cotação não encontrada no servidor.')
   const normalizado = normalizeRecord(atual)
   const atualizado: QuoteRecord = { ...normalizado, planilhaOriginal: planilha, updatedAt: Date.now() }
+  await dbPut(STORE_ANALISES, atualizado)
+  return atualizado
+}
+
+/** Salva os dados de pedido de frete (campos do formulário + valor/número da cotação recebida)
+ * de uma transportadora específica, sem mexer nos dados das outras. */
+export async function salvarFreteTransportadora(
+  id: string,
+  transportadora: string,
+  dados: DadosFreteTransportadora,
+): Promise<QuoteRecord> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  if (!atual) throw new Error('Cotação não encontrada no servidor.')
+  const normalizado = normalizeRecord(atual)
+  const atualizado: QuoteRecord = {
+    ...normalizado,
+    freteTransportadoras: { ...normalizado.freteTransportadoras, [transportadora]: dados },
+    updatedAt: Date.now(),
+  }
+  await dbPut(STORE_ANALISES, atualizado)
+  return atualizado
+}
+
+/** Salva os valores "fechados" (Pedido de Compra) de todos os itens de uma vez — vem sempre do
+ * objeto inteiro (mais simples que mesclar item a item, e a tela sempre edita a cotação inteira). */
+export async function salvarItensFechados(id: string, itensFechados: Record<string, ItemFechado>): Promise<QuoteRecord> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  if (!atual) throw new Error('Cotação não encontrada no servidor.')
+  const normalizado = normalizeRecord(atual)
+  const atualizado: QuoteRecord = { ...normalizado, itensFechados, updatedAt: Date.now() }
   await dbPut(STORE_ANALISES, atualizado)
   return atualizado
 }
