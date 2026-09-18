@@ -1,6 +1,6 @@
 """
 Cria o primeiro personagem-teste da pipeline RPG (Blender -> glTF -> Three.js): um peão simples,
-com esqueleto (armature) de verdade e duas animações (Idle e Attack), exportado como .glb.
+com esqueleto (armature) de verdade e três animações (Idle, Walk e Attack), exportado como .glb.
 
 Roda sem abrir a interface gráfica:
     blender --background --python scripts/blender/criar_peao_rpg.py
@@ -31,9 +31,12 @@ def limpar_cena():
 
 def criar_malha():
     """Monta o corpo com primitivas simples e junta tudo num mesh só, marcando de qual "parte"
-    cada pedaço é (pra depois virar grupo de vértice/osso). Silhueta "robusta" de guerreiro: torso
-    em leque (mais largo no ombro que na cintura), ombreiras, membros bem mais grossos e botas —
-    contraste de cabeça pequena com corpo largo, o clássico visual "heroico" de RPG."""
+    cada pedaço é (pra depois virar grupo de vértice/osso). Silhueta de soldado esguio — ombros e
+    botas marcando a figura, mas bem mais fina que a revisão "robusta" anterior (aquela chegava a
+    quase 2x mais alta e quase 3x mais larga que o peão geométrico de sempre, ocupando espaço
+    demais no tabuleiro). Medidas aqui são a versão "robusta" com um fator de largura (0.48, ombros/
+    braços/pernas) e um fator de altura (0.57, todas as posições Z e profundidades) aplicados —
+    mantém a mesma silhueta relativa, só bem mais proporcional ao tamanho original."""
     partes = []
 
     def add_parte(nome, criar_fn, **kwargs):
@@ -43,31 +46,41 @@ def criar_malha():
         partes.append(obj)
         return obj
 
-    # torso em leque: radius2 (topo/ombro) bem maior que radius1 (base/cintura)
+    # poucos lados (8) em vez do padrão do Blender (32) — faces bem maiores e mais planas, em vez
+    # de curvas quase lisas; combinado com o sombreamento "flat" logo abaixo, fica um facetado
+    # nítido (visual low-poly), que também combina melhor com o material toon (degradê em poucos
+    # tons) do que uma superfície arredondada suave
+    LADOS = 8
+
+    # torso em leque: radius2 (topo/ombro) maior que radius1 (base/cintura)
     add_parte(
         "Torso",
         bpy.ops.mesh.primitive_cone_add,
-        radius1=0.145,
-        radius2=0.215,
-        depth=0.52,
-        location=(0, 0, 0.8),
+        vertices=LADOS,
+        radius1=0.07,
+        radius2=0.10,
+        depth=0.30,
+        location=(0, 0, 0.46),
     )
-    add_parte("Cabeca", bpy.ops.mesh.primitive_uv_sphere_add, radius=0.15, location=(0, 0, 1.22), segments=16, ring_count=10)
-    add_parte("Chapeu", bpy.ops.mesh.primitive_cone_add, radius1=0.095, depth=0.19, location=(0, 0, 1.45))
+    add_parte("Cabeca", bpy.ops.mesh.primitive_uv_sphere_add, radius=0.07, location=(0, 0, 0.70), segments=LADOS, ring_count=5)
+    add_parte("Chapeu", bpy.ops.mesh.primitive_cone_add, vertices=LADOS, radius1=0.045, depth=0.11, location=(0, 0, 0.83))
     # ombreiras — bulto extra por cima do encontro braço/torso, mapeadas pro osso do braço
-    add_parte("Ombro_L", bpy.ops.mesh.primitive_uv_sphere_add, radius=0.09, location=(-0.235, 0, 1.0), segments=12, ring_count=8)
-    add_parte("Ombro_R", bpy.ops.mesh.primitive_uv_sphere_add, radius=0.09, location=(0.235, 0, 1.0), segments=12, ring_count=8)
-    add_parte("Braco_L", bpy.ops.mesh.primitive_cylinder_add, radius=0.062, depth=0.4, location=(-0.235, 0, 0.78))
-    add_parte("Braco_R", bpy.ops.mesh.primitive_cylinder_add, radius=0.062, depth=0.4, location=(0.235, 0, 0.78))
-    add_parte("Perna_L", bpy.ops.mesh.primitive_cylinder_add, radius=0.078, depth=0.56, location=(-0.09, 0, 0.32))
-    add_parte("Perna_R", bpy.ops.mesh.primitive_cylinder_add, radius=0.078, depth=0.56, location=(0.09, 0, 0.32))
+    add_parte("Ombro_L", bpy.ops.mesh.primitive_uv_sphere_add, radius=0.045, location=(-0.11, 0, 0.57), segments=LADOS, ring_count=5)
+    add_parte("Ombro_R", bpy.ops.mesh.primitive_uv_sphere_add, radius=0.045, location=(0.11, 0, 0.57), segments=LADOS, ring_count=5)
+    add_parte("Braco_L", bpy.ops.mesh.primitive_cylinder_add, vertices=LADOS, radius=0.03, depth=0.23, location=(-0.11, 0, 0.44))
+    add_parte("Braco_R", bpy.ops.mesh.primitive_cylinder_add, vertices=LADOS, radius=0.03, depth=0.23, location=(0.11, 0, 0.44))
+    add_parte("Perna_L", bpy.ops.mesh.primitive_cylinder_add, vertices=LADOS, radius=0.04, depth=0.32, location=(-0.045, 0, 0.18))
+    add_parte("Perna_R", bpy.ops.mesh.primitive_cylinder_add, vertices=LADOS, radius=0.04, depth=0.32, location=(0.045, 0, 0.18))
     # botas — cilindro curto e mais largo que a perna, na base
-    add_parte("Bota_L", bpy.ops.mesh.primitive_cylinder_add, radius=0.095, depth=0.14, location=(-0.09, 0, 0.05))
-    add_parte("Bota_R", bpy.ops.mesh.primitive_cylinder_add, radius=0.095, depth=0.14, location=(0.09, 0, 0.05))
+    add_parte("Bota_L", bpy.ops.mesh.primitive_cylinder_add, vertices=LADOS, radius=0.045, depth=0.08, location=(-0.045, 0, 0.03))
+    add_parte("Bota_R", bpy.ops.mesh.primitive_cylinder_add, vertices=LADOS, radius=0.045, depth=0.08, location=(0.045, 0, 0.03))
 
-    # guarda quais vértices (por índice local, antes do join) pertencem a cada parte —
-    # usado depois do join pra criar os grupos de vértice por osso
-    contagens = [(obj.name, len(obj.data.vertices)) for obj in partes]
+    # guarda quantos vértices/faces (por índice local, antes do join) pertencem a cada parte —
+    # usado depois do join pra criar os grupos de vértice por osso e atribuir o material certo
+    # (join preserva a ordem, então dá pra recuperar os índices originais só somando as
+    # contagens anteriores)
+    contagens_vertices = [(obj.name, len(obj.data.vertices)) for obj in partes]
+    contagens_faces = [(obj.name, len(obj.data.polygons)) for obj in partes]
 
     bpy.ops.object.select_all(action="DESELECT")
     for obj in partes:
@@ -76,9 +89,13 @@ def criar_malha():
     bpy.ops.object.join()
     personagem = bpy.context.object
     personagem.name = "PeaoRPG"
-    bpy.ops.object.shade_smooth()
+    # "flat" em vez de "smooth": mantém a normal de cada face reta (sem interpolar entre faces
+    # vizinhas), então cada faceta do low-poly aparece como um plano nítido — superfície bem mais
+    # "achatada" que o sombreamento suave de antes, que arredondava visualmente até geometria com
+    # poucos lados
+    bpy.ops.object.shade_flat()
 
-    return personagem, contagens
+    return personagem, contagens_vertices, contagens_faces
 
 
 MAPA_PARTE_PARA_OSSO = {
@@ -94,6 +111,34 @@ MAPA_PARTE_PARA_OSSO = {
     "Bota_L": "Leg_L",
     "Bota_R": "Leg_R",
 }
+
+# partes que levam a cor de "destaque" em vez da cor principal do corpo — mesmo padrão que o
+# peão geométrico já usa (ver geometriasDoTipo('p') em ChessBoard3D.tsx: o capacete e as juntas
+# de ombro/quadril são 'detalhe', o resto é 'armadura'). Aqui só capacete + ombreiras, que já
+# bastam pra imitar essa mesma cara de "corpo + acabamento" sem precisar dividir cada juntinha.
+PARTES_DETALHE = {"Chapeu", "Ombro_L", "Ombro_R"}
+
+
+def atribuir_materiais(personagem, contagens_faces):
+    """Cria os dois materiais (Corpo = índice 0, Detalhe = índice 1) e marca o material_index de
+    cada face conforme a parte de origem. No Three.js, o glTF exportado separa a malha em uma
+    primitiva por material — cada uma vira um SkinnedMesh próprio, e o código escolhe a cor certa
+    da facção (branca/preta) olhando o nome do material original (ver buildPeaoRPG)."""
+    material_corpo = bpy.data.materials.new("Corpo")
+    # cinza neutro só pra não ficar preto-puro sem luz nenhuma — a cor de verdade (branco/preto
+    # da facção) é decidida em runtime, no Three.js
+    material_corpo.diffuse_color = (0.75, 0.75, 0.78, 1.0)
+    material_detalhe = bpy.data.materials.new("Detalhe")
+    material_detalhe.diffuse_color = (0.3, 0.35, 0.55, 1.0)
+    personagem.data.materials.append(material_corpo)
+    personagem.data.materials.append(material_detalhe)
+
+    indice_atual = 0
+    for nome_parte, qtd_faces in contagens_faces:
+        indice_material = 1 if nome_parte in PARTES_DETALHE else 0
+        for i in range(indice_atual, indice_atual + qtd_faces):
+            personagem.data.polygons[i].material_index = indice_material
+        indice_atual += qtd_faces
 
 
 def criar_grupos_de_vertice(personagem, contagens):
@@ -133,13 +178,13 @@ def criar_esqueleto():
             osso.use_connect = False
         return osso
 
-    novo_osso("Root", (0, 0, 0), (0, 0, 0.15))
-    novo_osso("Spine", (0, 0, 0.15), (0, 0, 1.0), pai="Root")
-    novo_osso("Head", (0, 0, 1.0), (0, 0, 1.5), pai="Spine")
-    novo_osso("Arm_L", (-0.235, 0, 1.0), (-0.235, 0, 0.58), pai="Spine")
-    novo_osso("Arm_R", (0.235, 0, 1.0), (0.235, 0, 0.58), pai="Spine")
-    novo_osso("Leg_L", (-0.09, 0, 0.6), (-0.09, 0, 0.0), pai="Root")
-    novo_osso("Leg_R", (0.09, 0, 0.6), (0.09, 0, 0.0), pai="Root")
+    novo_osso("Root", (0, 0, 0), (0, 0, 0.085))
+    novo_osso("Spine", (0, 0, 0.085), (0, 0, 0.57), pai="Root")
+    novo_osso("Head", (0, 0, 0.57), (0, 0, 0.855), pai="Spine")
+    novo_osso("Arm_L", (-0.11, 0, 0.57), (-0.11, 0, 0.33), pai="Spine")
+    novo_osso("Arm_R", (0.11, 0, 0.57), (0.11, 0, 0.33), pai="Spine")
+    novo_osso("Leg_L", (-0.045, 0, 0.34), (-0.045, 0, 0.0), pai="Root")
+    novo_osso("Leg_R", (0.045, 0, 0.34), (0.045, 0, 0.0), pai="Root")
 
     bpy.ops.object.mode_set(mode="OBJECT")
     return armature_obj
@@ -183,16 +228,11 @@ def criar_animacao(armature_obj, nome, quadros_por_osso, fps_total):
 
 def main():
     limpar_cena()
-    personagem, contagens = criar_malha()
-    criar_grupos_de_vertice(personagem, contagens)
+    personagem, contagens_vertices, contagens_faces = criar_malha()
+    criar_grupos_de_vertice(personagem, contagens_vertices)
     armature_obj = criar_esqueleto()
     vincular_malha_ao_esqueleto(personagem, armature_obj)
-
-    # material único, trocado por cor via código no Three.js (branco/preto por facção) —
-    # cinza neutro aqui só pra não ficar preto-puro sem luz nenhuma
-    material = bpy.data.materials.new("Corpo")
-    material.diffuse_color = (0.75, 0.75, 0.78, 1.0)
-    personagem.data.materials.append(material)
+    atribuir_materiais(personagem, contagens_faces)
 
     # Idle: balanço sutil de respiração nos braços e leve inclinação da cabeça, em loop (quadro 1 e
     # o último precisam ser idênticos pra não dar um "pulo" quando o loop reinicia)
@@ -205,6 +245,22 @@ def main():
             "Head": [(1, (0, 0, 0)), (30, (0.02, 0, 0)), (60, (0, 0, 0))],
         },
         60,
+    )
+
+    # Walk: passada contralateral (perna e braço opostos avançam juntos, como um passo humano de
+    # verdade) — mesma amplitude (0.55 rad) do balanço processual das outras peças (ver animarPosicao
+    # em ChessBoard3D.tsx), pra ficar consistente com o resto do tabuleiro. Toca em loop enquanto a
+    # peça desliza de uma casa a outra (ver animarPosicao) e o jogo volta pro Idle ao chegar.
+    criar_animacao(
+        armature_obj,
+        "Walk",
+        {
+            "Leg_L": [(1, (0.55, 0, 0)), (10, (-0.55, 0, 0)), (20, (0.55, 0, 0))],
+            "Leg_R": [(1, (-0.55, 0, 0)), (10, (0.55, 0, 0)), (20, (-0.55, 0, 0))],
+            "Arm_R": [(1, (0.4, 0, 0)), (10, (-0.4, 0, 0)), (20, (0.4, 0, 0))],
+            "Arm_L": [(1, (-0.4, 0, 0)), (10, (0.4, 0, 0)), (20, (-0.4, 0, 0))],
+        },
+        20,
     )
 
     # Attack: braço direito ergue e desce num golpe rápido (referência pro futuro golpe de espada)

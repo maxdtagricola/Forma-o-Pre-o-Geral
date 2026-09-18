@@ -282,11 +282,17 @@ function buildPeaoRPG(modelo: ModeloRPG, cor: 'w' | 'b'): THREE.Group {
   const clone = clonarComEsqueleto(modelo.cena) as THREE.Object3D
 
   // mesmo material toon (com o gradiente em degraus) das peças geométricas — reaproveitado, não
-  // clonado, igual ao resto do tabuleiro — pra esse peão não destoar visualmente dos outros
-  const materialFaccao = materiaisPorFaccao[cor].armadura
+  // clonado, igual ao resto do tabuleiro — pra esse peão não destoar visualmente dos outros. Duas
+  // cores, igual ao peão geométrico (corpo numa cor, capacete/ombreiras na cor de destaque): o
+  // Blender exporta o chapéu/ombreiras num material "Detalhe" separado do resto ("Corpo") — o
+  // glTF divide a malha em uma primitiva por material, então cada uma vira um SkinnedMesh próprio
+  // aqui, e o nome do material original (antes de trocar) diz qual cor de destaque usar.
+  const materialArmadura = materiaisPorFaccao[cor].armadura
+  const materialDetalhe = materiaisPorFaccao[cor].detalhe
   clone.traverse((filho) => {
     if (filho instanceof THREE.SkinnedMesh) {
-      filho.material = materialFaccao
+      const ehDetalhe = !Array.isArray(filho.material) && filho.material?.name === 'Detalhe'
+      filho.material = ehDetalhe ? materialDetalhe : materialArmadura
       filho.castShadow = true
       filho.receiveShadow = true
 
@@ -602,6 +608,20 @@ function animarPosicao(
 ) {
   const membros = mesh.userData.membros as MembrosPersonagem | undefined
   const base = (mesh.userData.poseBase as PoseBaseMembros | undefined) ?? POSE_BASE_NEUTRA
+
+  // peão RPG: em vez de balançar membros manualmente (isso é só pras peças geométricas, que não
+  // têm esqueleto de verdade), troca pro clipe "Walk" do próprio modelo enquanto desliza — e volta
+  // pro "Idle" ao chegar. Sem crossFadeTo aqui de propósito (não assume qual ação está tocando no
+  // momento — numa captura o peão pode chegar direto de "Attack" — fadeIn/fadeOut mistura o peso a
+  // partir do que já estiver rodando, sem precisar saber a origem).
+  const acoesRPG = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
+  const caminhada = acoesRPG?.Walk
+  const paradaRPG = acoesRPG?.Idle
+  if (caminhada && paradaRPG) {
+    caminhada.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.15).play()
+    paradaRPG.fadeOut(0.15)
+  }
+
   const distancia = Math.hypot(para.x - de.x, para.z - de.z)
   const duracaoMs = Math.min(
     DURACAO_LANCE_MAX_MS,
@@ -632,6 +652,10 @@ function animarPosicao(
         membros.pernaDir.rotation.x = base.pernaDir
         membros.bracoEsq.rotation.x = base.bracoEsq
         membros.bracoDir.rotation.x = base.bracoDir
+      }
+      if (caminhada && paradaRPG) {
+        paradaRPG.reset().fadeIn(0.15).play()
+        caminhada.fadeOut(0.15)
       }
       aoTerminar()
     }
