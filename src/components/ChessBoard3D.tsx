@@ -22,6 +22,32 @@ function squareToPos(square: string): { x: number; z: number } {
   return { x: file - 3.5, z: 3.5 - rank }
 }
 
+// mesma posição da câmera de baixo (ver camera.position.set, olhando pra origem) — replicada aqui
+// só pra alimentar a compensação de perspectiva abaixo, sem dependência circular com o efeito que
+// monta a cena
+const CAMERA_Y = 9.5
+const CAMERA_Z = 10
+// altura do "centro visual" de uma peça acima do chão (a peça tem ~0,9 de altura, mas o volume
+// visível se concentra um pouco acima da metade) — medido por diferença de pixels contra o
+// tabuleiro vazio, não chutado
+const ALTURA_VISUAL_PECA = 0.55
+
+/**
+ * Posição X/Z de uma peça na casa, com uma pequena correção de perspectiva no eixo X: a câmera vê o
+ * tabuleiro de um ângulo e a peça tem altura, então toda peça alta (não só o peão — torre, cavalo,
+ * o que for) parece "inclinada" pra fora do eixo central da câmera; quanto mais longe da coluna do
+ * meio e mais perto da câmera, mais forte. A conta desloca a peça pra dentro, o suficiente pra que
+ * o centro visual (ALTURA_VISUAL_PECA acima do chão) projete na mesma coluna da tela que o centro
+ * da casa. Só o X muda — a profundidade (Z) fica exata, senão o pé da peça sairia da casa. Vale pra
+ * câmera inicial; se o jogador girar o tabuleiro, o desvio volta a aparecer, só que pequeno.
+ */
+function squareToPosPeca(square: string): { x: number; z: number } {
+  const { x, z } = squareToPos(square)
+  const profundidadeCasa = CAMERA_Y * CAMERA_Y + CAMERA_Z * (CAMERA_Z - z)
+  const fator = (CAMERA_Y * ALTURA_VISUAL_PECA) / profundidadeCasa
+  return { x: x * (1 - fator), z }
+}
+
 // ---------------------------------------------------------------------------
 // Visual estilo desenho animado (cel-shading): sombreamento em degraus via
 // MeshToonMaterial + um "gradient map" de poucos tons, combinado com contorno
@@ -1350,7 +1376,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
             continue
           }
           const mesh = buildPieceMesh(casa.type, casa.color)
-          const { x, z } = squareToPos(casa.square)
+          const { x, z } = squareToPosPeca(casa.square)
           mesh.position.set(x, 0.05, z)
           piecesGroup.add(mesh)
           pieceMeshBySquare.set(casa.square, mesh)
@@ -1579,8 +1605,8 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
 
       function seguirParaDestino() {
         if (meshMovendo && origem && destino) {
-          const de = squareToPos(origem)
-          const para = squareToPos(destino)
+          const de = squareToPosPeca(origem)
+          const para = squareToPosPeca(destino)
           animarPosicao(meshMovendo, de, para, () => {
             sincronizarPecas()
             aoTerminar()
@@ -1598,8 +1624,8 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         : undefined)
 
       if (vitima && resultado.piece === 'p' && meshMovendo && origem && destino) {
-        const deAtaque = squareToPos(origem)
-        const paraAtaque = squareToPos(destino)
+        const deAtaque = squareToPosPeca(origem)
+        const paraAtaque = squareToPosPeca(destino)
         const direcao = { x: paraAtaque.x - deAtaque.x, z: paraAtaque.z - deAtaque.z }
         // sorteia o estilo do golpe a cada captura, pra não ser sempre a mesma animação
         const estilo: EstiloAtaque = Math.random() < 0.5 ? 'corte' : 'derrubada'
