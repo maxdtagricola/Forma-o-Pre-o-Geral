@@ -95,6 +95,18 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
 
   const cotacao = useMemo(() => quotes.find((q) => q.id === cotacaoId), [quotes, cotacaoId])
 
+  // só os itens que realmente entraram no pedido de compra (ver PedidoCompraModal) — uma cotação
+  // pode ter sido fechada só com "alguns itens", e o resto (que não foi pedido) não deve aparecer
+  // aqui nem entrar nos totais. Cotações antigas, de antes desse controle existir, não têm
+  // pedidoCompra salvo — nesse caso cai pra todos os itens, como sempre foi.
+  const itensDoPedido = useMemo(() => {
+    if (!cotacao) return []
+    const ids = cotacao.pedidoCompra?.itemIds
+    if (!ids) return cotacao.items
+    const permitidos = new Set(ids)
+    return cotacao.items.filter((item) => permitidos.has(item.id))
+  }, [cotacao])
+
   useEffect(() => {
     if (!cotacao) {
       setFechados({})
@@ -103,7 +115,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
     // valor fechado começa igual ao negociado — a maioria dos itens fecha no mesmo valor, só
     // ajusta quem realmente mudou na negociação final, em vez de partir tudo zerado
     const iniciais: Record<string, ItemFechado> = {}
-    for (const item of cotacao.items) {
+    for (const item of itensDoPedido) {
       iniciais[item.id] = cotacao.itensFechados?.[item.id] ?? {
         qtd: item.product.qtd,
         valorUnt: item.product.valorUnt,
@@ -112,7 +124,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
     }
     setFechados(iniciais)
     setSalvo(false)
-  }, [cotacao])
+  }, [cotacao, itensDoPedido])
 
   function patchFechado(itemId: string, patch: Partial<ItemFechado>) {
     setFechados((prev) => ({ ...prev, [itemId]: { ...prev[itemId], ...patch } }))
@@ -128,7 +140,10 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
     if (!cotacao) return
     setSalvando(true)
     try {
-      const atualizado = await salvarItensFechados(cotacao.id, fechados)
+      // mescla com o que já estava salvo — "fechados" só cobre os itens visíveis aqui (os que
+      // entraram no pedido); itens fora do pedido não devem ter o valor fechado deles apagado
+      const mesclado = { ...cotacao.itensFechados, ...fechados }
+      const atualizado = await salvarItensFechados(cotacao.id, mesclado)
       setQuotes((prev) => prev.map((q) => (q.id === atualizado.id ? atualizado : q)))
       setSalvo(true)
       setTimeout(() => setSalvo(false), 2000)
@@ -164,20 +179,19 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
     }
   }
 
-  // divide os itens da cotação por fornecedor — um pedido de compra pode ter saído fechado com
+  // divide os itens do pedido por fornecedor — um pedido de compra pode ter saído fechado com
   // mais de um fornecedor, e cada um tem seu próprio frete (origem diferente, cotação diferente)
   const gruposPorFornecedor = useMemo(() => {
-    if (!cotacao) return []
     const mapa = new Map<string, QuoteItem[]>()
-    for (const item of cotacao.items) {
+    for (const item of itensDoPedido) {
       const nome = item.product.fornecedor.trim() || 'Sem fornecedor definido'
       if (!mapa.has(nome)) mapa.set(nome, [])
       mapa.get(nome)!.push(item)
     }
     return Array.from(mapa.entries()).map(([fornecedor, items]) => ({ fornecedor, items }))
-  }, [cotacao])
+  }, [itensDoPedido])
 
-  const totaisGerais = useMemo(() => estatisticasGrupo(cotacao?.items ?? [], fechados), [cotacao, fechados])
+  const totaisGerais = useMemo(() => estatisticasGrupo(itensDoPedido, fechados), [itensDoPedido, fechados])
   const corStatus = cotacao ? corPadraoDoStatus(cotacao.status) : '#999'
 
   const cotacaoOptions = [

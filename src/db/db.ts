@@ -80,6 +80,9 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
   if (res.status === 404) {
     throw new Error('not-found')
   }
+  if (res.status === 401 || res.status === 403) {
+    throw new Error('O usuário não tem acesso ao servidor.')
+  }
   if (!res.ok) {
     throw new Error(`Erro do servidor (${res.status}): ${await res.text()}`)
   }
