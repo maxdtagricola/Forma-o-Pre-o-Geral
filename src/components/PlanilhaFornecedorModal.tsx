@@ -75,6 +75,19 @@ export function PlanilhaFornecedorModal({
     }
   }
 
+  // sem compartilhamento nativo de arquivo (desktop, a maioria), o link "wa.me" abre o WhatsApp só
+  // com o texto — não existe como um site anexe o arquivo ou entre logado numa conta sozinho, isso
+  // é bloqueado por segurança do navegador. Com compartilhamento nativo (celular), abre a mesma
+  // folha de compartilhamento do sistema já com a planilha .xlsx anexada — o WhatsApp aparece como
+  // uma das opções, com a conta que já está logada no aparelho, sem precisar baixar/anexar na mão.
+  async function handleWhatsApp() {
+    if (podeCompartilharArquivo) {
+      await handleCompartilhar()
+      return
+    }
+    window.open(linkWhatsApp(mensagem), '_blank', 'noopener')
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div className="card max-w-4xl w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
@@ -117,14 +130,14 @@ export function PlanilhaFornecedorModal({
             <div className="border-t border-ink-100 pt-3">
               <p className="field-label mb-2">Encaminhar</p>
               <div className="flex flex-wrap gap-2">
-                <a
-                  href={linkWhatsApp(mensagem)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="pill-tab border border-ink-200 text-ink-600 hover:bg-ink-50"
+                <button
+                  type="button"
+                  onClick={handleWhatsApp}
+                  disabled={compartilhando}
+                  className="pill-tab border border-ink-200 text-ink-600 hover:bg-ink-50 disabled:opacity-50"
                 >
-                  WhatsApp
-                </a>
+                  WhatsApp{podeCompartilharArquivo ? ' (com a planilha anexada)' : ''}
+                </button>
                 <a
                   href={linkEmail(titulo, mensagem)}
                   className="pill-tab border border-ink-200 text-ink-600 hover:bg-ink-50"
@@ -134,8 +147,8 @@ export function PlanilhaFornecedorModal({
               </div>
               {!podeCompartilharArquivo && (
                 <p className="text-[11px] text-ink-400 mt-2">
-                  O navegador não anexa o arquivo automaticamente nesses links — baixe a planilha (ou o PDF) acima e
-                  anexe manualmente.
+                  Esse navegador não anexa o arquivo automaticamente — o WhatsApp abre só com o texto. Baixe a
+                  planilha (ou o PDF) acima e anexe manualmente.
                 </p>
               )}
             </div>
