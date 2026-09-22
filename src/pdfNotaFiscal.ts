@@ -15,7 +15,8 @@ export interface ListasConhecidas {
 }
 
 // importado dinamicamente — a biblioteca de leitura de PDF é pesada e só é necessária quando o usuário importa uma nota
-async function carregarPdfjs() {
+// (exportado: reaproveitado em cotacaoFornecedorImport.ts pro mesmo tipo de leitura de PDF)
+export async function carregarPdfjs() {
   const [pdfjsLib, { default: pdfWorkerSrc }] = await Promise.all([
     import('pdfjs-dist'),
     import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
@@ -24,7 +25,7 @@ async function carregarPdfjs() {
   return pdfjsLib
 }
 
-async function extrairTextoPdf(file: File): Promise<string> {
+export async function extrairTextoPdf(file: File): Promise<string> {
   const pdfjsLib = await carregarPdfjs()
   const buffer = await file.arrayBuffer()
   const pdf = await pdfjsLib.getDocument({ data: buffer }).promise

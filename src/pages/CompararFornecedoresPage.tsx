@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Button } from '../components/ui/Basics'
 import { AutocompleteField, TextField, NumberField } from '../components/ui/Field'
+import { ImportarCotacaoFornecedorModal } from '../components/ImportarCotacaoFornecedorModal'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { formatCurrency, makeId, melhorCotacaoFornecedor } from '../utils'
 import type { CotacaoFornecedorItem, Fornecedor, ProductInput, QuoteItem, QuoteStatus } from '../types'
@@ -158,6 +159,7 @@ export function CompararFornecedoresPage({
   onGoToPrecificacao: () => void
 }) {
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
+  const [importAberto, setImportAberto] = useState(false)
 
   useEffect(() => {
     listFornecedores()
@@ -173,6 +175,20 @@ export function CompararFornecedoresPage({
   function handleAddCotacao(item: QuoteItem, cotacao: Omit<CotacaoFornecedorItem, 'id'>) {
     const novasCotacoes = [...(item.product.cotacoesFornecedores ?? []), { ...cotacao, id: makeId() }]
     aplicarCotacoes(item.id, novasCotacoes)
+  }
+
+  // vindo do modal de importação — um lote de itens que podem pertencer a QuoteItems diferentes,
+  // cada um recebe a mesma cotação (fornecedor/marca) só com o valor unitário mudando
+  function handleImportarConfirmado(
+    fornecedorNome: string,
+    marca: string,
+    confirmados: { itemId: string; valorUnitario: number }[],
+  ) {
+    for (const c of confirmados) {
+      const item = items.find((i) => i.id === c.itemId)
+      if (!item) continue
+      handleAddCotacao(item, { fornecedor: fornecedorNome, marca, valorUnitario: c.valorUnitario })
+    }
   }
 
   function handleRemoveCotacao(item: QuoteItem, cotacaoId: string) {
@@ -211,7 +227,7 @@ export function CompararFornecedoresPage({
       )}
 
       <div className="card">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-display text-lg font-semibold text-ink-900">Comparar fornecedores</h2>
             <p className="text-sm text-ink-400">
@@ -219,9 +235,16 @@ export function CompararFornecedoresPage({
               fornecedor e o valor unitário automaticamente.
             </p>
           </div>
-          <Button variant="ghost" onClick={onGoToPrecificacao} className="shrink-0">
-            Voltar para Precificação
-          </Button>
+          <div className="flex gap-2 shrink-0">
+            {!travadaPorOutro && items.length > 0 && (
+              <Button variant="secondary" onClick={() => setImportAberto(true)}>
+                Importar cotação (planilha, PDF, foto…)
+              </Button>
+            )}
+            <Button variant="ghost" onClick={onGoToPrecificacao}>
+              Voltar para Precificação
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -242,6 +265,16 @@ export function CompararFornecedoresPage({
             />
           ))}
         </div>
+      )}
+
+      {importAberto && (
+        <ImportarCotacaoFornecedorModal
+          items={items}
+          fornecedorSuggestions={fornecedorSuggestions}
+          fornecedoresNomes={fornecedores.map((f) => f.nome)}
+          onConfirmar={handleImportarConfirmado}
+          onClose={() => setImportAberto(false)}
+        />
       )}
     </div>
   )
