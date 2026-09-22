@@ -121,11 +121,14 @@ export function QuoteItemsList({
   const [fornecedorAbertoId, setFornecedorAbertoId] = useState<string | null>(null)
   const [ordemColunas, setOrdemColunas] = useState<ColunaKey[]>(carregarOrdemColunas)
   const [colunaArrastada, setColunaArrastada] = useState<ColunaKey | null>(null)
-  // marcação por checkbox pra aplicar o mesmo fornecedor em vários itens de uma vez — independente
-  // do "item ativo" (activeItemId) de baixo, que é outra coisa (qual item tá aberto no painel de edição)
+  // marcação por checkbox pra aplicar o mesmo fornecedor (ou NCM) em vários itens de uma vez —
+  // independente do "item ativo" (activeItemId) de baixo, que é outra coisa (qual item tá aberto
+  // no painel de edição)
   const [marcados, setMarcados] = useState<Set<string>>(new Set())
   const [fornecedorBulk, setFornecedorBulk] = useState('')
   const [fornecedorBulkAberto, setFornecedorBulkAberto] = useState(false)
+  const [ncmBulk, setNcmBulk] = useState('')
+  const [freteBulk, setFreteBulk] = useState('')
 
   useEffect(() => {
     listFornecedores()
@@ -195,6 +198,33 @@ export function QuoteItemsList({
   function handleAplicarFornecedorBulkDigitado() {
     const encontrado = fornecedores.find((f) => f.nome.toLowerCase() === fornecedorBulk.trim().toLowerCase())
     aplicarFornecedorAosMarcados(fornecedorBulk, encontrado?.estado)
+  }
+
+  function handleAplicarNcmAosMarcados() {
+    const ncmLimpo = ncmBulk.trim()
+    if (!ncmLimpo || idsMarcados.length === 0) return
+    for (const id of idsMarcados) onPatchItem(id, { ncm: ncmLimpo })
+    setMarcados(new Set())
+    setNcmBulk('')
+  }
+
+  // respeita o mesmo alternador %/R$ do cabeçalho da coluna Frete: em % é uma taxa única pra todo
+  // mundo; em R$ cada item marcado recebe uma taxa diferente, calculada pra bater nesse valor fixo
+  // em reais sobre o próprio valor do item — igual ao que já acontece editando célula por célula
+  function handleAplicarFreteAosMarcados() {
+    const valor = Number(freteBulk.replace(',', '.'))
+    if (!freteBulk.trim() || Number.isNaN(valor) || idsMarcados.length === 0) return
+    for (const item of items) {
+      if (!marcados.has(item.id)) continue
+      if (modoFrete === 'pct') {
+        onPatchItem(item.id, { freteRate: valor / 100 })
+      } else {
+        const vlrProdutoItem = (item.product.qtd || 0) * (item.product.valorUnt || 0)
+        onPatchItem(item.id, { freteRate: vlrProdutoItem > 0 ? valor / vlrProdutoItem : 0 })
+      }
+    }
+    setMarcados(new Set())
+    setFreteBulk('')
   }
 
   // gera e já baixa a planilha de pedido de cotação (formato ORÇAMENTO) só com os itens marcados —
@@ -334,7 +364,7 @@ export function QuoteItemsList({
       {idsMarcados.length > 0 && (
         <div className="flex flex-wrap items-center gap-2 mb-4 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2">
           <span className="text-xs font-medium text-brand-700">
-            {idsMarcados.length} item{idsMarcados.length > 1 ? 's' : ''} marcado{idsMarcados.length > 1 ? 's' : ''} — fornecedor:
+            {idsMarcados.length} item{idsMarcados.length > 1 ? 's' : ''} marcado{idsMarcados.length > 1 ? 's' : ''}:
           </span>
           <div className="relative">
             <input
@@ -346,7 +376,7 @@ export function QuoteItemsList({
                 setFornecedorBulkAberto(true)
               }}
               onFocus={() => setFornecedorBulkAberto(true)}
-              className="field-input w-52 py-1 text-sm"
+              className="field-input w-48 py-1 text-sm"
             />
             {fornecedorBulkAberto && sugestoesFornecedorBulk.length > 0 && (
               <div
@@ -372,8 +402,42 @@ export function QuoteItemsList({
             onClick={handleAplicarFornecedorBulkDigitado}
             className="pill-tab border border-brand-600 bg-brand-600 text-white hover:bg-brand-700"
           >
-            Aplicar aos marcados
+            Aplicar fornecedor
           </button>
+          <span className="w-px self-stretch bg-brand-200" />
+          <input
+            type="text"
+            placeholder="NCM"
+            value={ncmBulk}
+            onChange={(e) => setNcmBulk(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAplicarNcmAosMarcados()}
+            className="field-input w-32 py-1 text-sm font-mono"
+          />
+          <button
+            type="button"
+            onClick={handleAplicarNcmAosMarcados}
+            className="pill-tab border border-brand-600 bg-brand-600 text-white hover:bg-brand-700"
+          >
+            Aplicar NCM
+          </button>
+          <span className="w-px self-stretch bg-brand-200" />
+          <input
+            type="number"
+            step={0.01}
+            placeholder={modoFrete === 'pct' ? 'Frete %' : 'Frete R$'}
+            value={freteBulk}
+            onChange={(e) => setFreteBulk(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAplicarFreteAosMarcados()}
+            className="field-input w-24 py-1 text-sm text-right tabular-nums"
+          />
+          <button
+            type="button"
+            onClick={handleAplicarFreteAosMarcados}
+            className="pill-tab border border-brand-600 bg-brand-600 text-white hover:bg-brand-700"
+          >
+            Aplicar frete
+          </button>
+          <span className="w-px self-stretch bg-brand-200" />
           <button
             type="button"
             onClick={() => setMarcados(new Set())}
@@ -381,7 +445,6 @@ export function QuoteItemsList({
           >
             Limpar marcação
           </button>
-          <span className="w-px self-stretch bg-brand-200" />
           <button
             type="button"
             onClick={handleGerarPlanilhaFornecedor}
