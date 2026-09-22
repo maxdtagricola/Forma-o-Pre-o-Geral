@@ -220,6 +220,8 @@ export function Dashboard({
       <QuoteItemsList
         items={items}
         activeItemId={activeItemId}
+        maquina={maquina}
+        cliente={cliente}
         onSelect={onSelectItem}
         onAdd={onAddItem}
         onRemove={onRemoveItem}

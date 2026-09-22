@@ -4,6 +4,8 @@ import { calculateItem } from '../calc/calculator'
 import { ESTADOS } from '../data/estados'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { findByInterno, findByReferencia } from '../db/analysesRepo'
+import { baixarWorkbook } from '../planilhaCliente'
+import { gerarPlanilhaFornecedor, nomeArquivoFornecedor } from '../planilhaFornecedor'
 import type { Fornecedor, ProductInput, QuoteItem } from '../types'
 
 type ModoFrete = 'pct' | 'valor'
@@ -92,6 +94,8 @@ function carregarOrdemColunas(): ColunaKey[] {
 export function QuoteItemsList({
   items,
   activeItemId,
+  maquina,
+  cliente,
   onSelect,
   onAdd,
   onRemove,
@@ -101,6 +105,9 @@ export function QuoteItemsList({
 }: {
   items: QuoteItem[]
   activeItemId: string
+  /** Só pro nome do arquivo ao gerar a planilha do fornecedor — ver handleGerarPlanilhaFornecedor. */
+  maquina: string
+  cliente: string
   onSelect: (id: string) => void
   onAdd: () => void
   onRemove: (id: string) => void
@@ -114,6 +121,11 @@ export function QuoteItemsList({
   const [fornecedorAbertoId, setFornecedorAbertoId] = useState<string | null>(null)
   const [ordemColunas, setOrdemColunas] = useState<ColunaKey[]>(carregarOrdemColunas)
   const [colunaArrastada, setColunaArrastada] = useState<ColunaKey | null>(null)
+  // marcação por checkbox pra aplicar o mesmo fornecedor em vários itens de uma vez — independente
+  // do "item ativo" (activeItemId) de baixo, que é outra coisa (qual item tá aberto no painel de edição)
+  const [marcados, setMarcados] = useState<Set<string>>(new Set())
+  const [fornecedorBulk, setFornecedorBulk] = useState('')
+  const [fornecedorBulkAberto, setFornecedorBulkAberto] = useState(false)
 
   useEffect(() => {
     listFornecedores()
@@ -145,6 +157,53 @@ export function QuoteItemsList({
 
   function stop(e: MouseEvent) {
     e.stopPropagation()
+  }
+
+  // só os ids marcados que ainda existem (um item marcado pode ter sido removido nesse meio-tempo)
+  const idsMarcados = useMemo(() => items.map((i) => i.id).filter((id) => marcados.has(id)), [items, marcados])
+
+  function toggleMarcado(id: string) {
+    setMarcados((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleMarcarTodos() {
+    setMarcados(idsMarcados.length === items.length ? new Set() : new Set(items.map((i) => i.id)))
+  }
+
+  const sugestoesFornecedorBulk = useMemo(() => {
+    const termo = fornecedorBulk.trim().toLowerCase()
+    const lista = termo ? fornecedores.filter((f) => f.nome.toLowerCase().includes(termo)) : fornecedores
+    return lista.slice(0, 6)
+  }, [fornecedores, fornecedorBulk])
+
+  function aplicarFornecedorAosMarcados(nome: string, estado?: string) {
+    const nomeLimpo = nome.trim()
+    if (!nomeLimpo || idsMarcados.length === 0) return
+    for (const id of idsMarcados) {
+      onPatchItem(id, { fornecedor: nomeLimpo, ...(estado ? { estadoOrigem: estado } : {}) })
+    }
+    setMarcados(new Set())
+    setFornecedorBulk('')
+    setFornecedorBulkAberto(false)
+  }
+
+  function handleAplicarFornecedorBulkDigitado() {
+    const encontrado = fornecedores.find((f) => f.nome.toLowerCase() === fornecedorBulk.trim().toLowerCase())
+    aplicarFornecedorAosMarcados(fornecedorBulk, encontrado?.estado)
+  }
+
+  // gera e já baixa a planilha de pedido de cotação (formato ORÇAMENTO) só com os itens marcados —
+  // pra mandar pro fornecedor pedir preço, não com a cotação inteira
+  function handleGerarPlanilhaFornecedor() {
+    const itensMarcados = items.filter((item) => marcados.has(item.id))
+    if (itensMarcados.length === 0) return
+    const workbook = gerarPlanilhaFornecedor(itensMarcados)
+    baixarWorkbook(workbook, nomeArquivoFornecedor(maquina, cliente))
   }
 
   function handleAplicarMargemUnica() {
@@ -272,10 +331,80 @@ export function QuoteItemsList({
         </div>
       )}
 
+      {idsMarcados.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mb-4 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2">
+          <span className="text-xs font-medium text-brand-700">
+            {idsMarcados.length} item{idsMarcados.length > 1 ? 's' : ''} marcado{idsMarcados.length > 1 ? 's' : ''} — fornecedor:
+          </span>
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Nome do fornecedor"
+              value={fornecedorBulk}
+              onChange={(e) => {
+                setFornecedorBulk(e.target.value)
+                setFornecedorBulkAberto(true)
+              }}
+              onFocus={() => setFornecedorBulkAberto(true)}
+              className="field-input w-52 py-1 text-sm"
+            />
+            {fornecedorBulkAberto && sugestoesFornecedorBulk.length > 0 && (
+              <div
+                className="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-ink-200 bg-surface shadow-lg max-h-56 overflow-auto"
+                onMouseDown={(e) => e.preventDefault()}
+              >
+                {sugestoesFornecedorBulk.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => aplicarFornecedorAosMarcados(f.nome, f.estado)}
+                    className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-ink-50 focus:bg-ink-50 focus:outline-none"
+                  >
+                    {f.nome}
+                    {f.cidade ? <span className="text-ink-400"> — {f.cidade}{f.estado ? ` / ${f.estado}` : ''}</span> : null}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={handleAplicarFornecedorBulkDigitado}
+            className="pill-tab border border-brand-600 bg-brand-600 text-white hover:bg-brand-700"
+          >
+            Aplicar aos marcados
+          </button>
+          <button
+            type="button"
+            onClick={() => setMarcados(new Set())}
+            className="pill-tab border border-ink-200 text-ink-500 hover:bg-white"
+          >
+            Limpar marcação
+          </button>
+          <span className="w-px self-stretch bg-brand-200" />
+          <button
+            type="button"
+            onClick={handleGerarPlanilhaFornecedor}
+            title="Baixa uma planilha (.xlsx) só com os itens marcados, no formato de orçamento pra pedir preço ao fornecedor"
+            className="pill-tab border border-ink-200 text-ink-600 hover:bg-white"
+          >
+            Gerar planilha do fornecedor (.xlsx)
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-xl border border-ink-100">
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="bg-ink-50 text-left text-ink-400">
+              <th className="py-2 px-2 w-8">
+                <input
+                  type="checkbox"
+                  checked={items.length > 0 && idsMarcados.length === items.length}
+                  onChange={toggleMarcarTodos}
+                  title="Marcar/desmarcar todos"
+                />
+              </th>
               <th className="py-2 px-2 font-medium w-8">#</th>
               {ordemColunas.map((chave) => renderCabecalho(chave))}
               <th className="w-8"></th>
@@ -297,6 +426,8 @@ export function QuoteItemsList({
                   fornecedorAberto={fornecedorAbertoId === item.id}
                   onAbrirFornecedor={() => setFornecedorAbertoId(item.id)}
                   onFecharFornecedor={() => setFornecedorAbertoId((atual) => (atual === item.id ? null : atual))}
+                  marcado={marcados.has(item.id)}
+                  onToggleMarcado={() => toggleMarcado(item.id)}
                   onSelect={() => onSelect(item.id)}
                   onRemove={() => onRemove(item.id)}
                   onPatch={(patch) => onPatchItem(item.id, patch)}
@@ -325,6 +456,8 @@ function LinhaItem({
   fornecedorAberto,
   onAbrirFornecedor,
   onFecharFornecedor,
+  marcado,
+  onToggleMarcado,
   onSelect,
   onRemove,
   onPatch,
@@ -343,6 +476,8 @@ function LinhaItem({
   fornecedorAberto: boolean
   onAbrirFornecedor: () => void
   onFecharFornecedor: () => void
+  marcado: boolean
+  onToggleMarcado: () => void
   onSelect: () => void
   onRemove: () => void
   onPatch: (patch: Partial<ProductInput>) => void
@@ -597,7 +732,13 @@ function LinhaItem({
   }
 
   return (
-    <tr onClick={onSelect} className={`cursor-pointer transition ${isActive ? 'bg-brand-50' : 'hover:bg-ink-50'}`}>
+    <tr
+      onClick={onSelect}
+      className={`cursor-pointer transition ${isActive ? 'bg-brand-50' : marcado ? 'bg-brand-50/40' : 'hover:bg-ink-50'}`}
+    >
+      <td className={`${cellCls} text-center`} onClick={stop}>
+        <input type="checkbox" checked={marcado} onChange={onToggleMarcado} />
+      </td>
       <td className={`${cellCls} text-ink-400 text-xs text-center`}>{index + 1}</td>
       {ordemColunas.map((chave) => celulas[chave])}
       <td className={`${cellCls} text-center`}>
