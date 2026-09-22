@@ -16,13 +16,6 @@ export function clearCellValue(ws: XLSX.WorkSheet, row: number, col: number): vo
   delete ws[addr]
 }
 
-/** Fórmula (não um valor fixo) — pra colunas que devem recalcular sozinhas quando o
- * destinatário preenche as células de que dependem (ex.: total = quantidade × valor unitário). */
-export function setCellFormula(ws: XLSX.WorkSheet, row: number, col: number, formula: string): void {
-  const addr = XLSX.utils.encode_cell({ r: row - 1, c: col - 1 })
-  ws[addr] = { t: 'n', f: formula }
-}
-
 export function sheetDims(ws: XLSX.WorkSheet): { maxRow: number; maxCol: number } {
   const ref = ws['!ref']
   if (!ref) return { maxRow: 0, maxCol: 0 }

@@ -4,8 +4,7 @@ import { calculateItem } from '../calc/calculator'
 import { ESTADOS } from '../data/estados'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { findByInterno, findByReferencia } from '../db/analysesRepo'
-import { baixarWorkbook } from '../planilhaCliente'
-import { gerarPlanilhaFornecedor, nomeArquivoFornecedor } from '../planilhaFornecedor'
+import { PlanilhaFornecedorModal } from './PlanilhaFornecedorModal'
 import type { Fornecedor, ProductInput, QuoteItem } from '../types'
 
 type ModoFrete = 'pct' | 'valor'
@@ -128,6 +127,7 @@ export function QuoteItemsList({
   const [fornecedorBulk, setFornecedorBulk] = useState('')
   const [fornecedorBulkAberto, setFornecedorBulkAberto] = useState(false)
   const [ncmBulk, setNcmBulk] = useState('')
+  const [planilhaFornecedorAberta, setPlanilhaFornecedorAberta] = useState(false)
   const [freteBulk, setFreteBulk] = useState('')
 
   useEffect(() => {
@@ -227,13 +227,12 @@ export function QuoteItemsList({
     setFreteBulk('')
   }
 
-  // gera e já baixa a planilha de pedido de cotação (formato ORÇAMENTO) só com os itens marcados —
-  // pra mandar pro fornecedor pedir preço, não com a cotação inteira
+  // abre a pré-visualização da planilha de pedido de cotação (formato ORÇAMENTO) só com os itens
+  // marcados — pra mandar pro fornecedor pedir preço, não com a cotação inteira
+  const itensParaPlanilhaFornecedor = useMemo(() => items.filter((item) => marcados.has(item.id)), [items, marcados])
   function handleGerarPlanilhaFornecedor() {
-    const itensMarcados = items.filter((item) => marcados.has(item.id))
-    if (itensMarcados.length === 0) return
-    const workbook = gerarPlanilhaFornecedor(itensMarcados)
-    baixarWorkbook(workbook, nomeArquivoFornecedor(maquina, cliente))
+    if (itensParaPlanilhaFornecedor.length === 0) return
+    setPlanilhaFornecedorAberta(true)
   }
 
   function handleAplicarMargemUnica() {
@@ -448,12 +447,21 @@ export function QuoteItemsList({
           <button
             type="button"
             onClick={handleGerarPlanilhaFornecedor}
-            title="Baixa uma planilha (.xlsx) só com os itens marcados, no formato de orçamento pra pedir preço ao fornecedor"
+            title="Mostra uma prévia da planilha (.xlsx) só com os itens marcados, no formato de orçamento pra pedir preço ao fornecedor"
             className="pill-tab border border-ink-200 text-ink-600 hover:bg-white"
           >
             Gerar planilha do fornecedor (.xlsx)
           </button>
         </div>
+      )}
+
+      {planilhaFornecedorAberta && (
+        <PlanilhaFornecedorModal
+          items={itensParaPlanilhaFornecedor}
+          maquina={maquina}
+          cliente={cliente}
+          onClose={() => setPlanilhaFornecedorAberta(false)}
+        />
       )}
 
       <div className="overflow-x-auto rounded-xl border border-ink-100">
