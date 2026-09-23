@@ -2,10 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button } from '../components/ui/Basics'
 import { SelectField } from '../components/ui/Field'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
+import { PedidoCompraFornecedorModal } from '../components/PedidoCompraFornecedorModal'
 import { listQuotes, salvarItensFechados, updateQuoteStatus } from '../db/analysesRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency } from '../utils'
 import { QUOTE_STATUSES } from '../types'
+import type { DadosPedidoCompra } from '../planilhaPedidoCompra'
 import type { ItemFechado, PedidoCompraInfo, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
 
 function estatisticasGrupo(items: QuoteItem[], fechados: Record<string, ItemFechado>) {
@@ -69,6 +71,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
   const [salvando, setSalvando] = useState(false)
   const [salvo, setSalvo] = useState(false)
   const [pedidoModalAberto, setPedidoModalAberto] = useState(false)
+  const [pedidoFornecedorAberto, setPedidoFornecedorAberto] = useState<string | undefined>(undefined)
 
   function refresh() {
     return listQuotes()
@@ -194,6 +197,35 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
   const totaisGerais = useMemo(() => estatisticasGrupo(itensDoPedido, fechados), [itensDoPedido, fechados])
   const corStatus = cotacao ? corPadraoDoStatus(cotacao.status) : '#999'
 
+  // dados do pedido pro fornecedor com o modal de WhatsApp aberto no momento — usa o valor/qtd
+  // FECHADO (o que realmente saiu, ver estatisticasGrupo), não o negociado na cotação original
+  const dadosPedidoFornecedorAberto = useMemo((): DadosPedidoCompra | undefined => {
+    if (!pedidoFornecedorAberto || !cotacao) return undefined
+    const grupo = gruposPorFornecedor.find((g) => g.fornecedor === pedidoFornecedorAberto)
+    if (!grupo) return undefined
+    return {
+      fornecedor: grupo.fornecedor,
+      vendedor: cotacao.vendedor || '',
+      codigoCotacao: cotacao.codigo || '',
+      comprador: currentAdmin,
+      itens: grupo.items.map((item) => {
+        const f = fechados[item.id] ?? {
+          qtd: item.product.qtd,
+          valorUnt: item.product.valorUnt,
+          freteRate: item.product.freteRate,
+        }
+        return {
+          qtd: f.qtd || 0,
+          referencia: item.product.referencia,
+          marca: item.product.marca,
+          interno: item.product.interno,
+          descricao: item.product.descricao,
+          valorUnitario: f.valorUnt || 0,
+        }
+      }),
+    }
+  }, [pedidoFornecedorAberto, cotacao, gruposPorFornecedor, fechados, currentAdmin])
+
   const cotacaoOptions = [
     { value: '', label: '— buscar outra cotação —' },
     ...quotes.map((q) => ({ value: q.id, label: `${q.codigo || 'sem código'} — ${q.cliente || 'sem cliente'} (${q.status})` })),
@@ -312,6 +344,9 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
               <div key={grupo.fornecedor} className="card">
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                   <h3 className="font-display text-base font-semibold text-ink-900">Fornecedor: {grupo.fornecedor}</h3>
+                  <Button variant="secondary" onClick={() => setPedidoFornecedorAberto(grupo.fornecedor)}>
+                    Enviar pedido por WhatsApp
+                  </Button>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
                   <MiniStat label="Frete total" negociado={est.freteNegociado} fechado={est.freteFechado} />
@@ -418,6 +453,10 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
 
       {pedidoModalAberto && cotacao && (
         <PedidoCompraModal quote={cotacao} onConfirm={handleConfirmarPedidoCompra} onCancel={() => setPedidoModalAberto(false)} />
+      )}
+
+      {dadosPedidoFornecedorAberto && (
+        <PedidoCompraFornecedorModal dados={dadosPedidoFornecedorAberto} onClose={() => setPedidoFornecedorAberto(undefined)} />
       )}
     </div>
   )

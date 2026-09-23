@@ -55,16 +55,40 @@ export function PlanilhaClienteModal({
   const titulo = `Orçamento — ${cliente || 'cliente'} — ${maquina || 'máquina'}`
   const mensagem = `Segue o orçamento atualizado (${cliente || 'cliente'} — ${maquina || 'máquina'}). Anexei a planilha "${nomeArquivo}".`
 
+  // o navegador rejeita o compartilhamento de duas formas bem diferentes: o usuário fecha a folha
+  // de compartilhamento sem escolher nada (AbortError — cancelamento de propósito, não é erro), ou
+  // o compartilhamento falha de verdade (celular/app não aceitou o arquivo daquele jeito). Tratar
+  // as duas iguais fazia o botão "não fazer nada" numa falha de verdade, sem avisar nem cair num
+  // plano B — foi isso que quebrou no celular.
   async function handleCompartilhar() {
     if (!resultado) return
     setCompartilhando(true)
     try {
       await compartilharArquivo(workbookParaBlob(resultado.workbook), nomeArquivo, titulo, mensagem)
-    } catch {
-      // usuário cancelou o compartilhamento — não é um erro real
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return
+      alert('Não consegui compartilhar o arquivo direto — baixe a planilha acima e anexe manualmente.')
     } finally {
       setCompartilhando(false)
     }
+  }
+
+  // sem compartilhamento nativo de arquivo (desktop, a maioria), o link "wa.me" abre o WhatsApp só
+  // com o texto — com compartilhamento nativo (celular), abre a folha de compartilhamento do
+  // sistema já com a planilha .xlsx anexada, o WhatsApp aparece como uma das opções.
+  async function handleWhatsApp() {
+    if (podeCompartilharArquivo && resultado) {
+      setCompartilhando(true)
+      try {
+        await compartilharArquivo(workbookParaBlob(resultado.workbook), nomeArquivo, titulo, mensagem)
+        return
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') return
+      } finally {
+        setCompartilhando(false)
+      }
+    }
+    window.open(linkWhatsApp(mensagem), '_blank', 'noopener')
   }
 
   return (
@@ -112,14 +136,14 @@ export function PlanilhaClienteModal({
             <div className="border-t border-ink-100 pt-3">
               <p className="field-label mb-2">Encaminhar</p>
               <div className="flex flex-wrap gap-2">
-                <a
-                  href={linkWhatsApp(mensagem)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="pill-tab border border-ink-200 text-ink-600 hover:bg-ink-50"
+                <button
+                  type="button"
+                  onClick={handleWhatsApp}
+                  disabled={compartilhando}
+                  className="pill-tab border border-ink-200 text-ink-600 hover:bg-ink-50 disabled:opacity-50"
                 >
-                  WhatsApp
-                </a>
+                  WhatsApp{podeCompartilharArquivo ? ' (com a planilha anexada)' : ''}
+                </button>
                 <a
                   href={linkEmail(titulo, mensagem)}
                   className="pill-tab border border-ink-200 text-ink-600 hover:bg-ink-50"

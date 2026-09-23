@@ -2,42 +2,37 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button } from './ui/Basics'
 import { abrirParaImpressao, baixarBlob, compartilharArquivo, linkEmail, linkWhatsApp, suportaCompartilharArquivo } from '../planilhaCliente'
 import { workbookParaBlobXlsx } from '../exceljsHtmlPreview'
-import { gerarPlanilhaFornecedor, nomeArquivoFornecedor, type PlanilhaFornecedorGerada } from '../planilhaFornecedor'
-import type { QuoteItem } from '../types'
+import { gerarPedidoCompra, nomeArquivoPedidoCompra, type DadosPedidoCompra, type PedidoCompraGerado } from '../planilhaPedidoCompra'
 
-export function PlanilhaFornecedorModal({
-  items,
-  maquina,
-  cliente,
+export function PedidoCompraFornecedorModal({
+  dados,
   onClose,
 }: {
-  items: QuoteItem[]
-  maquina: string
-  cliente: string
+  dados: DadosPedidoCompra
   onClose: () => void
 }) {
   const [erro, setErro] = useState<string | undefined>(undefined)
-  const [resultado, setResultado] = useState<PlanilhaFornecedorGerada | undefined>(undefined)
+  const [resultado, setResultado] = useState<PedidoCompraGerado | undefined>(undefined)
   const [compartilhando, setCompartilhando] = useState(false)
   const podeCompartilharArquivo = useMemo(() => suportaCompartilharArquivo(), [])
-  const nomeArquivo = useMemo(() => nomeArquivoFornecedor(maquina, cliente), [maquina, cliente])
+  const nomeArquivo = useMemo(() => nomeArquivoPedidoCompra(dados.fornecedor), [dados.fornecedor])
 
   useEffect(() => {
     let cancelado = false
     setResultado(undefined)
     setErro(undefined)
-    gerarPlanilhaFornecedor(items)
+    gerarPedidoCompra(dados)
       .then((r) => {
         if (!cancelado) setResultado(r)
       })
       .catch((err) => {
-        if (!cancelado) setErro(err instanceof Error ? err.message : 'Erro ao gerar a planilha do fornecedor.')
+        if (!cancelado) setErro(err instanceof Error ? err.message : 'Erro ao gerar o pedido de compra.')
       })
     return () => {
       cancelado = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items])
+  }, [dados])
 
   useEffect(() => {
     function handleEsc(e: KeyboardEvent) {
@@ -47,10 +42,10 @@ export function PlanilhaFornecedorModal({
     return () => window.removeEventListener('keydown', handleEsc)
   }, [onClose])
 
-  const titulo = `Orçamento — ${maquina || cliente || 'itens marcados'}`
-  const mensagem = `Segue o orçamento pra cotação (${items.length} item${items.length > 1 ? 's' : ''}${
-    maquina ? ` — ${maquina}` : ''
-  }). Anexei a planilha "${nomeArquivo}".`
+  const titulo = `Pedido de compra — ${dados.fornecedor} — ${dados.codigoCotacao}`
+  const mensagem = `Segue o pedido de compra ${dados.codigoCotacao} (${dados.itens.length} item${
+    dados.itens.length > 1 ? 's' : ''
+  }) pra ${dados.fornecedor}. Anexei a planilha "${nomeArquivo}".`
 
   async function handleBaixar() {
     if (!resultado) return
@@ -58,11 +53,6 @@ export function PlanilhaFornecedorModal({
     baixarBlob(blob, nomeArquivo)
   }
 
-  // o navegador rejeita o compartilhamento de duas formas bem diferentes: o usuário fecha a folha
-  // de compartilhamento sem escolher nada (AbortError — cancelamento de propósito, não é erro), ou
-  // o compartilhamento falha de verdade (celular/app não aceitou o arquivo daquele jeito). Tratar
-  // as duas iguais (como o código fazia antes) faz o botão "não fazer nada" numa falha de verdade,
-  // sem avisar nem cair num plano B — foi isso que quebrou no celular.
   async function handleCompartilhar() {
     if (!resultado) return
     setCompartilhando(true)
@@ -77,11 +67,6 @@ export function PlanilhaFornecedorModal({
     }
   }
 
-  // sem compartilhamento nativo de arquivo (desktop, a maioria), o link "wa.me" abre o WhatsApp só
-  // com o texto — não existe como um site anexe o arquivo ou entre logado numa conta sozinho, isso
-  // é bloqueado por segurança do navegador. Com compartilhamento nativo (celular), abre a mesma
-  // folha de compartilhamento do sistema já com a planilha .xlsx anexada — o WhatsApp aparece como
-  // uma das opções, com a conta que já está logada no aparelho, sem precisar baixar/anexar na mão.
   async function handleWhatsApp() {
     if (podeCompartilharArquivo && resultado) {
       setCompartilhando(true)
@@ -90,8 +75,6 @@ export function PlanilhaFornecedorModal({
         await compartilharArquivo(blob, nomeArquivo, titulo, mensagem)
         return
       } catch (err) {
-        // AbortError = usuário cancelou de propósito, não força o link de texto por cima; qualquer
-        // outra falha cai no link de texto abaixo, pra sempre sobrar alguma forma de encaminhar
         if (err instanceof Error && err.name === 'AbortError') return
       } finally {
         setCompartilhando(false)
@@ -105,9 +88,9 @@ export function PlanilhaFornecedorModal({
       <div className="card max-w-4xl w-full max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 mb-1">
           <div>
-            <h3 className="font-display text-lg font-semibold text-ink-900">Planilha do fornecedor</h3>
+            <h3 className="font-display text-lg font-semibold text-ink-900">Pedido de compra — {dados.fornecedor}</h3>
             <p className="text-sm text-ink-400">
-              {items.length} item{items.length > 1 ? 's' : ''} marcado{items.length > 1 ? 's' : ''} — {nomeArquivo}
+              {dados.itens.length} item{dados.itens.length > 1 ? 's' : ''} — {nomeArquivo}
             </p>
           </div>
           <button type="button" onClick={onClose} className="text-ink-400 hover:text-ink-700 text-xl leading-none px-1">
@@ -116,7 +99,7 @@ export function PlanilhaFornecedorModal({
         </div>
 
         {erro && <p className="text-sm text-rose-600 py-4">{erro}</p>}
-        {!erro && !resultado && <p className="text-sm text-ink-400 py-4 text-center">Gerando planilha…</p>}
+        {!erro && !resultado && <p className="text-sm text-ink-400 py-4 text-center">Gerando pedido…</p>}
 
         {resultado && (
           <>
