@@ -10,6 +10,7 @@ import { DEFAULT_NOTA_FISCAL, NOTA_FISCAL_STATUSES, NOTA_FISCAL_TIPOS, RECEBEDOR
 import type { Fornecedor, NotaFiscal, NotaFiscalStatus, NotaFiscalTipo } from '../types'
 import { chaveMes, chaveMesDaNota, labelDoMes, dataLimiteDoMes, corDoTipo, labelDoTipo } from '../notasFiscaisHelpers'
 import { extrairDadosNotaFiscalPdf } from '../pdfNotaFiscal'
+import { extrairDadosNotaFiscalXml } from '../xmlNotaFiscal'
 import { useEstadoPersistente } from '../estadoPersistente'
 import { avisar, confirmar } from '../dialogs'
 
@@ -357,7 +358,7 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
   const [mostrarArquivadas, setMostrarArquivadas] = useState(false)
   const [formRecolhido, setFormRecolhido] = useEstadoPersistente('notas:formRecolhido', true)
   const [notaParaStatus, setNotaParaStatus] = useState<NotaFiscal | null>(null)
-  const [importandoPdf, setImportandoPdf] = useState(false)
+  const [importandoArquivo, setImportandoArquivo] = useState(false)
 
   async function refresh() {
     setLoading(true)
@@ -409,16 +410,23 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
     setForm((prev) => ({ ...prev, ...p }))
   }
 
-  async function handleImportarPdf(file: File) {
-    setImportandoPdf(true)
+  async function handleImportarArquivo(file: File) {
+    const ehXml = /\.xml$/i.test(file.name) || file.type.includes('xml')
+    const ehPdf = /\.pdf$/i.test(file.name) || file.type.includes('pdf')
+    if (!ehXml && !ehPdf) {
+      void avisar('Formato não reconhecido — envie o PDF (DANFE) ou o XML da NF-e.')
+      return
+    }
+    setImportandoArquivo(true)
     try {
-      const dados = await extrairDadosNotaFiscalPdf(file, {
+      const listas = {
         fornecedoresConhecidos: fornecedores.map((f) => f.nome),
         recebedoresConhecidos: RECEBEDORES,
         transportadorasConhecidas: TRANSPORTADORAS,
-      })
+      }
+      const dados = ehXml ? await extrairDadosNotaFiscalXml(file, listas) : await extrairDadosNotaFiscalPdf(file, listas)
       if (Object.keys(dados).length === 0) {
-        void avisar('Não consegui reconhecer os dados dessa nota — confira se é o PDF da NF-e e preencha manualmente.')
+        void avisar('Não consegui reconhecer os dados dessa nota — confira se é o PDF ou XML da NF-e e preencha manualmente.')
         return
       }
       patch({
@@ -432,9 +440,9 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
       })
       setFormRecolhido(false)
     } catch (err) {
-      void avisar(err instanceof Error ? err.message : 'Erro ao ler o PDF da nota fiscal.')
+      void avisar(err instanceof Error ? err.message : `Erro ao ler o ${ehXml ? 'XML' : 'PDF'} da nota fiscal.`)
     } finally {
-      setImportandoPdf(false)
+      setImportandoArquivo(false)
     }
   }
 
@@ -580,20 +588,20 @@ export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string
           <>
             <div className="mt-5 rounded-xl border border-dashed border-ink-200 p-4">
               <label className="block">
-                <span className="field-label">Importar PDF da nota (preenche os campos automaticamente)</span>
+                <span className="field-label">Importar PDF ou XML da nota (preenche os campos automaticamente)</span>
                 <input
                   type="file"
-                  accept=".pdf,application/pdf"
-                  disabled={importandoPdf}
+                  accept=".pdf,.xml,application/pdf,text/xml,application/xml"
+                  disabled={importandoArquivo}
                   onChange={(e) => {
                     const file = e.target.files?.[0]
-                    if (file) handleImportarPdf(file)
+                    if (file) handleImportarArquivo(file)
                     e.target.value = ''
                   }}
                   className="field-input"
                 />
               </label>
-              {importandoPdf && <p className="text-xs text-ink-400 mt-2">Lendo o PDF…</p>}
+              {importandoArquivo && <p className="text-xs text-ink-400 mt-2">Lendo o arquivo…</p>}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
