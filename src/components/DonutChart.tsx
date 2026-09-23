@@ -63,8 +63,13 @@ export function DonutChart({
   // de rInner), a maior vai até rOuterMax. Assim o tamanho da "rosca" também comunica a grandeza,
   // não só o ângulo da fatia.
   const escala = compact ? 0.75 : 1
-  const rOuterMax = 110 * escala
-  const rOuterMin = 82 * escala
+  const rOuterMax = 114 * escala
+  // rOuterMin fica bem mais afastado de rInner que antes (24px de faixa mínima, escalado) — a
+  // fatia MENOR do conjunto sempre cai exatamente em rOuterMin, e se essa faixa ficar fina demais
+  // o número dela (que mostra dentro da fatia) não cabe verticalmente: o texto vaza pra fora do
+  // anel colorido, sobrando por cima do buraco branco do meio ou da fatia vizinha — foi isso que
+  // aconteceu com os números pequenos (ex.: "10,9k", "5") antes desse ajuste.
+  const rOuterMin = 90 * escala
   const rInner = 66 * escala
   const gapDeg = 1.5
 
