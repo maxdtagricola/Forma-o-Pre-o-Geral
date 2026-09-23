@@ -43,10 +43,13 @@ export function IconCaminhao() {
   )
 }
 
+// tons mais escuros que os da paleta categórica (PALETA_CATEGORICA/CORES_TIPO) de propósito: aqui
+// o número vem em branco por cima — os tons "claros" da paleta (ex.: #eda100) davam menos de 3:1
+// de contraste com branco (quase ilegível, "lavado"), estes ficam todos acima de 4.5:1 (WCAG AA)
 const TONS_KPI: Record<'agua' | 'amarelo' | 'laranja', string> = {
-  agua: 'bg-[#1baf7a]',
-  amarelo: 'bg-[#eda100]',
-  laranja: 'bg-[#eb6834]',
+  agua: 'bg-[#047857]',
+  amarelo: 'bg-[#b45309]',
+  laranja: 'bg-[#c2410c]',
 }
 
 export function KpiCard({
