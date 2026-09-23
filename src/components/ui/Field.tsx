@@ -52,10 +52,17 @@ interface DateFieldProps {
   className?: string
 }
 
+// mesmo bug que "Data de solicitação" tinha em Precificação (ver histórico) — um <input
+// type="date"> controlado fica com o .value vazio enquanto o ano não tem os 4 dígitos completos,
+// então cada tecla lia a data como "incompleta" e o campo controlado zerava sozinho, brigando com
+// quem tava digitando na mão. Não-controlado (defaultValue, não value) resolve: quem usa esse
+// componente e precisa que o valor mostrado mude por fora (trocar de registro, importar um
+// arquivo…) precisa passar um `key` que mude nesses momentos — só assim o campo remonta e pega o
+// novo valor; digitação normal não deve mudar esse key, senão volta a interromper a digitação.
 export function DateField({ label, value, onChange, hint, className }: DateFieldProps) {
   return (
     <FieldWrapper label={label} hint={hint} className={className}>
-      <input type="date" className="field-input" value={value} onChange={(e) => onChange(e.target.value)} />
+      <input type="date" className="field-input" defaultValue={value} onChange={(e) => onChange(e.target.value)} />
     </FieldWrapper>
   )
 }

@@ -369,6 +369,10 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
   const [formRecolhido, setFormRecolhido] = useEstadoPersistente('notasGerais:formRecolhido', true)
   const [notaParaStatus, setNotaParaStatus] = useState<NotaFiscal | null>(null)
   const [importandoArquivo, setImportandoArquivo] = useState(false)
+  // some pro DateField (Data de emissão) — que agora é não-controlado — remontar e pegar o valor
+  // certo quando o formulário é repopulado por fora (trocar de registro, cancelar, importar
+  // arquivo). Muda só nesses momentos, nunca durante a digitação normal do usuário.
+  const [formResetKey, setFormResetKey] = useState(0)
 
   async function refresh() {
     setLoading(true)
@@ -449,6 +453,7 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
         ...(dados.transportadora ? { transportadora: dados.transportadora } : {}),
       })
       setFormRecolhido(false)
+      setFormResetKey((k) => k + 1)
     } catch (err) {
       void avisar(err instanceof Error ? err.message : `Erro ao ler o ${ehXml ? 'XML' : 'PDF'} da nota fiscal.`)
     } finally {
@@ -460,6 +465,7 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
     setForm(DEFAULT_NOTA_FISCAL)
     setStatusInicial(NOTA_FISCAL_STATUSES[0])
     setEditingId(undefined)
+    setFormResetKey((k) => k + 1)
   }
 
   async function handleSubmit() {
@@ -501,6 +507,7 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
     })
     setEditingId(n.id)
     setFormRecolhido(false)
+    setFormResetKey((k) => k + 1)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
@@ -616,7 +623,7 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
               <TextField label="Número da NF-e" value={form.numeroNfe} onChange={(v) => patch({ numeroNfe: v })} />
-              <DateField label="Data de emissão" value={form.dataEmissao} onChange={(v) => patch({ dataEmissao: v })} />
+              <DateField key={formResetKey} label="Data de emissão" value={form.dataEmissao} onChange={(v) => patch({ dataEmissao: v })} />
               <AutocompleteField
                 label="Fornecedor"
                 value={form.fornecedor}
