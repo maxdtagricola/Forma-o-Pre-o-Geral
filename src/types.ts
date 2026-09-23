@@ -329,6 +329,11 @@ export interface CotacaoFornecedorItem {
   fornecedor: string
   marca: string
   valorUnitario: number
+  /** Valor total cotado pelo fornecedor pra esse item — quando o fornecedor informou os dois (ex.:
+   * na planilha, ou na mensagem/print da cotação), guarda o valor total dele mesmo, em vez de só
+   * calcular unitário × quantidade; os dois às vezes divergem um pouco (arredondamento, desconto
+   * fechado no total etc.) e vale a pena mostrar o que o fornecedor realmente cotou. */
+  valorTotal?: number
 }
 
 export interface PreRegistroItem {

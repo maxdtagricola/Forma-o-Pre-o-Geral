@@ -6,7 +6,14 @@ import type { QuoteItem } from '../types'
 
 interface LinhaEditavel extends ItemDetectadoFornecedor {
   incluir: boolean
-  valorTexto: string
+  valorUnitarioTexto: string
+  valorTotalTexto: string
+}
+
+/** "123,45" -> 123.45; string vazia/inválida -> undefined. */
+function textoParaValor(texto: string): number | undefined {
+  const valor = Number(texto.replace(',', '.'))
+  return texto.trim() && Number.isFinite(valor) && valor > 0 ? valor : undefined
 }
 
 const ACEITA_ARQUIVOS = '.xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.gif'
@@ -21,7 +28,11 @@ export function ImportarCotacaoFornecedorModal({
   items: QuoteItem[]
   fornecedorSuggestions: { value: string; label: string }[]
   fornecedoresNomes: string[]
-  onConfirmar: (fornecedor: string, marca: string, itens: { itemId: string; valorUnitario: number }[]) => void
+  onConfirmar: (
+    fornecedor: string,
+    marca: string,
+    itens: { itemId: string; valorUnitario: number; valorTotal?: number }[],
+  ) => void
   onClose: () => void
 }) {
   const [nomeArquivo, setNomeArquivo] = useState('')
@@ -47,8 +58,9 @@ export function ImportarCotacaoFornecedorModal({
       setLinhas(
         resultado.itens.map((item) => ({
           ...item,
-          incluir: item.valorDetectado !== undefined,
-          valorTexto: item.valorDetectado !== undefined ? String(item.valorDetectado).replace('.', ',') : '',
+          incluir: item.valorUnitarioDetectado !== undefined,
+          valorUnitarioTexto: item.valorUnitarioDetectado !== undefined ? String(item.valorUnitarioDetectado).replace('.', ',') : '',
+          valorTotalTexto: item.valorTotalDetectado !== undefined ? String(item.valorTotalDetectado).replace('.', ',') : '',
         })),
       )
     } catch (err) {
@@ -62,7 +74,7 @@ export function ImportarCotacaoFornecedorModal({
     setLinhas((prev) => prev?.map((l) => (l.itemId === itemId ? { ...l, ...patch } : l)))
   }
 
-  const linhasProntas = (linhas ?? []).filter((l) => l.incluir && Number(l.valorTexto.replace(',', '.')) > 0)
+  const linhasProntas = (linhas ?? []).filter((l) => l.incluir && textoParaValor(l.valorUnitarioTexto) !== undefined)
   const podeConfirmar = fornecedor.trim().length > 0 && linhasProntas.length > 0
 
   function handleConfirmar() {
@@ -70,7 +82,11 @@ export function ImportarCotacaoFornecedorModal({
     onConfirmar(
       fornecedor.trim(),
       marca.trim(),
-      linhasProntas.map((l) => ({ itemId: l.itemId, valorUnitario: Number(l.valorTexto.replace(',', '.')) })),
+      linhasProntas.map((l) => ({
+        itemId: l.itemId,
+        valorUnitario: textoParaValor(l.valorUnitarioTexto)!,
+        valorTotal: textoParaValor(l.valorTotalTexto),
+      })),
     )
     onClose()
   }
@@ -134,7 +150,8 @@ export function ImportarCotacaoFornecedorModal({
                       <tr className="bg-ink-50 text-left text-ink-400">
                         <th className="py-2 px-2 w-8"></th>
                         <th className="py-2 px-2 font-medium">Item da cotação</th>
-                        <th className="py-2 px-2 font-medium w-32 text-right">Valor unt.</th>
+                        <th className="py-2 px-2 font-medium w-28 text-right">Valor unt.</th>
+                        <th className="py-2 px-2 font-medium w-28 text-right">Valor total</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -156,8 +173,18 @@ export function ImportarCotacaoFornecedorModal({
                               type="text"
                               inputMode="decimal"
                               placeholder="R$"
-                              value={l.valorTexto}
-                              onChange={(e) => patchLinha(l.itemId, { valorTexto: e.target.value, incluir: true })}
+                              value={l.valorUnitarioTexto}
+                              onChange={(e) => patchLinha(l.itemId, { valorUnitarioTexto: e.target.value, incluir: true })}
+                              className="field-input text-right tabular-nums py-1"
+                            />
+                          </td>
+                          <td className="py-2 px-1">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              placeholder="R$ (opcional)"
+                              value={l.valorTotalTexto}
+                              onChange={(e) => patchLinha(l.itemId, { valorTotalTexto: e.target.value })}
                               className="field-input text-right tabular-nums py-1"
                             />
                           </td>

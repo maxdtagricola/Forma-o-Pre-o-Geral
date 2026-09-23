@@ -87,6 +87,7 @@ function CardItem({
                 <th className="py-2 px-2 font-medium">Fornecedor</th>
                 <th className="py-2 px-2 font-medium">Marca</th>
                 <th className="py-2 px-2 font-medium text-right">Valor unitário</th>
+                <th className="py-2 px-2 font-medium text-right">Valor total</th>
                 <th className="w-10"></th>
               </tr>
             </thead>
@@ -96,6 +97,9 @@ function CardItem({
                 .sort((a, b) => a.valorUnitario - b.valorUnitario)
                 .map((c) => {
                   const melhor = c.valorUnitario === menorValor
+                  // valor total tal como o fornecedor cotou, quando informado (planilha/import) —
+                  // senão calcula pela quantidade do item, só pra sempre ter os dois valores aqui
+                  const valorTotal = c.valorTotal ?? c.valorUnitario * (item.product.qtd || 0)
                   return (
                     <tr key={c.id} className={melhor ? 'bg-brand-50' : undefined}>
                       <td className={`py-2 px-2 border-t border-ink-100 ${melhor ? 'font-semibold text-brand-800' : 'text-ink-800'}`}>
@@ -106,6 +110,12 @@ function CardItem({
                         className={`py-2 px-2 border-t border-ink-100 text-right font-mono tabular-nums ${melhor ? 'font-semibold text-brand-800' : 'text-ink-800'}`}
                       >
                         {formatCurrency(c.valorUnitario)}
+                      </td>
+                      <td
+                        className="py-2 px-2 border-t border-ink-100 text-right font-mono tabular-nums text-ink-600"
+                        title={c.valorTotal === undefined ? 'Calculado: valor unitário × quantidade do item' : 'Valor total informado pelo fornecedor'}
+                      >
+                        {formatCurrency(valorTotal)}
                       </td>
                       <td className="py-2 px-2 border-t border-ink-100 text-center">
                         <button
@@ -179,16 +189,22 @@ export function CompararFornecedoresPage({
   }
 
   // vindo do modal de importação — um lote de itens que podem pertencer a QuoteItems diferentes,
-  // cada um recebe a mesma cotação (fornecedor/marca) só com o valor unitário mudando
+  // cada um recebe a mesma cotação (fornecedor/marca), com o valor unitário e (se o arquivo trazia)
+  // o valor total mudando por item
   function handleImportarConfirmado(
     fornecedorNome: string,
     marca: string,
-    confirmados: { itemId: string; valorUnitario: number }[],
+    confirmados: { itemId: string; valorUnitario: number; valorTotal?: number }[],
   ) {
     for (const c of confirmados) {
       const item = items.find((i) => i.id === c.itemId)
       if (!item) continue
-      handleAddCotacao(item, { fornecedor: fornecedorNome, marca, valorUnitario: c.valorUnitario })
+      handleAddCotacao(item, {
+        fornecedor: fornecedorNome,
+        marca,
+        valorUnitario: c.valorUnitario,
+        ...(c.valorTotal !== undefined ? { valorTotal: c.valorTotal } : {}),
+      })
     }
   }
 

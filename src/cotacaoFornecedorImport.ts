@@ -9,9 +9,12 @@ export interface ItemDetectadoFornecedor {
   itemId: string
   referencia: string
   descricao: string
-  /** Preço encontrado perto da referência no arquivo — sempre revisável/editável antes de confirmar,
-   * nunca aplicado direto: leitura de PDF/planilha variada e OCR de imagem não são 100% confiáveis. */
-  valorDetectado?: number
+  /** Preço unitário encontrado perto da referência no arquivo — sempre revisável/editável antes de
+   * confirmar, nunca aplicado direto: leitura de PDF/planilha variada e OCR de imagem não são 100%
+   * confiáveis. */
+  valorUnitarioDetectado?: number
+  /** Valor total encontrado junto do unitário, quando o arquivo trazia os dois. */
+  valorTotalDetectado?: number
 }
 
 export interface ResultadoImportacaoFornecedor {
@@ -41,19 +44,24 @@ function detectarFornecedorConhecido(texto: string, fornecedoresConhecidos: stri
   return undefined
 }
 
-/** Primeiro número em formato de dinheiro brasileiro ("123,45" ou "1.234,56") numa janela de texto. */
-function extrairValorMonetario(janela: string): number | undefined {
-  const match = janela.match(/\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}/)
-  if (!match) return undefined
-  const limpo = match[0].replace(/\.(?=\d{3}(?:,|$))/g, '').replace(',', '.')
-  const valor = parseFloat(limpo)
-  return Number.isFinite(valor) && valor > 0 ? valor : undefined
+/** Todos os números em formato de dinheiro brasileiro ("123,45" ou "1.234,56") numa janela de
+ * texto, na ordem em que aparecem — uma linha de cotação solta costuma trazer o valor unitário
+ * seguido do total ("... R$ 50,00 ... R$ 500,00"), então o primeiro vira unitário e o segundo,
+ * total (ver interpretarTextoSolto). */
+function extrairValoresMonetarios(janela: string): number[] {
+  const matches = janela.match(/\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}/g) ?? []
+  return matches
+    .map((m) => parseFloat(m.replace(/\.(?=\d{3}(?:,|$))/g, '').replace(',', '.')))
+    .filter((v) => Number.isFinite(v) && v > 0)
 }
 
-/** Acha, no texto solto (PDF ou OCR de imagem), cada referência dos itens da cotação atual — e um
- * valor monetário logo depois dela, se tiver. Só procura pelas referências que já existem na
- * cotação porque só essas podem virar uma linha no comparador (ele é organizado por item já
- * existente, não por item novo). */
+/** Acha, no texto solto (PDF ou OCR de imagem), cada referência dos itens da cotação atual — e os
+ * valores monetários logo depois dela, se tiver. Uma linha de cotação costuma trazer o unitário
+ * seguido do total ("... R$ 50,00 ... R$ 500,00"): o primeiro valor vira unitário; o segundo só
+ * vira total se for maior ou igual ao unitário (total = unitário × quantidade, quantidade ≥ 1) —
+ * senão é mais provável ser outro número solto (código, prazo…), não um total de verdade. Só
+ * procura pelas referências que já existem na cotação porque só essas podem virar uma linha no
+ * comparador (ele é organizado por item já existente, não por item novo). */
 function interpretarTextoSolto(texto: string, items: QuoteItem[], fornecedoresConhecidos: string[]): ResultadoImportacaoFornecedor {
   const textoMaiusculo = texto.toUpperCase()
   const fornecedorDetectado = detectarFornecedorConhecido(texto, fornecedoresConhecidos)
@@ -64,12 +72,17 @@ function interpretarTextoSolto(texto: string, items: QuoteItem[], fornecedoresCo
     if (!referencia) continue
     const posicao = textoMaiusculo.indexOf(referencia.toUpperCase())
     if (posicao === -1) continue
-    const janela = texto.slice(posicao, posicao + 120)
+    const janela = texto.slice(posicao, posicao + 160)
+    const [valorUnitarioDetectado, possivelTotal] = extrairValoresMonetarios(janela)
     itens.push({
       itemId: item.id,
       referencia,
       descricao: item.product.descricao,
-      valorDetectado: extrairValorMonetario(janela),
+      valorUnitarioDetectado,
+      valorTotalDetectado:
+        possivelTotal !== undefined && valorUnitarioDetectado !== undefined && possivelTotal >= valorUnitarioDetectado
+          ? possivelTotal
+          : undefined,
     })
   }
 
@@ -107,12 +120,14 @@ async function importarDePlanilha(
     if (vazio(referenciaCel)) continue
     const item = itemPorReferencia.get(String(referenciaCel).trim().toLowerCase())
     if (!item) continue
-    const valorCel = tabela.colVlrUnt > -1 ? cellValue(ws, r, tabela.colVlrUnt) : undefined
+    const valorUntCel = tabela.colVlrUnt > -1 ? cellValue(ws, r, tabela.colVlrUnt) : undefined
+    const valorTotalCel = tabela.colVlrTotal > -1 ? cellValue(ws, r, tabela.colVlrTotal) : undefined
     itens.push({
       itemId: item.id,
       referencia: item.product.referencia,
       descricao: item.product.descricao,
-      valorDetectado: typeof valorCel === 'number' && valorCel > 0 ? valorCel : undefined,
+      valorUnitarioDetectado: typeof valorUntCel === 'number' && valorUntCel > 0 ? valorUntCel : undefined,
+      valorTotalDetectado: typeof valorTotalCel === 'number' && valorTotalCel > 0 ? valorTotalCel : undefined,
     })
   }
 
