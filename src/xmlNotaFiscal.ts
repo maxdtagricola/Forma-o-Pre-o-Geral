@@ -31,11 +31,14 @@ function dataEmissaoDe(doc: Document): string | undefined {
   return /^\d{4}-\d{2}-\d{2}$/.test(data) ? data : undefined
 }
 
-/** Só aceita o nome extraído do XML se ele bater (nos dois sentidos, sem diferenciar
- * maiúscula/minúscula) com algum nome já cadastrado — os campos na tela são de autocomplete
- * ligado ao cadastro, então preencher um texto qualquer do XML (que costuma vir com "LTDA",
- * razão social completa etc.) deixaria o campo com um valor que não corresponde a nada conhecido. */
-function encontrarConhecido(nomeExtraido: string | undefined, conhecidos: string[]): string | undefined {
+/** Fornecedor/recebedor/transportadora são campos de texto livre (autocomplete, não seleção
+ * travada) — então, ao contrário do PDF (que só acha um nome se ele já estiver na lista
+ * conhecida, por procurar no texto solto da página), aqui dá pra fazer melhor: se o nome do XML
+ * bater com algo já cadastrado, normaliza pra grafia exata do cadastro; senão, usa o nome tal
+ * como veio do XML mesmo — a razão social completa da NF-e raramente bate palavra por palavra com
+ * o nome curto do cadastro, e é bem melhor preencher com o nome real (o admin ajusta se quiser) do
+ * que deixar o campo em branco. */
+function nomeOuBrutoDoXml(nomeExtraido: string | undefined, conhecidos: string[]): string | undefined {
   if (!nomeExtraido) return undefined
   const alvo = nomeExtraido.trim().toUpperCase()
   for (const nome of conhecidos) {
@@ -43,7 +46,7 @@ function encontrarConhecido(nomeExtraido: string | undefined, conhecidos: string
     const atual = nome.trim().toUpperCase()
     if (atual === alvo || alvo.includes(atual) || atual.includes(alvo)) return nome
   }
-  return undefined
+  return nomeExtraido.trim()
 }
 
 /** Interpreta o texto de um XML de NF-e já lido. Lança erro (mensagem pronta pra mostrar ao
@@ -76,18 +79,19 @@ export function interpretarXmlNotaFiscal(xmlTexto: string, listas: ListasConheci
   const valorFrete = numeroDe(infNFe, 'vFrete')
   if (valorFrete !== undefined) resultado.valorFrete = valorFrete
 
-  // emit = quem emitiu a nota (o fornecedor); dest = pra quem foi emitida (a filial que recebeu —
-  // "recebedor" no nosso cadastro); transp/transporta = a transportadora
+  // emit = quem emitiu a nota, o remetente (o fornecedor); dest = o destinatário, pra quem foi
+  // emitida (a filial que recebeu — "recebedor" no nosso cadastro); transp/transporta = a
+  // transportadora
   const emit = infNFe.getElementsByTagName('emit')[0]
-  const fornecedor = encontrarConhecido(emit && textoDe(emit, 'xNome'), listas.fornecedoresConhecidos)
+  const fornecedor = nomeOuBrutoDoXml(emit && textoDe(emit, 'xNome'), listas.fornecedoresConhecidos)
   if (fornecedor) resultado.fornecedor = fornecedor
 
   const dest = infNFe.getElementsByTagName('dest')[0]
-  const recebedor = encontrarConhecido(dest && textoDe(dest, 'xNome'), listas.recebedoresConhecidos)
+  const recebedor = nomeOuBrutoDoXml(dest && textoDe(dest, 'xNome'), listas.recebedoresConhecidos)
   if (recebedor) resultado.recebedor = recebedor
 
   const transporta = infNFe.getElementsByTagName('transporta')[0]
-  const transportadora = encontrarConhecido(transporta && textoDe(transporta, 'xNome'), listas.transportadorasConhecidas)
+  const transportadora = nomeOuBrutoDoXml(transporta && textoDe(transporta, 'xNome'), listas.transportadorasConhecidas)
   if (transportadora) resultado.transportadora = transportadora
 
   return resultado
