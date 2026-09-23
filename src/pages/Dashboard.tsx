@@ -53,6 +53,7 @@ export function Dashboard({
   onChangeDataSolicitacao,
   numeroCotacaoTransportadora,
   onChangeNumeroCotacaoTransportadora,
+  cotacaoSalva,
 }: {
   currentAdmin: string
   codigo: string
@@ -93,6 +94,8 @@ export function Dashboard({
   onChangeDataSolicitacao: (ts: number | undefined) => void
   numeroCotacaoTransportadora: string
   onChangeNumeroCotacaoTransportadora: (v: string) => void
+  /** true por alguns segundos logo depois de salvar — mostra a confirmação ao lado do botão, agora em Itens da cotação. */
+  cotacaoSalva: boolean
 }) {
   const [mostrarEnvioCotacao, setMostrarEnvioCotacao] = useState(false)
   const travadaPorOutro = activeStatus !== 'PENDENTE' && !!activeResponsavel && activeResponsavel !== currentAdmin
@@ -228,6 +231,9 @@ export function Dashboard({
         onPatchItem={onPatchItem}
         onApplyMarginToAll={onApplyMarginToAll}
         onGoToComparar={onGoToComparar}
+        onSave={onSave}
+        podeSalvar={!travadaPorOutro}
+        salvoRecentemente={cotacaoSalva}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -252,10 +258,7 @@ export function Dashboard({
             )}
 
             <div className="flex gap-2">
-              <Button variant="primary" className="flex-1" onClick={onSave} disabled={travadaPorOutro}>
-                Salvar cotação
-              </Button>
-              <Button variant="secondary" onClick={onNew}>
+              <Button variant="secondary" className="flex-1" onClick={onNew}>
                 Nova cotação
               </Button>
             </div>

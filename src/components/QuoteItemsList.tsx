@@ -5,6 +5,7 @@ import { ESTADOS } from '../data/estados'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { findByInterno, findByReferencia } from '../db/analysesRepo'
 import { PlanilhaFornecedorModal } from './PlanilhaFornecedorModal'
+import { Button } from './ui/Basics'
 import type { Fornecedor, ProductInput, QuoteItem } from '../types'
 
 type ModoFrete = 'pct' | 'valor'
@@ -101,6 +102,9 @@ export function QuoteItemsList({
   onPatchItem,
   onApplyMarginToAll,
   onGoToComparar,
+  onSave,
+  podeSalvar,
+  salvoRecentemente,
 }: {
   items: QuoteItem[]
   activeItemId: string
@@ -113,6 +117,11 @@ export function QuoteItemsList({
   onPatchItem: (id: string, patch: Partial<ProductInput>) => void
   onApplyMarginToAll: (lucroPct: number) => void
   onGoToComparar: () => void
+  onSave: () => void
+  /** false quando a cotação está travada por outro admin — desabilita o botão enquanto isso. */
+  podeSalvar: boolean
+  /** true por alguns segundos logo depois de salvar — mostra "Cotação salva!" ao lado do botão. */
+  salvoRecentemente: boolean
 }) {
   const [margemUnica, setMargemUnica] = useState('')
   const [modoFrete, setModoFrete] = useState<ModoFrete>('pct')
@@ -321,7 +330,10 @@ export function QuoteItemsList({
             Edite direto na planilha — arraste o cabeçalho pra reordenar as colunas do seu jeito.
           </p>
         </div>
-        <div className="flex gap-2 shrink-0">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          {salvoRecentemente && (
+            <span className="text-xs font-medium text-emerald-600">✓ Cotação salva!</span>
+          )}
           <button
             type="button"
             onClick={onGoToComparar}
@@ -336,6 +348,9 @@ export function QuoteItemsList({
           >
             + Adicionar item
           </button>
+          <Button variant="primary" onClick={onSave} disabled={!podeSalvar}>
+            Salvar cotação
+          </Button>
         </div>
       </div>
 

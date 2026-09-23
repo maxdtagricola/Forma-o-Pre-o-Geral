@@ -99,6 +99,12 @@ export default function App() {
   >(undefined)
   const [mostrarPlanilhaCliente, setMostrarPlanilhaCliente] = useState(false)
   const [rascunhoDisponivel, setRascunhoDisponivel] = useState<RascunhoCotacao | undefined>(undefined)
+  // true logo depois de "Salvar cotação" até a primeira alteração seguinte — enquanto estiver
+  // true, qualquer tentativa de mexer num dado já salvo passa primeiro por confirmação (ver
+  // confirmarAlteracaoSeJaSalva). Assim que confirmado uma vez, some até o próximo salvamento.
+  const [salvoInalterado, setSalvoInalterado] = useState(false)
+  // true só por alguns segundos depois de salvar, pra mostrar "Cotação salva!" ao lado do botão
+  const [cotacaoRecemSalva, setCotacaoRecemSalva] = useState(false)
 
   // ao abrir o app, verifica se sobrou algum rascunho de uma queda/fechamento anterior
   useEffect(() => {
@@ -274,6 +280,27 @@ export default function App() {
       })
   }
 
+  // guarda de confirmação: se a cotação acabou de ser salva e ainda não sofreu nenhuma alteração
+  // desde então, a primeira tentativa de mexer em qualquer dado pede confirmação ao admin. Uma vez
+  // confirmada (ou se a cotação nunca foi salva/já tinha sido alterada), libera normalmente e só
+  // volta a perguntar depois do próximo "Salvar cotação".
+  function confirmarAlteracaoSeJaSalva(): boolean {
+    if (!salvoInalterado) return true
+    const querAlterar = confirm('Esta cotação já foi salva. Tem certeza que quer alterar um dado que já foi salvo?')
+    if (!querAlterar) return false
+    setSalvoInalterado(false)
+    return true
+  }
+
+  // envolve um setter/handler de edição com a guarda acima — usado nos callbacks passados pro
+  // Dashboard, pra não duplicar o "if (!confirmarAlteracaoSeJaSalva()) return" em cada um
+  function protegido<A extends unknown[]>(fn: (...args: A) => void): (...args: A) => void {
+    return (...args: A) => {
+      if (!confirmarAlteracaoSeJaSalva()) return
+      fn(...args)
+    }
+  }
+
   function patchActivePricing(patch: Partial<PricingConfig>) {
     setItems((prev) => prev.map((item) => (item.id === activeItemId ? { ...item, pricing: { ...item.pricing, ...patch } } : item)))
   }
@@ -337,6 +364,9 @@ export default function App() {
       setEditingQuoteId(record.id)
       setHistoryRefreshKey((k) => k + 1)
       limparRascunho()
+      setSalvoInalterado(true)
+      setCotacaoRecemSalva(true)
+      setTimeout(() => setCotacaoRecemSalva(false), 2500)
     } catch (err) {
       alert(err instanceof Error ? err.message : 'Erro ao salvar a cotação no servidor.')
     }
@@ -360,6 +390,8 @@ export default function App() {
     setNumeroCotacaoTransportadora('')
     setPlanilhaOriginalState(undefined)
     limparRascunho()
+    setSalvoInalterado(false)
+    setCotacaoRecemSalva(false)
   }
 
   function handleLoad(record: QuoteRecord) {
@@ -383,6 +415,8 @@ export default function App() {
     setDataSolicitacao(record.dataSolicitacao)
     setNumeroCotacaoTransportadora(record.numeroCotacaoTransportadora ?? '')
     setPlanilhaOriginalState(record.planilhaOriginal)
+    setSalvoInalterado(false)
+    setCotacaoRecemSalva(false)
     changeTab('dashboard')
   }
 
@@ -483,10 +517,10 @@ export default function App() {
           maquina={maquina}
           empresaId={empresaId}
           empresas={empresas}
-          onVendedorChange={setVendedor}
-          onClienteChange={setCliente}
-          onMaquinaChange={setMaquina}
-          onEmpresaIdChange={setEmpresaId}
+          onVendedorChange={protegido(setVendedor)}
+          onClienteChange={protegido(setCliente)}
+          onMaquinaChange={protegido(setMaquina)}
+          onEmpresaIdChange={protegido(setEmpresaId)}
           items={items}
           activeItemId={activeItem.id}
           activeProduct={activeItem.product}
@@ -494,12 +528,12 @@ export default function App() {
           result={result}
           isEditing={!!editingQuoteId}
           onSelectItem={setActiveItemId}
-          onAddItem={handleAddItem}
-          onRemoveItem={handleRemoveItem}
-          onPatchItem={patchItemProduct}
-          onApplyMarginToAll={handleApplyMarginToAll}
-          onApplyPerfilToAll={handleApplyPerfilToAll}
-          onPricingChange={patchActivePricing}
+          onAddItem={protegido(handleAddItem)}
+          onRemoveItem={protegido(handleRemoveItem)}
+          onPatchItem={protegido(patchItemProduct)}
+          onApplyMarginToAll={protegido(handleApplyMarginToAll)}
+          onApplyPerfilToAll={protegido(handleApplyPerfilToAll)}
+          onPricingChange={protegido(patchActivePricing)}
           onSave={handleSave}
           onNew={handleNew}
           onGoToCotacoes={() => changeTab('cotacoes')}
@@ -510,9 +544,10 @@ export default function App() {
           onVerPlanilhaCliente={() => setMostrarPlanilhaCliente(true)}
           createdAt={activeCreatedAt}
           dataSolicitacao={dataSolicitacao}
-          onChangeDataSolicitacao={setDataSolicitacao}
+          onChangeDataSolicitacao={protegido(setDataSolicitacao)}
           numeroCotacaoTransportadora={numeroCotacaoTransportadora}
-          onChangeNumeroCotacaoTransportadora={setNumeroCotacaoTransportadora}
+          onChangeNumeroCotacaoTransportadora={protegido(setNumeroCotacaoTransportadora)}
+          cotacaoSalva={cotacaoRecemSalva}
         />
       )}
       {tab === 'margins' && <MarginAnalysisPage product={activeItem.product} pricing={activeItem.pricing} />}
