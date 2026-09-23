@@ -16,7 +16,7 @@ import { DEFAULT_NOTA_FISCAL, NOTA_FISCAL_STATUSES, NOTA_FISCAL_TIPOS, RECEBEDOR
 import type { Empresa, Fornecedor, NotaFiscal, NotaFiscalStatus, NotaFiscalTipo } from '../types'
 import { chaveMes, chaveMesDaNota, labelDoMes, dataLimiteDoMes, labelDoTipo } from '../notasFiscaisHelpers'
 import { extrairDadosNotaFiscalPdf } from '../pdfNotaFiscal'
-import { extrairDadosFreteXml, extrairDadosNotaFiscalXml } from '../xmlNotaFiscal'
+import { interpretarXmlFrete, interpretarXmlNotaFiscal, tipoDoXml } from '../xmlNotaFiscal'
 import { useEstadoPersistente } from '../estadoPersistente'
 import { avisar, confirmar } from '../dialogs'
 
@@ -364,16 +364,22 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
-  const [form, setForm] = useState(DEFAULT_NOTA_FISCAL)
-  const [statusInicial, setStatusInicial] = useState<NotaFiscalStatus>(NOTA_FISCAL_STATUSES[0])
-  const [editingId, setEditingId] = useState<string | undefined>(undefined)
+  // persistido (não só useState): o formulário é preenchido aos poucos, muitas vezes intercalando
+  // com outras abas (conferir um fornecedor, importar um XML de outra tela…) — sem isso, trocar de
+  // aba e voltar desmonta a página e perde tudo que ainda não tinha sido salvo. Isso vale tanto pra
+  // um registro novo em andamento quanto pra uma edição em curso.
+  const [form, setForm] = useEstadoPersistente('notasGerais:formRascunho', DEFAULT_NOTA_FISCAL)
+  const [statusInicial, setStatusInicial] = useEstadoPersistente<NotaFiscalStatus>(
+    'notasGerais:statusInicialRascunho',
+    NOTA_FISCAL_STATUSES[0],
+  )
+  const [editingId, setEditingId] = useEstadoPersistente<string | undefined>('notasGerais:editingIdRascunho', undefined)
   const [saving, setSaving] = useState(false)
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
   const [mostrarArquivadas, setMostrarArquivadas] = useState(false)
   const [formRecolhido, setFormRecolhido] = useEstadoPersistente('notasGerais:formRecolhido', true)
   const [notaParaStatus, setNotaParaStatus] = useState<NotaFiscal | null>(null)
   const [importandoArquivo, setImportandoArquivo] = useState(false)
-  const [importandoFrete, setImportandoFrete] = useState(false)
   // some pro DateField (Data de emissão) — que agora é não-controlado — remontar e pegar o valor
   // certo quando o formulário é repopulado por fora (trocar de registro, cancelar, importar
   // arquivo). Muda só nesses momentos, nunca durante a digitação normal do usuário.
@@ -434,72 +440,97 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
     setForm((prev) => ({ ...prev, ...p }))
   }
 
-  async function handleImportarArquivo(file: File) {
-    const ehXml = /\.xml$/i.test(file.name) || file.type.includes('xml')
-    const ehPdf = /\.pdf$/i.test(file.name) || file.type.includes('pdf')
-    if (!ehXml && !ehPdf) {
-      void avisar('Formato não reconhecido — envie o PDF (DANFE) ou o XML da NF-e.')
-      return
-    }
-    setImportandoArquivo(true)
-    try {
-      const dados = ehXml
-        ? await extrairDadosNotaFiscalXml(file, {
-            fornecedores: fornecedores.map((f) => ({ nome: f.nome, cnpj: f.cnpj })),
-            empresas: empresas.map((e) => ({ nome: e.nome, cnpj: e.cnpj })),
-            transportadorasConhecidas: TRANSPORTADORAS,
-          })
-        : await extrairDadosNotaFiscalPdf(file, {
-            fornecedoresConhecidos: fornecedores.map((f) => f.nome),
-            recebedoresConhecidos: RECEBEDORES,
-            transportadorasConhecidas: TRANSPORTADORAS,
-          })
-      if (Object.keys(dados).length === 0) {
-        void avisar('Não consegui reconhecer os dados dessa nota — confira se é o PDF ou XML da NF-e e preencha manualmente.')
-        return
-      }
-      patch({
-        ...(dados.numeroNfe ? { numeroNfe: dados.numeroNfe } : {}),
-        ...(dados.dataEmissao ? { dataEmissao: dados.dataEmissao } : {}),
-        ...(dados.valorNota !== undefined ? { valorNota: dados.valorNota } : {}),
-        ...(dados.valorFrete !== undefined ? { valorFrete: dados.valorFrete } : {}),
-        ...(dados.fornecedor ? { fornecedor: dados.fornecedor } : {}),
-        ...(dados.recebedor ? { recebedor: dados.recebedor } : {}),
-        ...(dados.transportadora ? { transportadora: dados.transportadora } : {}),
-      })
-      setFormRecolhido(false)
-      setFormResetKey((k) => k + 1)
-    } catch (err) {
-      void avisar(err instanceof Error ? err.message : `Erro ao ler o ${ehXml ? 'XML' : 'PDF'} da nota fiscal.`)
-    } finally {
-      setImportandoArquivo(false)
+  function patchDeNota(dados: {
+    numeroNfe?: string
+    dataEmissao?: string
+    valorNota?: number
+    valorFrete?: number
+    fornecedor?: string
+    recebedor?: string
+    transportadora?: string
+  }): Partial<typeof form> {
+    return {
+      ...(dados.numeroNfe ? { numeroNfe: dados.numeroNfe } : {}),
+      ...(dados.dataEmissao ? { dataEmissao: dados.dataEmissao } : {}),
+      ...(dados.valorNota !== undefined ? { valorNota: dados.valorNota } : {}),
+      ...(dados.valorFrete !== undefined ? { valorFrete: dados.valorFrete } : {}),
+      ...(dados.fornecedor ? { fornecedor: dados.fornecedor } : {}),
+      ...(dados.recebedor ? { recebedor: dados.recebedor } : {}),
+      ...(dados.transportadora ? { transportadora: dados.transportadora } : {}),
     }
   }
 
-  // CT-e (Conhecimento de Transporte Eletrônico) — o documento fiscal do frete, emitido pela
-  // própria transportadora, sempre um arquivo separado da NF-e. Anexado junto (opcional), só
-  // complementa os dois campos que são dele: transportadora e valor do frete.
-  async function handleImportarFrete(file: File) {
-    if (!/\.xml$/i.test(file.name) && !file.type.includes('xml')) {
-      void avisar('Formato não reconhecido — o XML de frete precisa ser o CT-e.')
-      return
-    }
-    setImportandoFrete(true)
+  // Aceita a NF-e (PDF ou XML) e o XML do frete (CT-e) juntos, no mesmo campo — cada arquivo
+  // selecionado é identificado sozinho (pela extensão/tipo, e no caso do XML, pela raiz do
+  // documento) e cai pro extrator certo. Dá pra soltar os dois de uma vez (multi-seleção) ou um de
+  // cada vez, tanto faz.
+  async function handleImportarArquivos(arquivos: FileList) {
+    const lista = Array.from(arquivos)
+    if (lista.length === 0) return
+    setImportandoArquivo(true)
+    const erros: string[] = []
+    let patchNota: Partial<typeof form> = {}
+    let patchFrete: Partial<typeof form> = {}
     try {
-      const dados = await extrairDadosFreteXml(file, { transportadorasConhecidas: TRANSPORTADORAS })
-      if (Object.keys(dados).length === 0) {
-        void avisar('Não consegui reconhecer os dados desse frete — confira se é o XML do CT-e e preencha manualmente.')
-        return
+      for (const file of lista) {
+        const ehXml = /\.xml$/i.test(file.name) || file.type.includes('xml')
+        const ehPdf = /\.pdf$/i.test(file.name) || file.type.includes('pdf')
+        if (ehPdf) {
+          try {
+            const dados = await extrairDadosNotaFiscalPdf(file, {
+              fornecedoresConhecidos: fornecedores.map((f) => f.nome),
+              recebedoresConhecidos: RECEBEDORES,
+              transportadorasConhecidas: TRANSPORTADORAS,
+            })
+            if (Object.keys(dados).length === 0) erros.push(`${file.name}: não consegui reconhecer os dados dessa nota.`)
+            else patchNota = { ...patchNota, ...patchDeNota(dados) }
+          } catch (err) {
+            erros.push(`${file.name}: ${err instanceof Error ? err.message : 'erro ao ler o PDF.'}`)
+          }
+          continue
+        }
+        if (!ehXml) {
+          erros.push(`${file.name}: formato não reconhecido — envie o PDF (DANFE), o XML da NF-e ou o XML do CT-e.`)
+          continue
+        }
+        const xmlTexto = await file.text()
+        const tipo = tipoDoXml(xmlTexto)
+        if (tipo === 'nfe') {
+          try {
+            const dados = interpretarXmlNotaFiscal(xmlTexto, {
+              fornecedores: fornecedores.map((f) => ({ nome: f.nome, cnpj: f.cnpj })),
+              empresas: empresas.map((e) => ({ nome: e.nome, cnpj: e.cnpj })),
+              transportadorasConhecidas: TRANSPORTADORAS,
+            })
+            if (Object.keys(dados).length === 0) erros.push(`${file.name}: não consegui reconhecer os dados dessa nota.`)
+            else patchNota = { ...patchNota, ...patchDeNota(dados) }
+          } catch (err) {
+            erros.push(`${file.name}: ${err instanceof Error ? err.message : 'erro ao ler o XML.'}`)
+          }
+        } else if (tipo === 'cte') {
+          try {
+            const dados = interpretarXmlFrete(xmlTexto, { transportadorasConhecidas: TRANSPORTADORAS })
+            if (Object.keys(dados).length === 0) erros.push(`${file.name}: não consegui reconhecer os dados desse frete.`)
+            else patchFrete = { ...patchFrete, ...patchDeNota(dados) }
+          } catch (err) {
+            erros.push(`${file.name}: ${err instanceof Error ? err.message : 'erro ao ler o XML do frete.'}`)
+          }
+        } else {
+          erros.push(`${file.name}: não parece ser o XML de uma NF-e nem de um CT-e.`)
+        }
       }
-      patch({
-        ...(dados.transportadora ? { transportadora: dados.transportadora } : {}),
-        ...(dados.valorFrete !== undefined ? { valorFrete: dados.valorFrete } : {}),
-      })
-      setFormRecolhido(false)
-    } catch (err) {
-      void avisar(err instanceof Error ? err.message : 'Erro ao ler o XML do frete.')
+
+      // o CT-e vence em transportadora/valor do frete de propósito — é o documento específico do
+      // frete, mais confiável que o que a NF-e eventualmente também traga desses dois campos
+      const patchFinal = { ...patchNota, ...patchFrete }
+      if (Object.keys(patchFinal).length > 0) {
+        patch(patchFinal)
+        setFormRecolhido(false)
+        setFormResetKey((k) => k + 1)
+      }
+      if (erros.length > 0) void avisar(erros.join('\n'))
     } finally {
-      setImportandoFrete(false)
+      setImportandoArquivo(false)
     }
   }
 
@@ -645,40 +676,26 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
 
         {!formRecolhido && (
           <>
-            <div className="mt-5 rounded-xl border border-dashed border-ink-200 p-4 space-y-4">
-              <label className="block">
-                <span className="field-label">Importar PDF ou XML da nota (preenche os campos automaticamente)</span>
-                <input
-                  type="file"
-                  accept=".pdf,.xml,application/pdf,text/xml,application/xml"
-                  disabled={importandoArquivo}
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (file) handleImportarArquivo(file)
-                    e.target.value = ''
-                  }}
-                  className="field-input"
-                />
-                {importandoArquivo && <p className="text-xs text-ink-400 mt-2">Lendo o arquivo…</p>}
-              </label>
-
+            <div className="mt-5 rounded-xl border border-dashed border-ink-200 p-4">
               <label className="block">
                 <span className="field-label">
-                  Anexar XML do frete/CT-e — opcional (carrega transportadora e valor do frete)
+                  Importar nota (PDF ou XML da NF-e) e/ou XML do frete (CT-e) — pode selecionar os
+                  dois juntos, preenche os campos automaticamente
                 </span>
                 <input
                   type="file"
-                  accept=".xml,text/xml,application/xml"
-                  disabled={importandoFrete}
+                  multiple
+                  accept=".pdf,.xml,application/pdf,text/xml,application/xml"
+                  disabled={importandoArquivo}
                   onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    if (file) handleImportarFrete(file)
+                    const files = e.target.files
+                    if (files && files.length > 0) handleImportarArquivos(files)
                     e.target.value = ''
                   }}
                   className="field-input"
                 />
-                {importandoFrete && <p className="text-xs text-ink-400 mt-2">Lendo o XML do frete…</p>}
               </label>
+              {importandoArquivo && <p className="text-xs text-ink-400 mt-2">Lendo o(s) arquivo(s)…</p>}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
@@ -739,11 +756,9 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
               <Button variant="primary" onClick={handleSubmit} disabled={saving}>
                 {editingId ? 'Salvar alterações' : 'Adicionar Novo Registro'}
               </Button>
-              {editingId && (
-                <Button variant="secondary" onClick={handleCancelEdit}>
-                  Cancelar edição
-                </Button>
-              )}
+              <Button variant="secondary" onClick={handleCancelEdit}>
+                {editingId ? 'Cancelar edição' : 'Limpar dados'}
+              </Button>
             </div>
           </>
         )}

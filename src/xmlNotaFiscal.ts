@@ -79,6 +79,17 @@ function nomeOuBrutoDoXml(nomeExtraido: string | undefined, conhecidos: string[]
   return nomeExtraido.trim()
 }
 
+/** Olha só a raiz do XML pra decidir qual dos dois interpretar com — assim dá pra soltar a NF-e e
+ * o CT-e juntos no mesmo campo de anexo (multi-arquivo) e cada um cai pro lado certo sozinho. */
+export function tipoDoXml(xmlTexto: string): 'nfe' | 'cte' | null {
+  const doc = new DOMParser().parseFromString(xmlTexto, 'application/xml')
+  if (doc.getElementsByTagName('parsererror').length > 0) return null
+  const raiz = doc.documentElement?.tagName
+  if (raiz === 'nfeProc' || raiz === 'NFe') return doc.getElementsByTagName('infNFe').length > 0 ? 'nfe' : null
+  if (raiz === 'cteProc' || raiz === 'CTe') return doc.getElementsByTagName('infCte').length > 0 ? 'cte' : null
+  return null
+}
+
 export interface ListasConhecidasXml {
   /** Cadastro de Fornecedores (o mesmo da aba Fornecedores) — usado pra casar o emitente da NF-e pelo CNPJ. */
   fornecedores: EntidadeComCnpj[]
