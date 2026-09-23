@@ -134,7 +134,7 @@ export function DonutChart({
             <div key={i} className="flex items-center gap-2 text-xs" title={d.title}>
               <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: d.color }} />
               <span className="text-ink-600 truncate flex-1">{d.label}</span>
-              <span className="font-mono tabular-nums font-bold text-sm text-ink-900 shrink-0">{valueFormatter(d.value)}</span>
+              <span className="font-mono tabular-nums font-extrabold text-base text-ink-900 shrink-0">{valueFormatter(d.value)}</span>
             </div>
           ))}
       </div>
