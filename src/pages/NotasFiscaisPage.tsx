@@ -8,14 +8,15 @@ import {
   updateNotaFiscalGeralStatus,
 } from '../db/notasFiscaisGeraisRepo'
 import { listFornecedores } from '../db/fornecedoresRepo'
+import { listEmpresas } from '../db/empresasRepo'
 import { getStatusColors } from '../db/configRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency, formatDate } from '../utils'
 import { DEFAULT_NOTA_FISCAL, NOTA_FISCAL_STATUSES, NOTA_FISCAL_TIPOS, RECEBEDORES, TRANSPORTADORAS } from '../types'
-import type { Fornecedor, NotaFiscal, NotaFiscalStatus, NotaFiscalTipo } from '../types'
+import type { Empresa, Fornecedor, NotaFiscal, NotaFiscalStatus, NotaFiscalTipo } from '../types'
 import { chaveMes, chaveMesDaNota, labelDoMes, dataLimiteDoMes, labelDoTipo } from '../notasFiscaisHelpers'
 import { extrairDadosNotaFiscalPdf } from '../pdfNotaFiscal'
-import { extrairDadosNotaFiscalXml } from '../xmlNotaFiscal'
+import { extrairDadosFreteXml, extrairDadosNotaFiscalXml } from '../xmlNotaFiscal'
 import { useEstadoPersistente } from '../estadoPersistente'
 import { avisar, confirmar } from '../dialogs'
 
@@ -358,6 +359,9 @@ function AlterarStatusModal({
 export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
   const [notas, setNotas] = useState<NotaFiscal[]>([])
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
+  // "recebedor" é a mesma Empresa cadastrada em Configurações/Frete — usada pra casar o
+  // destinatário da NF-e pelo CNPJ ao importar o XML
+  const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [form, setForm] = useState(DEFAULT_NOTA_FISCAL)
@@ -369,6 +373,7 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
   const [formRecolhido, setFormRecolhido] = useEstadoPersistente('notasGerais:formRecolhido', true)
   const [notaParaStatus, setNotaParaStatus] = useState<NotaFiscal | null>(null)
   const [importandoArquivo, setImportandoArquivo] = useState(false)
+  const [importandoFrete, setImportandoFrete] = useState(false)
   // some pro DateField (Data de emissão) — que agora é não-controlado — remontar e pegar o valor
   // certo quando o formulário é repopulado por fora (trocar de registro, cancelar, importar
   // arquivo). Muda só nesses momentos, nunca durante a digitação normal do usuário.
@@ -391,6 +396,11 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
       .then(setFornecedores)
       .catch(() => {
         // sugestão é só um extra — se o servidor estiver fora, o campo continua livre normalmente
+      })
+    listEmpresas()
+      .then(setEmpresas)
+      .catch(() => {
+        // usada só pra casar o CNPJ ao importar XML — sem servidor, a importação cai pro nome do XML
       })
     getStatusColors()
       .then(setCoresStatus)
@@ -433,12 +443,17 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
     }
     setImportandoArquivo(true)
     try {
-      const listas = {
-        fornecedoresConhecidos: fornecedores.map((f) => f.nome),
-        recebedoresConhecidos: RECEBEDORES,
-        transportadorasConhecidas: TRANSPORTADORAS,
-      }
-      const dados = ehXml ? await extrairDadosNotaFiscalXml(file, listas) : await extrairDadosNotaFiscalPdf(file, listas)
+      const dados = ehXml
+        ? await extrairDadosNotaFiscalXml(file, {
+            fornecedores: fornecedores.map((f) => ({ nome: f.nome, cnpj: f.cnpj })),
+            empresas: empresas.map((e) => ({ nome: e.nome, cnpj: e.cnpj })),
+            transportadorasConhecidas: TRANSPORTADORAS,
+          })
+        : await extrairDadosNotaFiscalPdf(file, {
+            fornecedoresConhecidos: fornecedores.map((f) => f.nome),
+            recebedoresConhecidos: RECEBEDORES,
+            transportadorasConhecidas: TRANSPORTADORAS,
+          })
       if (Object.keys(dados).length === 0) {
         void avisar('Não consegui reconhecer os dados dessa nota — confira se é o PDF ou XML da NF-e e preencha manualmente.')
         return
@@ -458,6 +473,33 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
       void avisar(err instanceof Error ? err.message : `Erro ao ler o ${ehXml ? 'XML' : 'PDF'} da nota fiscal.`)
     } finally {
       setImportandoArquivo(false)
+    }
+  }
+
+  // CT-e (Conhecimento de Transporte Eletrônico) — o documento fiscal do frete, emitido pela
+  // própria transportadora, sempre um arquivo separado da NF-e. Anexado junto (opcional), só
+  // complementa os dois campos que são dele: transportadora e valor do frete.
+  async function handleImportarFrete(file: File) {
+    if (!/\.xml$/i.test(file.name) && !file.type.includes('xml')) {
+      void avisar('Formato não reconhecido — o XML de frete precisa ser o CT-e.')
+      return
+    }
+    setImportandoFrete(true)
+    try {
+      const dados = await extrairDadosFreteXml(file, { transportadorasConhecidas: TRANSPORTADORAS })
+      if (Object.keys(dados).length === 0) {
+        void avisar('Não consegui reconhecer os dados desse frete — confira se é o XML do CT-e e preencha manualmente.')
+        return
+      }
+      patch({
+        ...(dados.transportadora ? { transportadora: dados.transportadora } : {}),
+        ...(dados.valorFrete !== undefined ? { valorFrete: dados.valorFrete } : {}),
+      })
+      setFormRecolhido(false)
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao ler o XML do frete.')
+    } finally {
+      setImportandoFrete(false)
     }
   }
 
@@ -603,7 +645,7 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
 
         {!formRecolhido && (
           <>
-            <div className="mt-5 rounded-xl border border-dashed border-ink-200 p-4">
+            <div className="mt-5 rounded-xl border border-dashed border-ink-200 p-4 space-y-4">
               <label className="block">
                 <span className="field-label">Importar PDF ou XML da nota (preenche os campos automaticamente)</span>
                 <input
@@ -617,8 +659,26 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
                   }}
                   className="field-input"
                 />
+                {importandoArquivo && <p className="text-xs text-ink-400 mt-2">Lendo o arquivo…</p>}
               </label>
-              {importandoArquivo && <p className="text-xs text-ink-400 mt-2">Lendo o arquivo…</p>}
+
+              <label className="block">
+                <span className="field-label">
+                  Anexar XML do frete/CT-e — opcional (carrega transportadora e valor do frete)
+                </span>
+                <input
+                  type="file"
+                  accept=".xml,text/xml,application/xml"
+                  disabled={importandoFrete}
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) handleImportarFrete(file)
+                    e.target.value = ''
+                  }}
+                  className="field-input"
+                />
+                {importandoFrete && <p className="text-xs text-ink-400 mt-2">Lendo o XML do frete…</p>}
+              </label>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
