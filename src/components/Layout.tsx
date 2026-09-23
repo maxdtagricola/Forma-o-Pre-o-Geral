@@ -125,7 +125,23 @@ export function Layout({
           )}
         </div>
 
-        <div className="px-2 pt-2">
+        <div className="px-2 pt-2 space-y-1">
+          {/* Expandir/recolher fica logo acima de Voltar de propósito — os dois botões ficam
+           * próximos, então quem clicar em Voltar por engano (mirando o de expandir) só precisa
+           * saber que, tendo alteração não salva, a própria função de Voltar já pergunta antes de
+           * sair (ver handleVoltar/temAlteracoesNaoSalvas no App). */}
+          <button
+            type="button"
+            onClick={() => setCollapsed((c) => !c)}
+            title={collapsed ? 'Expandir menu' : 'Recolher menu'}
+            aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'}
+            className={`hidden sm:flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-500 hover:bg-ink-100 hover:text-ink-800 transition ${
+              collapsed ? 'justify-center' : ''
+            }`}
+          >
+            <span aria-hidden>☰</span>
+            {!collapsed && <span>Recolher menu</span>}
+          </button>
           <button
             type="button"
             onClick={onVoltar}
@@ -181,15 +197,6 @@ export function Layout({
         </nav>
 
         <div className="border-t border-ink-100 p-3">
-          <button
-            type="button"
-            onClick={() => setCollapsed((c) => !c)}
-            title={collapsed ? 'Expandir menu' : 'Recolher menu'}
-            aria-label={collapsed ? 'Expandir menu' : 'Recolher menu'}
-            className="hidden sm:flex w-full items-center justify-center rounded-lg py-2 text-base text-ink-400 hover:bg-ink-100 mb-2 transition"
-          >
-            ☰
-          </button>
           {collapsed ? (
             <button
               type="button"

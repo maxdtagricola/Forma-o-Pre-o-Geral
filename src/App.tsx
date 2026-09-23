@@ -18,6 +18,7 @@ import { NotasFiscaisDashboardPage } from './pages/NotasFiscaisDashboardPage'
 import { HistoryPage } from './pages/HistoryPage'
 import { PlanilhaClienteModal } from './components/PlanilhaClienteModal'
 import { RecuperarRascunhoModal } from './components/RecuperarRascunhoModal'
+import { DialogHost } from './components/DialogHost'
 import { lerRascunho, limparRascunho, salvarRascunho, type RascunhoCotacao } from './rascunhoCotacao'
 import { calculateItem, definirTabelasCustomizadas } from './calc/calculator'
 import { saveQuote, setPlanilhaOriginal, updateQuoteStatus } from './db/analysesRepo'
@@ -33,6 +34,7 @@ import { listEmpresas } from './db/empresasRepo'
 import { clearCurrentAdmin, getCurrentAdmin, setCurrentAdmin } from './currentAdmin'
 import { clearCurrentPlayer, getCurrentPlayer, setCurrentPlayer } from './currentPlayer'
 import { getModoSessao, limparModoSessao, setModoSessao } from './session'
+import { avisar, confirmar } from './dialogs'
 import { createQuoteItem } from './types'
 import type { ItemCotacaoImportado } from './quoteImport'
 import type {
@@ -68,7 +70,17 @@ export default function App() {
       return novaTab
     })
   }
-  function handleVoltar() {
+  // Expandir/recolher menu ficou logo acima de Voltar na barra lateral — os dois próximos, um
+  // clique errado em Voltar por querer o de expandir agora não arrisca perder trabalho: havendo
+  // alteração não salva na cotação aberta, pergunta antes de sair (ver temAlteracoesNaoSalvas).
+  async function handleVoltar() {
+    if (temAlteracoesNaoSalvas) {
+      const querSalvar = await confirmar('Esta cotação tem alterações que ainda não foram salvas. Deseja salvar antes de voltar?', {
+        confirmText: 'Salvar e voltar',
+        cancelText: 'Voltar sem salvar',
+      })
+      if (querSalvar) await handleSave()
+    }
     setTabHistory((prev) => {
       if (prev.length === 0) return prev
       const proxima = prev.slice(0, -1)
@@ -105,6 +117,10 @@ export default function App() {
   const [salvoInalterado, setSalvoInalterado] = useState(false)
   // true só por alguns segundos depois de salvar, pra mostrar "Cotação salva!" ao lado do botão
   const [cotacaoRecemSalva, setCotacaoRecemSalva] = useState(false)
+  // true assim que qualquer edição é aplicada (ver protegido) e volta a false só depois de salvar,
+  // começar uma cotação nova ou abrir outra — usado pelo Voltar da barra lateral pra perguntar se
+  // quer salvar antes de sair, em vez de simplesmente descartar a edição em andamento
+  const [temAlteracoesNaoSalvas, setTemAlteracoesNaoSalvas] = useState(false)
 
   // ao abrir o app, verifica se sobrou algum rascunho de uma queda/fechamento anterior
   useEffect(() => {
@@ -284,20 +300,21 @@ export default function App() {
   // desde então, a primeira tentativa de mexer em qualquer dado pede confirmação ao admin. Uma vez
   // confirmada (ou se a cotação nunca foi salva/já tinha sido alterada), libera normalmente e só
   // volta a perguntar depois do próximo "Salvar cotação".
-  function confirmarAlteracaoSeJaSalva(): boolean {
+  async function confirmarAlteracaoSeJaSalva(): Promise<boolean> {
     if (!salvoInalterado) return true
-    const querAlterar = confirm('Esta cotação já foi salva. Tem certeza que quer alterar um dado que já foi salvo?')
+    const querAlterar = await confirmar('Esta cotação já foi salva. Tem certeza que quer alterar um dado que já foi salvo?')
     if (!querAlterar) return false
     setSalvoInalterado(false)
     return true
   }
 
   // envolve um setter/handler de edição com a guarda acima — usado nos callbacks passados pro
-  // Dashboard, pra não duplicar o "if (!confirmarAlteracaoSeJaSalva()) return" em cada um
+  // Dashboard, pra não duplicar o "if (!(await confirmarAlteracaoSeJaSalva())) return" em cada um
   function protegido<A extends unknown[]>(fn: (...args: A) => void): (...args: A) => void {
-    return (...args: A) => {
-      if (!confirmarAlteracaoSeJaSalva()) return
+    return async (...args: A) => {
+      if (!(await confirmarAlteracaoSeJaSalva())) return
       fn(...args)
+      setTemAlteracoesNaoSalvas(true)
     }
   }
 
@@ -365,10 +382,11 @@ export default function App() {
       setHistoryRefreshKey((k) => k + 1)
       limparRascunho()
       setSalvoInalterado(true)
+      setTemAlteracoesNaoSalvas(false)
       setCotacaoRecemSalva(true)
       setTimeout(() => setCotacaoRecemSalva(false), 2500)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar a cotação no servidor.')
+      await avisar(err instanceof Error ? err.message : 'Erro ao salvar a cotação no servidor.')
     }
   }
 
@@ -392,6 +410,7 @@ export default function App() {
     limparRascunho()
     setSalvoInalterado(false)
     setCotacaoRecemSalva(false)
+    setTemAlteracoesNaoSalvas(false)
   }
 
   function handleLoad(record: QuoteRecord) {
@@ -417,6 +436,7 @@ export default function App() {
     setPlanilhaOriginalState(record.planilhaOriginal)
     setSalvoInalterado(false)
     setCotacaoRecemSalva(false)
+    setTemAlteracoesNaoSalvas(false)
     changeTab('dashboard')
   }
 
@@ -427,7 +447,7 @@ export default function App() {
       setHistoryRefreshKey((k) => k + 1)
       handleLoad(record)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao criar a cotação no servidor.')
+      await avisar(err instanceof Error ? err.message : 'Erro ao criar a cotação no servidor.')
     }
   }
 
@@ -466,12 +486,18 @@ export default function App() {
         <main className="max-w-3xl mx-auto px-4 py-6">
           <TelaInicialPage jogador={currentPlayer} />
         </main>
+        <DialogHost />
       </div>
     )
   }
 
   if (!currentAdmin) {
-    return <AdminGate onSelect={handleSelectAdmin} onSelectPlayer={handleSelectPlayer} />
+    return (
+      <>
+        <AdminGate onSelect={handleSelectAdmin} onSelectPlayer={handleSelectPlayer} />
+        <DialogHost />
+      </>
+    )
   }
 
   return (
@@ -501,7 +527,7 @@ export default function App() {
           activeStatus={activeStatus}
           activeResponsavel={activeResponsavel}
           items={items}
-          onPatchItem={patchItemProduct}
+          onPatchItem={protegido(patchItemProduct)}
           onGoToCotacoes={() => changeTab('cotacoes')}
           onGoToPrecificacao={() => changeTab('dashboard')}
         />
@@ -589,6 +615,7 @@ export default function App() {
           onDescartar={handleDescartarRascunho}
         />
       )}
+      <DialogHost />
     </Layout>
   )
 }
