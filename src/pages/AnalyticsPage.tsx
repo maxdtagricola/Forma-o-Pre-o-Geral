@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { listQuotes } from '../db/analysesRepo'
 import { getStatusColors } from '../db/configRepo'
 import { SelectField } from '../components/ui/Field'
+import { KpiCard, IconCheck, IconDocumento, IconTendencia } from '../components/KpiCard'
 import { formatCurrency } from '../utils'
 import { COR_OUTROS, PALETA_CATEGORICA, corPadraoDoStatus } from '../statusColors'
-import { DonutChart, limitarComOutros, type DonutDatum } from '../components/DonutChart'
+import { DonutChart, type DonutDatum } from '../components/DonutChart'
 import { LineChart, type LineDatum, type LineSeries } from '../components/LineChart'
 import { BarChart, type BarDatum } from '../components/BarChart'
 import { PERIODOS, inicioPeriodo, type Periodo } from '../periodo'
@@ -24,61 +25,6 @@ function ultimosMeses(n: number): { inicio: number; fim: number; label: string }
     meses.push({ inicio: d.getTime(), fim: fim.getTime(), label: `${NOMES_MESES[d.getMonth()]}/${String(d.getFullYear()).slice(2)}` })
   }
   return meses
-}
-
-function IconCotacoes() {
-  return (
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
-      <line x1="9" y1="13" x2="15" y2="13" />
-      <line x1="9" y1="17" x2="15" y2="17" />
-    </svg>
-  )
-}
-function IconValor() {
-  return (
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="3 17 9 11 13 15 21 7" />
-      <polyline points="14 7 21 7 21 14" />
-    </svg>
-  )
-}
-function IconFaturado() {
-  return (
-    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  )
-}
-
-const TONS_KPI: Record<'agua' | 'amarelo' | 'laranja', string> = {
-  agua: 'bg-[#1baf7a]',
-  amarelo: 'bg-[#eda100]',
-  laranja: 'bg-[#eb6834]',
-}
-
-function KpiCard({
-  icon,
-  value,
-  label,
-  tone,
-}: {
-  icon: ReactNode
-  value: string
-  label: string
-  tone: keyof typeof TONS_KPI
-}) {
-  return (
-    <div className={`rounded-2xl px-4 py-3.5 text-white flex items-center gap-3 ${TONS_KPI[tone]}`}>
-      <div className="shrink-0 opacity-90">{icon}</div>
-      <div className="min-w-0">
-        <p className="font-display text-xl font-bold leading-tight truncate">{value}</p>
-        <p className="text-xs text-white/85 truncate">{label}</p>
-      </div>
-    </div>
-  )
 }
 
 export function AnalyticsPage() {
@@ -175,9 +121,9 @@ export function AnalyticsPage() {
         </div>
         {!loading && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full sm:w-auto">
-            <KpiCard icon={<IconCotacoes />} value={String(filtrados.length)} label="Cotações no período" tone="agua" />
-            <KpiCard icon={<IconValor />} value={formatCurrency(valorTotalGeral)} label="Valor total das cotações" tone="amarelo" />
-            <KpiCard icon={<IconFaturado />} value={formatCurrency(valorFechado)} label="Valor faturado" tone="laranja" />
+            <KpiCard icon={<IconDocumento />} value={String(filtrados.length)} label="Cotações no período" tone="agua" />
+            <KpiCard icon={<IconTendencia />} value={formatCurrency(valorTotalGeral)} label="Valor total das cotações" tone="amarelo" />
+            <KpiCard icon={<IconCheck />} value={formatCurrency(valorFechado)} label="Valor faturado" tone="laranja" />
           </div>
         )}
       </div>

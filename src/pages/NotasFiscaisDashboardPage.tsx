@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DonutChart, limitarComOutros, type DonutDatum } from '../components/DonutChart'
 import { GroupedBarChart } from '../components/BarChart'
-import { StatTile } from '../components/StatTile'
+import { KpiCard, IconCaminhao, IconDocumento, IconTendencia } from '../components/KpiCard'
 import { listNotasFiscais } from '../db/notasFiscaisRepo'
 import { getStatusColors } from '../db/configRepo'
 import { corPadraoDoStatus } from '../statusColors'
@@ -19,6 +19,8 @@ function formatCurrencyCompacto(v: number): string {
   return `${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k`
 }
 
+/** Mesmo layout do Dashboard de cotações (ver AnalyticsPage): título + KPIs coloridos no topo,
+ * sidebar de filtros com o donut de status compacto, área principal com o resto dos gráficos. */
 export function NotasFiscaisDashboardPage() {
   const [notas, setNotas] = useState<NotaFiscal[]>([])
   const [loading, setLoading] = useState(true)
@@ -111,109 +113,122 @@ export function NotasFiscaisDashboardPage() {
     values: { PECAS: d.porTipo.PECAS.valor, IMPLEMENTOS: d.porTipo.IMPLEMENTOS.valor },
   }))
 
+  const tipoFiltroOptions = ['TODOS', ...tipoOptions.map((t) => t.value)] as const
+
   return (
     <div className="space-y-6">
-      <div className="card">
-        <h2 className="font-display text-lg font-semibold text-ink-900 mb-4">Dashboard de Transferências Fiscais</h2>
-        <div className="flex flex-wrap gap-2 mb-3">
-          {PERIODOS.map((p) => (
-            <button
-              key={p.value}
-              type="button"
-              onClick={() => setPeriodo(p.value)}
-              className={`pill-tab border ${
-                periodo === p.value
-                  ? 'bg-ink-950 border-ink-950 text-white'
-                  : 'border-ink-200 text-ink-600 hover:bg-ink-50'
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="font-display text-2xl font-bold text-ink-900">Dashboard de Transferências</h2>
+          <p className="text-sm text-ink-400">Visão geral das notas fiscais de transferência</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          {(['TODOS', ...tipoOptions.map((t) => t.value)] as const).map((valor) => (
-            <button
-              key={valor}
-              type="button"
-              onClick={() => setTipoFiltro(valor)}
-              className={`pill-tab border ${
-                tipoFiltro === valor
-                  ? 'bg-ink-950 border-ink-950 text-white'
-                  : 'border-ink-200 text-ink-600 hover:bg-ink-50'
-              }`}
-            >
-              {valor === 'TODOS' ? 'Todos os tipos' : labelDoTipo(valor)}
-            </button>
-          ))}
-        </div>
+        {!loading && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full sm:w-auto">
+            <KpiCard icon={<IconDocumento />} value={String(notasDoPeriodo.length)} label="Notas no período" tone="agua" />
+            <KpiCard icon={<IconTendencia />} value={formatCurrency(valorTotalNotas)} label="Valor total das notas" tone="amarelo" />
+            <KpiCard icon={<IconCaminhao />} value={formatCurrency(valorTotalFrete)} label="Valor total de frete" tone="laranja" />
+          </div>
+        )}
       </div>
 
       {loading ? (
-        <p className="text-sm text-ink-400 text-center py-6">Carregando…</p>
+        <div className="card text-center text-sm text-ink-400 py-10">Carregando…</div>
       ) : (
-        <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <StatTile label="Notas no período" value={String(notasDoPeriodo.length)} />
-            <StatTile label="Valor total das notas" value={formatCurrency(valorTotalNotas)} />
-            <StatTile label="Valor total de frete" value={formatCurrency(valorTotalFrete)} />
-          </div>
-
-          <div className="card">
-            <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Status das notas</h3>
-            <p className="text-xs text-ink-400 mb-4">Quantidade de notas em cada status, no período selecionado.</p>
-            <DonutChart
-              data={statusData}
-              centerValue={String(notasDoPeriodo.length)}
-              centerLabel="Notas"
-              valueFormatter={(v) => String(v)}
-              emptyText="Nenhuma nota nesse período."
-            />
-          </div>
-
-          <div className="card">
-            <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Valores de transferência</h3>
-            <p className="text-xs text-ink-400 mb-4">
-              Soma do valor das notas por filial (recebedor), no período selecionado.
-            </p>
-            <DonutChart
-              data={valorPorRecebedorData}
-              centerValue={formatCurrency(valorTotalNotas)}
-              centerLabel="Total"
-              valueFormatter={formatCurrency}
-              chartValueFormatter={formatCurrencyCompacto}
-              emptyText="Nenhuma nota com valor nesse período."
-            />
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6 items-start">
+          <div className="space-y-6">
             <div className="card">
-              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Registros por mês</h3>
-              <p className="text-xs text-ink-400 mb-4">
-                Quantidade de notas por mês de referência (emissão), peças x implementos, últimos meses.
-              </p>
-              <GroupedBarChart
-                data={registrosPorMesChartData}
-                series={tipoSeries}
+              <h3 className="font-display text-sm font-semibold text-ink-900 mb-3">Filtros</h3>
+              <p className="field-label mb-1.5">Período</p>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {PERIODOS.map((p) => (
+                  <button
+                    key={p.value}
+                    type="button"
+                    onClick={() => setPeriodo(p.value)}
+                    className={`pill-tab border ${
+                      periodo === p.value
+                        ? 'bg-ink-950 border-ink-950 text-white'
+                        : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <p className="field-label mb-1.5">Tipo</p>
+              <div className="flex flex-wrap gap-2">
+                {tipoFiltroOptions.map((valor) => (
+                  <button
+                    key={valor}
+                    type="button"
+                    onClick={() => setTipoFiltro(valor)}
+                    className={`pill-tab border ${
+                      tipoFiltro === valor
+                        ? 'bg-ink-950 border-ink-950 text-white'
+                        : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+                    }`}
+                  >
+                    {valor === 'TODOS' ? 'Todos' : labelDoTipo(valor)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="card">
+              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Status das notas</h3>
+              <p className="text-xs text-ink-400 mb-4">Quantidade em cada status, no período selecionado.</p>
+              <DonutChart
+                data={statusData}
+                centerValue={String(notasDoPeriodo.length)}
+                centerLabel="Notas"
                 valueFormatter={(v) => String(v)}
-                emptyText="Nenhuma nota registrada ainda."
-              />
-            </div>
-
-            <div className="card">
-              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Valores do mês</h3>
-              <p className="text-xs text-ink-400 mb-4">
-                Soma do valor das notas por mês de referência (emissão), peças x implementos, últimos meses.
-              </p>
-              <GroupedBarChart
-                data={valoresPorMesChartData}
-                series={tipoSeries}
-                valueFormatter={formatCurrency}
-                emptyText="Nenhuma nota registrada ainda."
+                emptyText="Nenhuma nota nesse período."
+                compact
               />
             </div>
           </div>
-        </>
+
+          <div className="space-y-6">
+            <div className="card">
+              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Valores de transferência</h3>
+              <p className="text-xs text-ink-400 mb-4">
+                Soma do valor das notas por filial (recebedor), no período selecionado.
+              </p>
+              <DonutChart
+                data={valorPorRecebedorData}
+                centerValue={formatCurrency(valorTotalNotas)}
+                centerLabel="Total"
+                valueFormatter={formatCurrency}
+                chartValueFormatter={formatCurrencyCompacto}
+                emptyText="Nenhuma nota com valor nesse período."
+              />
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="card">
+                <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Registros por mês</h3>
+                <p className="text-xs text-ink-400 mb-4">Peças x implementos, últimos meses.</p>
+                <GroupedBarChart
+                  data={registrosPorMesChartData}
+                  series={tipoSeries}
+                  valueFormatter={(v) => String(v)}
+                  emptyText="Nenhuma nota registrada ainda."
+                />
+              </div>
+
+              <div className="card">
+                <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Valores do mês</h3>
+                <p className="text-xs text-ink-400 mb-4">Peças x implementos, últimos meses.</p>
+                <GroupedBarChart
+                  data={valoresPorMesChartData}
+                  series={tipoSeries}
+                  valueFormatter={formatCurrency}
+                  emptyText="Nenhuma nota registrada ainda."
+                />
+              </div>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
