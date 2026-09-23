@@ -11,6 +11,7 @@ import {
   workbookParaBlob,
   type PlanilhaAtualizada,
 } from '../planilhaCliente'
+import { avisar } from '../dialogs'
 import type { QuoteItem } from '../types'
 
 export function PlanilhaClienteModal({
@@ -67,7 +68,7 @@ export function PlanilhaClienteModal({
       await compartilharArquivo(workbookParaBlob(resultado.workbook), nomeArquivo, titulo, mensagem)
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return
-      alert('Não consegui compartilhar o arquivo direto — baixe a planilha acima e anexe manualmente.')
+      await avisar('Não consegui compartilhar o arquivo direto — baixe a planilha acima e anexe manualmente.')
     } finally {
       setCompartilhando(false)
     }

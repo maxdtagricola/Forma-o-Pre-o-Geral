@@ -25,6 +25,7 @@ import { DEFAULT_EMPRESA, ESTADOS_DESTINO, NOTA_FISCAL_STATUSES, QUOTE_STATUSES 
 import type { Empresa, EstadoDestino } from '../types'
 import type { PricingGlobal } from '../db/configRepo'
 import { SENHA_PADRAO } from '../senhaPadrao'
+import { avisar, confirmar } from '../dialogs'
 
 const estadoOptions = ESTADOS.map((e) => ({ value: e.uf, label: `${e.uf} — ${e.nome}` }))
 
@@ -61,7 +62,7 @@ export function ConfiguracoesPage({
     try {
       await setStatusColor(status, cor)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar a cor no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar a cor no servidor.')
     }
   }
 
@@ -78,7 +79,7 @@ export function ConfiguracoesPage({
     try {
       await onSavePricingGlobal(rascunhoGlobal)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
     } finally {
       setSalvandoGlobal(false)
     }
@@ -98,7 +99,7 @@ export function ConfiguracoesPage({
     try {
       setEmpresas(await listEmpresas())
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao carregar empresas do servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao carregar empresas do servidor.')
     } finally {
       setCarregandoEmpresas(false)
     }
@@ -120,11 +121,11 @@ export function ConfiguracoesPage({
 
   async function handleSubmitEmpresa() {
     if (!formEmpresa.nome.trim()) {
-      alert('Informe pelo menos o nome da empresa.')
+      void avisar('Informe pelo menos o nome da empresa.')
       return
     }
     if (senhaEmpresa !== SENHA_PADRAO) {
-      alert('Senha incorreta.')
+      void avisar('Senha incorreta.')
       return
     }
     setSalvandoEmpresa(true)
@@ -133,7 +134,7 @@ export function ConfiguracoesPage({
       handleCancelEditEmpresa()
       await refreshEmpresas()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar a empresa no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar a empresa no servidor.')
     } finally {
       setSalvandoEmpresa(false)
     }
@@ -155,13 +156,13 @@ export function ConfiguracoesPage({
   }
 
   async function handleDeleteEmpresa(id: string) {
-    if (!confirm('Excluir esta empresa? Essa ação não pode ser desfeita.')) return
+    if (!(await confirmar('Excluir esta empresa? Essa ação não pode ser desfeita.'))) return
     try {
       await deleteEmpresa(id)
       if (editingEmpresaId === id) handleCancelEditEmpresa()
       await refreshEmpresas()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao excluir a empresa no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao excluir a empresa no servidor.')
     }
   }
 
@@ -192,7 +193,7 @@ export function ConfiguracoesPage({
   async function handleConfirmarExcluirPastaXadrez() {
     if (!pastaXadrezParaExcluir) return
     if (senhaExcluirPastaXadrez !== SENHA_PADRAO) {
-      alert('Senha incorreta.')
+      void avisar('Senha incorreta.')
       return
     }
     try {
@@ -201,7 +202,7 @@ export function ConfiguracoesPage({
       setSenhaExcluirPastaXadrez('')
       await refreshPastasXadrez()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao excluir as partidas no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao excluir as partidas no servidor.')
     }
   }
 
@@ -229,7 +230,7 @@ export function ConfiguracoesPage({
       setPlanilhas(lista)
       setPlanilhaAtivaIds(ativas)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao carregar planilhas importadas do servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao carregar planilhas importadas do servidor.')
     } finally {
       setCarregandoPlanilhas(false)
     }
@@ -248,7 +249,7 @@ export function ConfiguracoesPage({
     try {
       setPreviaArquivo(await gerarPreviaPlanilha(file))
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
       setArquivo(undefined)
     } finally {
       setLendoPrevia(false)
@@ -258,15 +259,15 @@ export function ConfiguracoesPage({
   async function handleImportar() {
     if (!habilitado) return
     if (senhaImportar !== SENHA_PADRAO) {
-      alert('Senha incorreta.')
+      void avisar('Senha incorreta.')
       return
     }
     if (!arquivo) {
-      alert('Selecione o arquivo da planilha.')
+      void avisar('Selecione o arquivo da planilha.')
       return
     }
     if (!arquivoConfirmado) {
-      alert('Confirme que é a planilha certa antes de importar.')
+      void avisar('Confirme que é a planilha certa antes de importar.')
       return
     }
     setImportando(true)
@@ -281,7 +282,7 @@ export function ConfiguracoesPage({
       })
       setSenhaImportar('')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
     } finally {
       setImportando(false)
     }
@@ -290,7 +291,7 @@ export function ConfiguracoesPage({
   async function handleSalvarNovaPlanilha() {
     if (!pendente) return
     if (senhaSalvar !== SENHA_PADRAO) {
-      alert('Senha incorreta.')
+      void avisar('Senha incorreta.')
       return
     }
     setSalvandoPlanilha(true)
@@ -311,9 +312,9 @@ export function ConfiguracoesPage({
       setArquivoConfirmado(false)
       setHabilitado(false)
       await refreshPlanilhas()
-      alert('Planilha salva e aplicada com sucesso.')
+      void avisar('Planilha salva e aplicada com sucesso.')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar a planilha no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar a planilha no servidor.')
     } finally {
       setSalvandoPlanilha(false)
     }
@@ -334,7 +335,7 @@ export function ConfiguracoesPage({
   async function handleConfirmarAcaoPlanilha() {
     if (!acaoPlanilhaPendente) return
     if (senhaAcaoPlanilha !== SENHA_PADRAO) {
-      alert('Senha incorreta.')
+      void avisar('Senha incorreta.')
       return
     }
     const { tipo, planilha } = acaoPlanilhaPendente
@@ -344,13 +345,13 @@ export function ConfiguracoesPage({
         await setPlanilhaAtivaId(planilha.perfil, planilha.id)
         definirTabelasCustomizadas(planilha.perfil, planilha.rbc, planilha.icmsSt)
         setPlanilhaAtivaIds((prev) => ({ ...prev, [planilha.perfil]: planilha.id }))
-        alert(`Planilha "${planilha.nomeArquivo}" aplicada pro perfil ${planilha.perfil}.`)
+        void avisar(`Planilha "${planilha.nomeArquivo}" aplicada pro perfil ${planilha.perfil}.`)
       } else {
         baixarWorkbookMarkup(planilha)
       }
       handleCancelarAcaoPlanilha()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao concluir a ação.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao concluir a ação.')
     } finally {
       setExecutandoAcaoPlanilha(false)
     }

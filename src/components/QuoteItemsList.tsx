@@ -6,6 +6,7 @@ import { listFornecedores } from '../db/fornecedoresRepo'
 import { findByInterno, findByReferencia } from '../db/analysesRepo'
 import { PlanilhaFornecedorModal } from './PlanilhaFornecedorModal'
 import { Button } from './ui/Basics'
+import { avisar } from '../dialogs'
 import type { Fornecedor, ProductInput, QuoteItem } from '../types'
 
 type ModoFrete = 'pct' | 'valor'
@@ -247,7 +248,7 @@ export function QuoteItemsList({
   function handleAplicarMargemUnica() {
     const valor = Number(margemUnica.replace(',', '.'))
     if (!margemUnica.trim() || Number.isNaN(valor)) {
-      alert('Informe uma margem válida, em %.')
+      void avisar('Informe uma margem válida, em %.')
       return
     }
     onApplyMarginToAll(valor / 100)

@@ -5,6 +5,7 @@ import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { formatCurrency, formatDate } from '../utils'
 import { ADMINS, QUOTE_STATUSES, VENDEDORES } from '../types'
 import type { PedidoCompraInfo, QuoteRecord, QuoteStatus } from '../types'
+import { avisar, confirmar } from '../dialogs'
 
 function chaveMes(ts: number): string {
   const d = new Date(ts)
@@ -74,7 +75,7 @@ export function HistoryPage({
       const all = await listQuotes()
       setRecords(all)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao carregar o histórico do servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao carregar o histórico do servidor.')
     } finally {
       setLoading(false)
     }
@@ -131,12 +132,12 @@ export function HistoryPage({
 
   async function handleDelete(id: string, e: MouseEvent) {
     e.stopPropagation()
-    if (!confirm('Excluir esta cotação salva? Essa ação não pode ser desfeita.')) return
+    if (!(await confirmar('Excluir esta cotação salva? Essa ação não pode ser desfeita.'))) return
     try {
       await deleteQuote(id, currentAdmin)
       refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao excluir a cotação.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao excluir a cotação.')
     }
   }
 
@@ -149,7 +150,7 @@ export function HistoryPage({
       await updateQuoteStatus(record.id, novoStatus, currentAdmin)
       refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
     }
   }
 
@@ -160,7 +161,7 @@ export function HistoryPage({
       setPedidoModalRecord(undefined)
       refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
     }
   }
 

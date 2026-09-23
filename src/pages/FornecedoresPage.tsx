@@ -8,6 +8,7 @@ import { lerPlanilhaFornecedores, type FornecedorImportado } from '../fornecedor
 import { gerarPreviaPlanilha, type PreviaPlanilha } from '../xlsxSheetUtil'
 import { DEFAULT_FORNECEDOR } from '../types'
 import type { Fornecedor } from '../types'
+import { avisar, confirmar } from '../dialogs'
 
 const estadoOptions = ESTADOS.map((e) => ({ value: e.uf, label: `${e.uf} — ${e.nome}` }))
 
@@ -31,7 +32,7 @@ export function FornecedoresPage() {
     try {
       setFornecedores(await listFornecedores())
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao carregar fornecedores do servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao carregar fornecedores do servidor.')
     } finally {
       setLoading(false)
     }
@@ -53,7 +54,7 @@ export function FornecedoresPage() {
 
   async function handleSubmit() {
     if (!form.nome.trim()) {
-      alert('Informe pelo menos o nome do fornecedor.')
+      void avisar('Informe pelo menos o nome do fornecedor.')
       return
     }
     setSaving(true)
@@ -62,7 +63,7 @@ export function FornecedoresPage() {
       handleCancelEdit()
       await refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar fornecedor no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar fornecedor no servidor.')
     } finally {
       setSaving(false)
     }
@@ -85,13 +86,13 @@ export function FornecedoresPage() {
 
   async function handleDelete(id: string, e?: MouseEvent) {
     e?.stopPropagation()
-    if (!confirm('Excluir este fornecedor? Essa ação não pode ser desfeita.')) return
+    if (!(await confirmar('Excluir este fornecedor? Essa ação não pode ser desfeita.'))) return
     try {
       await deleteFornecedor(id)
       if (editingId === id) handleCancelEdit()
       await refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao excluir fornecedor no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao excluir fornecedor no servidor.')
     }
   }
 
@@ -102,7 +103,7 @@ export function FornecedoresPage() {
       setArquivoPendente(file)
       setPreviaImport(previa)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
     } finally {
       setLendoArquivo(false)
     }
@@ -122,7 +123,7 @@ export function FornecedoresPage() {
       setPreviaImport(undefined)
       setArquivoPendente(undefined)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
     } finally {
       setLendoArquivo(false)
     }
@@ -160,9 +161,9 @@ export function FornecedoresPage() {
       const total = itensImportados.length
       setItensImportados([])
       await refresh()
-      alert(`${total} fornecedor(es) importado(s).`)
+      void avisar(`${total} fornecedor(es) importado(s).`)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao importar fornecedores.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao importar fornecedores.')
     } finally {
       setConfirmandoImport(false)
     }

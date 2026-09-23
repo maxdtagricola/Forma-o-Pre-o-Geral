@@ -3,6 +3,7 @@ import { Button } from './ui/Basics'
 import { abrirParaImpressao, baixarBlob, compartilharArquivo, linkEmail, linkWhatsApp, suportaCompartilharArquivo } from '../planilhaCliente'
 import { workbookParaBlobXlsx } from '../exceljsHtmlPreview'
 import { gerarPedidoCompra, nomeArquivoPedidoCompra, type DadosPedidoCompra, type PedidoCompraGerado } from '../planilhaPedidoCompra'
+import { avisar } from '../dialogs'
 
 export function PedidoCompraFornecedorModal({
   dados,
@@ -61,7 +62,7 @@ export function PedidoCompraFornecedorModal({
       await compartilharArquivo(blob, nomeArquivo, titulo, mensagem)
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return
-      alert('Não consegui compartilhar o arquivo direto — baixe a planilha acima e anexe manualmente.')
+      await avisar('Não consegui compartilhar o arquivo direto — baixe a planilha acima e anexe manualmente.')
     } finally {
       setCompartilhando(false)
     }

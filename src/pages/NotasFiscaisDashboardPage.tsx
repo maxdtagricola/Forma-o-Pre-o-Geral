@@ -10,6 +10,7 @@ import { PERIODOS, inicioPeriodo, type Periodo } from '../periodo'
 import { NOTA_FISCAL_STATUSES, NOTA_FISCAL_TIPOS } from '../types'
 import type { NotaFiscal, NotaFiscalTipo } from '../types'
 import { chaveMesDaNota, labelCurtoDoMes, corDoTipo, labelDoTipo } from '../notasFiscaisHelpers'
+import { avisar } from '../dialogs'
 
 const tipoOptions = NOTA_FISCAL_TIPOS
 
@@ -33,7 +34,7 @@ export function NotasFiscaisDashboardPage() {
     listNotasFiscais()
       .then(setNotas)
       .catch((err) => {
-        alert(err instanceof Error ? err.message : 'Erro ao carregar notas fiscais do servidor.')
+        void avisar(err instanceof Error ? err.message : 'Erro ao carregar notas fiscais do servidor.')
       })
       .finally(() => setLoading(false))
     getStatusColors()

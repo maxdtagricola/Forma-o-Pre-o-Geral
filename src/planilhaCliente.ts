@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx'
 import { calculateItem } from './calc/calculator'
 import { cellValue, clearCellValue, localizarTabelaItens, normalizar, setCellValue, vazio } from './xlsxSheetUtil'
+import { avisar } from './dialogs'
 import type { QuoteItem } from './types'
 
 export async function arquivoParaBase64(arquivo: File): Promise<string> {
@@ -119,7 +120,7 @@ function escaparHtml(texto: string): string {
 export function abrirParaImpressao(htmlTable: string, titulo: string): void {
   const win = window.open('', '_blank')
   if (!win) {
-    alert('O navegador bloqueou a nova aba — permita pop-ups pra esse site e tente de novo.')
+    void avisar('O navegador bloqueou a nova aba — permita pop-ups pra esse site e tente de novo.')
     return
   }
   win.document.write(`<!DOCTYPE html>

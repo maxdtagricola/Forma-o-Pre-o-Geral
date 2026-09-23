@@ -16,6 +16,7 @@ import type { Fornecedor, NotaFiscal, NotaFiscalStatus, NotaFiscalTipo } from '.
 import { chaveMes, chaveMesDaNota, labelDoMes, dataLimiteDoMes, labelDoTipo } from '../notasFiscaisHelpers'
 import { extrairDadosNotaFiscalPdf } from '../pdfNotaFiscal'
 import { useEstadoPersistente } from '../estadoPersistente'
+import { avisar, confirmar } from '../dialogs'
 
 const transportadoraSuggestions = TRANSPORTADORAS.map((t) => ({ value: t, label: t }))
 const recebedorSuggestions = RECEBEDORES.map((r) => ({ value: r, label: r }))
@@ -373,7 +374,7 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
     try {
       setNotas(await listNotasFiscaisGerais())
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao carregar notas fiscais do servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao carregar notas fiscais do servidor.')
     } finally {
       setLoading(false)
     }
@@ -403,7 +404,7 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
       await updateNotaFiscalGeralStatus(nota.id, novoStatus)
       await refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
     }
   }
 
@@ -427,7 +428,7 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
         transportadorasConhecidas: TRANSPORTADORAS,
       })
       if (Object.keys(dados).length === 0) {
-        alert('Não consegui reconhecer os dados dessa nota — confira se é o PDF da NF-e e preencha manualmente.')
+        void avisar('Não consegui reconhecer os dados dessa nota — confira se é o PDF da NF-e e preencha manualmente.')
         return
       }
       patch({
@@ -441,7 +442,7 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
       })
       setFormRecolhido(false)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao ler o PDF da nota fiscal.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao ler o PDF da nota fiscal.')
     } finally {
       setImportandoPdf(false)
     }
@@ -455,14 +456,14 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
 
   async function handleSubmit() {
     if (!form.numeroNfe.trim()) {
-      alert('Informe o número da NF-e.')
+      void avisar('Informe o número da NF-e.')
       return
     }
     const duplicada = notas.find(
       (n) => n.id !== editingId && n.numeroNfe.trim().toLowerCase() === form.numeroNfe.trim().toLowerCase(),
     )
     if (duplicada) {
-      const continuar = confirm(
+      const continuar = await confirmar(
         `Já existe uma nota registrada com o número "${form.numeroNfe.trim()}" (fornecedor: ${duplicada.fornecedor || '—'}). Deseja continuar mesmo assim?`,
       )
       if (!continuar) return
@@ -473,7 +474,7 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
       handleCancelEdit()
       await refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar a nota fiscal no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar a nota fiscal no servidor.')
     } finally {
       setSaving(false)
     }
@@ -497,13 +498,13 @@ export function NotasFiscaisPage({ currentAdmin }: { currentAdmin: string }) {
 
   async function handleDelete(id: string, e?: MouseEvent) {
     e?.stopPropagation()
-    if (!confirm('Excluir esta nota fiscal? Essa ação não pode ser desfeita.')) return
+    if (!(await confirmar('Excluir esta nota fiscal? Essa ação não pode ser desfeita.'))) return
     try {
       await deleteNotaFiscalGeral(id)
       if (editingId === id) handleCancelEdit()
       await refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao excluir a nota fiscal no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao excluir a nota fiscal no servidor.')
     }
   }
 

@@ -11,6 +11,7 @@ import { BarChart, type BarDatum } from '../components/BarChart'
 import { PERIODOS, inicioPeriodo, type Periodo } from '../periodo'
 import { QUOTE_STATUSES, VENDEDORES } from '../types'
 import type { QuoteRecord } from '../types'
+import { avisar } from '../dialogs'
 
 const NOMES_MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez']
 
@@ -37,7 +38,7 @@ export function AnalyticsPage() {
   useEffect(() => {
     listQuotes()
       .then(setRecords)
-      .catch((err) => alert(err instanceof Error ? err.message : 'Erro ao carregar cotações do servidor.'))
+      .catch((err) => void avisar(err instanceof Error ? err.message : 'Erro ao carregar cotações do servidor.'))
       .finally(() => setLoading(false))
     getStatusColors()
       .then(setCoresStatus)

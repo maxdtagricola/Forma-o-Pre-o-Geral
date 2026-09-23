@@ -4,6 +4,7 @@ import { AutocompleteField, TextField, NumberField } from '../components/ui/Fiel
 import { ImportarCotacaoFornecedorModal } from '../components/ImportarCotacaoFornecedorModal'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { formatCurrency, makeId, melhorCotacaoFornecedor } from '../utils'
+import { avisar } from '../dialogs'
 import type { CotacaoFornecedorItem, Fornecedor, ProductInput, QuoteItem, QuoteStatus } from '../types'
 
 function LinhaNovaCotacao({
@@ -21,11 +22,11 @@ function LinhaNovaCotacao({
 
   function handleAdicionar() {
     if (!fornecedor.trim()) {
-      alert('Informe o fornecedor.')
+      void avisar('Informe o fornecedor.')
       return
     }
     if (valorUnitario <= 0) {
-      alert('Informe o valor unitário cotado.')
+      void avisar('Informe o valor unitário cotado.')
       return
     }
     onAdicionar({ fornecedor: fornecedor.trim(), marca: marca.trim(), valorUnitario })

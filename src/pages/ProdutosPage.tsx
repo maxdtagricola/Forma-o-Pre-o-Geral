@@ -4,6 +4,7 @@ import { deleteProduto, sincronizarProdutos, updateProduto } from '../db/produto
 import { Button } from '../components/ui/Basics'
 import { formatNumber } from '../utils'
 import { SENHA_PADRAO } from '../senhaPadrao'
+import { avisar } from '../dialogs'
 import type { Produto, QuoteRecord } from '../types'
 
 interface EdicaoProduto {
@@ -36,7 +37,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
       // produto continua no catálogo mesmo se a cotação de origem for excluída depois
       setProdutos(await sincronizarProdutos(qs))
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao carregar produtos do servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao carregar produtos do servidor.')
     } finally {
       setLoading(false)
     }
@@ -63,12 +64,12 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
   async function handleAdicionarInterno(produto: Produto) {
     const valor = (rascunhos[produto.id] ?? '').trim()
     if (!valor) {
-      alert('Informe o código Interno.')
+      void avisar('Informe o código Interno.')
       return
     }
     const alvos = produto.referencias.map((r) => r.trim().toLowerCase()).filter(Boolean)
     if (alvos.length === 0) {
-      alert('Esse item não tem Referência pra localizar em qual(is) cotação(ões) ele aparece.')
+      void avisar('Esse item não tem Referência pra localizar em qual(is) cotação(ões) ele aparece.')
       return
     }
     setSalvando(produto.id)
@@ -113,7 +114,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
         return next
       })
       await refresh()
-      alert(
+      void avisar(
         `Interno adicionado em ${atualizadas} cotação(ões).` +
           (bloqueadas > 0 ? ` ${bloqueadas} não puderam ser alteradas (em análise por outro admin).` : ''),
       )
@@ -199,7 +200,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
       await updateProduto(produto.id, { descricao: novaDescricao, referencias: novasReferencias, ncm: novoNcm, peso: novoPeso })
       handleCancelarEdicao()
       await refresh()
-      alert(
+      void avisar(
         `Produto atualizado${atualizadas > 0 ? ` em ${atualizadas} cotação(ões)` : ''}.` +
           (bloqueadas > 0 ? ` ${bloqueadas} não puderam ser alteradas (em análise por outro admin).` : ''),
       )
@@ -210,7 +211,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
 
   function handleConfirmarSenha(produto: Produto) {
     if (senhaEdicao !== SENHA_PADRAO) {
-      alert('Senha incorreta.')
+      void avisar('Senha incorreta.')
       setSenhaEdicao('')
       return
     }
@@ -233,7 +234,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
   // histórico exatamente como estava
   async function handleConfirmarExclusao(produto: Produto) {
     if (senhaExclusao !== SENHA_PADRAO) {
-      alert('Senha incorreta.')
+      void avisar('Senha incorreta.')
       setSenhaExclusao('')
       return
     }
@@ -243,7 +244,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
       handleCancelarExclusao()
       await refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao excluir o produto.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao excluir o produto.')
     } finally {
       setSalvando(undefined)
     }

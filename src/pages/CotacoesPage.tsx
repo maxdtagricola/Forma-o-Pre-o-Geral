@@ -14,6 +14,7 @@ import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { QUOTE_STATUSES, VENDEDORES } from '../types'
 import type { PedidoCompraInfo, QuoteRecord, QuoteStatus, TipoReferencia } from '../types'
 import { useEstadoPersistente } from '../estadoPersistente'
+import { avisar } from '../dialogs'
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
 const NOVO = '__novo__'
@@ -283,7 +284,7 @@ export function CotacoesPage({
       setArquivoPendente(file)
       setPreviaImport(previa)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
     } finally {
       setLendoArquivo(false)
     }
@@ -308,7 +309,7 @@ export function CotacoesPage({
       setImportado(true)
       setPreviaImport(undefined)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
     } finally {
       setLendoArquivo(false)
     }
@@ -323,25 +324,25 @@ export function CotacoesPage({
 
   async function handleConfirmarImportacao() {
     if (!vendedorImport) {
-      alert('Selecione o vendedor.')
+      void avisar('Selecione o vendedor.')
       return
     }
     const clienteFinal = clienteEscolha === NOVO ? clienteNovoTexto.trim().toUpperCase() : clienteEscolha
     const maquinaFinal = maquinaEscolha === NOVO ? maquinaNovoTexto.trim() : maquinaEscolha
     if (!clienteFinal) {
-      alert('Informe o cliente.')
+      void avisar('Informe o cliente.')
       return
     }
     if (!maquinaFinal) {
-      alert('Informe a máquina.')
+      void avisar('Informe a máquina.')
       return
     }
     if (itensImportados.length === 0) {
-      alert('Nenhum item pra importar — remova a planilha e confira se ela tem itens marcados como "COTAR".')
+      void avisar('Nenhum item pra importar — remova a planilha e confira se ela tem itens marcados como "COTAR".')
       return
     }
     if (!arquivoImportado) {
-      alert('Selecione o arquivo novamente.')
+      void avisar('Selecione o arquivo novamente.')
       return
     }
     setConfirmandoImport(true)
@@ -354,7 +355,7 @@ export function CotacoesPage({
       resetImportacao()
       setModoNovo('manual')
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao importar a cotação.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao importar a cotação.')
     } finally {
       setConfirmandoImport(false)
     }
@@ -365,7 +366,7 @@ export function CotacoesPage({
     try {
       setRecords(await listQuotes())
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao carregar cotações do servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao carregar cotações do servidor.')
     } finally {
       setLoading(false)
     }
@@ -390,15 +391,15 @@ export function CotacoesPage({
 
   async function handleCriar() {
     if (!vendedor) {
-      alert('Selecione o vendedor.')
+      void avisar('Selecione o vendedor.')
       return
     }
     if (!cliente.trim()) {
-      alert('Informe o cliente.')
+      void avisar('Informe o cliente.')
       return
     }
     if (!maquina.trim()) {
-      alert('Informe a máquina.')
+      void avisar('Informe a máquina.')
       return
     }
     setCriando(true)
@@ -421,7 +422,7 @@ export function CotacoesPage({
       await updateQuoteStatus(record.id, novoStatus, currentAdmin)
       refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
     }
   }
 
@@ -432,7 +433,7 @@ export function CotacoesPage({
       setPedidoModalRecord(undefined)
       refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
     }
   }
 

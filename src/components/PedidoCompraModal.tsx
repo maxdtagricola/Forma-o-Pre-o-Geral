@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Button } from './ui/Basics'
+import { avisar } from '../dialogs'
 import type { PedidoCompraInfo, QuoteRecord } from '../types'
 
 export function PedidoCompraModal({
@@ -26,7 +27,7 @@ export function PedidoCompraModal({
   function handleConfirm() {
     const itemIds = tipo === 'completo' ? quote.items.map((i) => i.id) : Array.from(selecionados)
     if (itemIds.length === 0) {
-      alert('Selecione pelo menos um item.')
+      void avisar('Selecione pelo menos um item.')
       return
     }
     onConfirm({ tipo, itemIds })

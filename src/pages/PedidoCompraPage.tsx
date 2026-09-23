@@ -6,6 +6,7 @@ import { PedidoCompraFornecedorModal } from '../components/PedidoCompraFornecedo
 import { listQuotes, salvarItensFechados, updateQuoteStatus } from '../db/analysesRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency } from '../utils'
+import { avisar } from '../dialogs'
 import { QUOTE_STATUSES } from '../types'
 import type { DadosPedidoCompra } from '../planilhaPedidoCompra'
 import type { ItemFechado, PedidoCompraInfo, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
@@ -76,7 +77,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
   function refresh() {
     return listQuotes()
       .then(setQuotes)
-      .catch((err) => alert(err instanceof Error ? err.message : 'Erro ao carregar dados do servidor.'))
+      .catch((err) => void avisar(err instanceof Error ? err.message : 'Erro ao carregar dados do servidor.'))
   }
 
   useEffect(() => {
@@ -151,7 +152,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
       setSalvo(true)
       setTimeout(() => setSalvo(false), 2000)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
     } finally {
       setSalvando(false)
     }
@@ -167,7 +168,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
       await updateQuoteStatus(cotacao.id, novoStatus, currentAdmin)
       await refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
     }
   }
 
@@ -178,7 +179,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
       setPedidoModalAberto(false)
       await refresh()
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
     }
   }
 

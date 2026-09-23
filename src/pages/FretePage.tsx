@@ -8,6 +8,7 @@ import { listQuotes, salvarFreteTransportadora } from '../db/analysesRepo'
 import { formatCurrency, formatNumber } from '../utils'
 import { TRANSPORTADORAS } from '../types'
 import type { DadosFreteTransportadora, Empresa, Fornecedor, QuoteRecord } from '../types'
+import { avisar } from '../dialogs'
 
 // ---------------------------------------------------------------------------
 // Cada transportadora pede um conjunto diferente de dados pro pedido de frete
@@ -194,13 +195,13 @@ function FormularioFrete({
       setCopiado(true)
       setTimeout(() => setCopiado(false), 2000)
     } catch {
-      alert('Não foi possível copiar automaticamente — selecione e copie manualmente.')
+      void avisar('Não foi possível copiar automaticamente — selecione e copie manualmente.')
     }
   }
 
   async function handleSalvar() {
     if (!podeSalvar) {
-      alert('Escolha uma cotação antes de salvar os dados de frete.')
+      void avisar('Escolha uma cotação antes de salvar os dados de frete.')
       return
     }
     setSalvando(true)
@@ -382,7 +383,7 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
         setQuotes(listaQuotes)
         setEmpresaPorTransportadoraState(mapa)
       })
-      .catch((err) => alert(err instanceof Error ? err.message : 'Erro ao carregar dados do servidor.'))
+      .catch((err) => void avisar(err instanceof Error ? err.message : 'Erro ao carregar dados do servidor.'))
       .finally(() => setLoading(false))
   }, [])
 
@@ -454,7 +455,7 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
     try {
       await setEmpresaPorTransportadora(transportadora, empresaId)
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
     }
   }
 
@@ -464,7 +465,7 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
       const atualizado = await salvarFreteTransportadora(cotacaoSelecionada.id, transportadora, dados)
       setQuotes((prev) => prev.map((q) => (q.id === atualizado.id ? atualizado : q)))
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
     }
   }
 
