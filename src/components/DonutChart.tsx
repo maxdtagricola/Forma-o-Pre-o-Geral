@@ -110,7 +110,7 @@ export function DonutChart({
                 y={s.labelPos.y}
                 textAnchor="middle"
                 dominantBaseline="middle"
-                fontSize={compact ? 10 : 12}
+                fontSize={compact ? 11 : 13}
                 fontWeight="700"
                 fill={corTexto(s.color)}
               >
@@ -119,7 +119,7 @@ export function DonutChart({
             ),
         )}
         <circle cx={cx} cy={cy} r={rInner - 6} style={{ fill: 'rgb(var(--surface))' }} />
-        <text x={cx} y={cy - 6} textAnchor="middle" fontSize={compact ? 17 : 20} fontWeight="700" style={{ fill: 'rgb(var(--ink-900))' }}>
+        <text x={cx} y={cy - 6} textAnchor="middle" fontSize={compact ? 19 : 23} fontWeight="800" style={{ fill: 'rgb(var(--ink-900))' }}>
           {centerValue}
         </text>
         <text x={cx} y={cy + 16} textAnchor="middle" fontSize="11" style={{ fill: 'rgb(var(--ink-400))' }}>
@@ -134,7 +134,7 @@ export function DonutChart({
             <div key={i} className="flex items-center gap-2 text-xs" title={d.title}>
               <span className="h-2.5 w-2.5 rounded-sm shrink-0" style={{ backgroundColor: d.color }} />
               <span className="text-ink-600 truncate flex-1">{d.label}</span>
-              <span className="font-mono tabular-nums text-ink-800 shrink-0">{valueFormatter(d.value)}</span>
+              <span className="font-mono tabular-nums font-bold text-sm text-ink-900 shrink-0">{valueFormatter(d.value)}</span>
             </div>
           ))}
       </div>

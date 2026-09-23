@@ -25,8 +25,8 @@ export function BarChart({
   return (
     <div className="flex items-end gap-2 h-40 px-1">
       {data.map((d) => (
-        <div key={d.label} className="flex-1 flex flex-col items-center gap-1 min-w-0 group">
-          <span className="text-[11px] font-medium text-ink-700 opacity-0 group-hover:opacity-100 transition tabular-nums">
+        <div key={d.label} className="flex-1 flex flex-col items-center gap-1 min-w-0">
+          <span className="text-[11px] font-bold text-ink-900 tabular-nums truncate max-w-full">
             {valueFormatter(d.value)}
           </span>
           <div
@@ -61,11 +61,14 @@ export function GroupedBarChart({
   data,
   series,
   valueFormatter = (v: number) => String(v),
+  chartValueFormatter,
   emptyText = 'Sem dados.',
 }: {
   data: GroupedBarDatum[]
   series: GroupedBarSeries[]
   valueFormatter?: (value: number) => string
+  /** Formata o valor mostrado acima de cada barrinha — mais curto que o do tooltip, já que a coluna é estreita. Usa valueFormatter se não for passado. */
+  chartValueFormatter?: (value: number) => string
   emptyText?: string
 }) {
   const semDados = data.length === 0 || data.every((d) => series.every((s) => (d.values[s.key] ?? 0) === 0))
@@ -73,6 +76,7 @@ export function GroupedBarChart({
     return <p className="text-sm text-ink-400 text-center py-8">{emptyText}</p>
   }
 
+  const formatarNaBarra = chartValueFormatter ?? valueFormatter
   const max = Math.max(1, ...data.flatMap((d) => series.map((s) => d.values[s.key] ?? 0)))
 
   return (
@@ -80,19 +84,30 @@ export function GroupedBarChart({
       <div className="flex items-end gap-3 h-40 px-1">
         {data.map((d) => (
           <div key={d.label} className="flex-1 flex flex-col items-center gap-1 min-w-0">
-            <div className="w-full flex items-end justify-center gap-1 h-28">
-              {series.map((s) => {
+            <div className="w-full flex items-end justify-center gap-1.5 h-28">
+              {series.map((s, si) => {
                 const v = d.values[s.key] ?? 0
                 return (
                   <div
                     key={s.key}
-                    className="flex-1 max-w-[14px] h-full flex items-end bg-ink-50 rounded-t overflow-hidden"
+                    className="flex-1 max-w-[14px] h-full flex flex-col items-center justify-end"
                     title={`${s.label} — ${d.label}: ${valueFormatter(v)}`}
                   >
-                    <div
-                      className="w-full rounded-t transition-all"
-                      style={{ height: `${v > 0 ? Math.max(2, (v / max) * 100) : 0}%`, backgroundColor: s.color }}
-                    />
+                    {/* escalona a altura do rótulo por série (índice par/ímpar) pra duas barrinhas
+                     * vizinhas não terem o número um colado no outro — a coluna é estreita demais
+                     * pra caber os dois lado a lado na mesma linha. */}
+                    <span
+                      className="text-[9px] font-bold text-ink-900 leading-none whitespace-nowrap tabular-nums"
+                      style={{ marginBottom: si % 2 === 0 ? 2 : 13 }}
+                    >
+                      {v > 0 ? formatarNaBarra(v) : ''}
+                    </span>
+                    <div className="w-full flex items-end bg-ink-50 rounded-t overflow-hidden" style={{ height: 'calc(100% - 24px)' }}>
+                      <div
+                        className="w-full rounded-t transition-all"
+                        style={{ height: `${v > 0 ? Math.max(2, (v / max) * 100) : 0}%`, backgroundColor: s.color }}
+                      />
+                    </div>
                   </div>
                 )
               })}

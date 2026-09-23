@@ -223,6 +223,7 @@ export function NotasFiscaisDashboardPage() {
                   data={valoresPorMesChartData}
                   series={tipoSeries}
                   valueFormatter={formatCurrency}
+                  chartValueFormatter={formatCurrencyCompacto}
                   emptyText="Nenhuma nota registrada ainda."
                 />
               </div>

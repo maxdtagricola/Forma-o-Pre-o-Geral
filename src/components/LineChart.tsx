@@ -30,7 +30,7 @@ export function LineChart({
   const width = 760
   const height = 260
   const padLeft = 44
-  const padRight = 16
+  const padRight = 40
   const padTop = 16
   const padBottom = 28
   const plotW = width - padLeft - padRight
@@ -60,7 +60,7 @@ export function LineChart({
           <line key={i} x1={padLeft} x2={width - padRight} y1={y} y2={y} stroke="rgb(var(--ink-100))" strokeWidth={1} />
         ))}
         {[0, 1, 2, 3, 4].map((i) => (
-          <text key={i} x={padLeft - 8} y={yAt(i * passo)} textAnchor="end" dominantBaseline="middle" fontSize="10" style={{ fill: 'rgb(var(--ink-400))' }}>
+          <text key={i} x={padLeft - 8} y={yAt(i * passo)} textAnchor="end" dominantBaseline="middle" fontSize="11" fontWeight="600" style={{ fill: 'rgb(var(--ink-500))' }}>
             {valueFormatter(i * passo)}
           </text>
         ))}
@@ -73,6 +73,8 @@ export function LineChart({
         {series.map((s) => {
           const pontos = data.map((d, i) => ({ x: xAt(i), y: yAt(d.values[s.key] ?? 0) }))
           const path = pontos.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ')
+          const ultimoPonto = pontos[pontos.length - 1]
+          const ultimoValor = data[data.length - 1]?.values[s.key] ?? 0
           return (
             <g key={s.key}>
               <path d={path} fill="none" stroke={s.color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
@@ -83,6 +85,19 @@ export function LineChart({
                   </title>
                 </circle>
               ))}
+              {ultimoPonto && (
+                <text
+                  x={ultimoPonto.x + 8}
+                  y={ultimoPonto.y}
+                  textAnchor="start"
+                  dominantBaseline="middle"
+                  fontSize="11"
+                  fontWeight="700"
+                  style={{ fill: 'rgb(var(--ink-900))' }}
+                >
+                  {valueFormatter(ultimoValor)}
+                </text>
+              )}
             </g>
           )
         })}
