@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useState, type DragEvent, type MouseEvent } from 'react'
-import { formatCurrency, selecionarTudoAoFocar } from '../utils'
+import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
+import { formatCurrency, formatDate, selecionarTudoAoFocar } from '../utils'
 import { calculateItem } from '../calc/calculator'
 import { ESTADOS } from '../data/estados'
 import { listFornecedores } from '../db/fornecedoresRepo'
-import { findByInterno, findByReferencia } from '../db/analysesRepo'
+import { buscarUltimoUsoDoProduto, type UltimoUsoDoProduto } from '../db/analysesRepo'
+import { findProdutoPorInternoOuReferencia } from '../db/produtosRepo'
 import { PlanilhaFornecedorModal } from './PlanilhaFornecedorModal'
 import { Button } from './ui/Basics'
 import { avisar } from '../dialogs'
-import type { Fornecedor, ProductInput, QuoteItem } from '../types'
+import type { Fornecedor, ProductInput, ProdutoCotacaoHistorico, QuoteItem } from '../types'
 
 type ModoFrete = 'pct' | 'valor'
 
@@ -17,6 +18,7 @@ type ColunaKey =
   | 'descricao'
   | 'ncm'
   | 'fornecedor'
+  | 'marca'
   | 'uf'
   | 'qtd'
   | 'peso'
@@ -32,6 +34,7 @@ const COLUNAS_PADRAO: ColunaKey[] = [
   'descricao',
   'ncm',
   'fornecedor',
+  'marca',
   'uf',
   'qtd',
   'peso',
@@ -48,6 +51,7 @@ const LABEL_COLUNA: Record<ColunaKey, string> = {
   descricao: 'Descrição',
   ncm: 'NCM',
   fornecedor: 'Fornecedor',
+  marca: 'Marca',
   uf: 'UF',
   qtd: 'Qtd',
   peso: 'Peso (kg)',
@@ -64,7 +68,8 @@ const CLASSE_COLUNA: Record<ColunaKey, string> = {
   descricao: 'min-w-[12rem]',
   ncm: 'min-w-[7rem]',
   fornecedor: 'min-w-[10rem]',
-  uf: 'w-24',
+  marca: 'min-w-[8rem]',
+  uf: 'min-w-[4.5rem]',
   qtd: 'w-20 text-right',
   peso: 'w-24 text-right',
   valorUnt: 'w-28 text-right',
@@ -82,13 +87,69 @@ function carregarOrdemColunas(): ColunaKey[] {
   try {
     const bruto = localStorage.getItem(CHAVE_ORDEM_COLUNAS)
     if (!bruto) return COLUNAS_PADRAO
-    const salvo = JSON.parse(bruto)
-    // só aceita se tiver exatamente o mesmo conjunto de colunas de hoje — evita ordem quebrada se
-    // uma coluna for adicionada/removida numa atualização futura do app
-    const valido = Array.isArray(salvo) && salvo.length === COLUNAS_PADRAO.length && COLUNAS_PADRAO.every((c) => salvo.includes(c))
-    return valido ? (salvo as ColunaKey[]) : COLUNAS_PADRAO
+    const salvo: unknown = JSON.parse(bruto)
+    if (!Array.isArray(salvo)) return COLUNAS_PADRAO
+    // aproveita a ordem que a pessoa já tinha montado: descarta coluna que não existe mais e encaixa
+    // coluna nova (ex.: Marca) logo depois da que vem antes dela na ordem padrão — sem isso, toda
+    // coluna adicionada numa atualização jogava fora a ordem personalizada inteira
+    const ordem = Array.from(new Set(salvo.filter((c): c is ColunaKey => COLUNAS_PADRAO.includes(c as ColunaKey))))
+    COLUNAS_PADRAO.forEach((coluna, i) => {
+      if (ordem.includes(coluna)) return
+      const anterior = COLUNAS_PADRAO.slice(0, i).reverse().find((c) => ordem.includes(c))
+      ordem.splice(anterior ? ordem.indexOf(anterior) + 1 : 0, 0, coluna)
+    })
+    return ordem
   } catch {
     return COLUNAS_PADRAO
+  }
+}
+
+/** Histórico de preço achado ao digitar Interno/Referência — mostrado logo abaixo da linha. */
+interface HistoricoPreco {
+  ultimoUso?: UltimoUsoDoProduto
+  maisBarato?: ProdutoCotacaoHistorico
+}
+
+// valores especiais dos filtros (não colidem com nenhum valor real de célula)
+const FILTRO_TODOS = '__todos__'
+const FILTRO_VAZIO = '__vazio__'
+
+/** O texto de uma célula como aparece na tela — usado pros filtros: cada coluna lista os valores
+ * distintos que aparecem nela, e escolher um mostra só os itens com aquele valor. */
+function textoDaColuna(item: QuoteItem, chave: ColunaKey, modoFrete: ModoFrete): string {
+  const p = item.product
+  const vlrProduto = (p.qtd || 0) * (p.valorUnt || 0)
+  switch (chave) {
+    case 'interno':
+      return p.interno.trim()
+    case 'referencia':
+      return p.referencia.trim()
+    case 'descricao':
+      return p.descricao.trim()
+    case 'ncm':
+      return p.ncm.trim()
+    case 'fornecedor':
+      return p.fornecedor.trim()
+    case 'marca':
+      return p.marca.trim()
+    case 'uf':
+      return p.estadoOrigem
+    case 'qtd':
+      return String(p.qtd || 0)
+    case 'peso':
+      return String(p.peso || 0)
+    case 'valorUnt':
+      return formatCurrency(p.valorUnt || 0)
+    case 'precoVenda':
+      return formatCurrency(calculateItem(p, item.pricing).precoVendaUnitario)
+    case 'frete':
+      return modoFrete === 'pct'
+        ? `${Math.round((p.freteRate || 0) * 10000) / 100}%`
+        : formatCurrency(vlrProduto * (p.freteRate || 0))
+    case 'prazo':
+      return p.prazoEntrega.trim()
+    case 'total':
+      return formatCurrency(vlrProduto)
   }
 }
 
@@ -136,9 +197,15 @@ export function QuoteItemsList({
   const [marcados, setMarcados] = useState<Set<string>>(new Set())
   const [fornecedorBulk, setFornecedorBulk] = useState('')
   const [fornecedorBulkAberto, setFornecedorBulkAberto] = useState(false)
+  const [marcaBulk, setMarcaBulk] = useState('')
   const [ncmBulk, setNcmBulk] = useState('')
   const [planilhaFornecedorAberta, setPlanilhaFornecedorAberta] = useState(false)
   const [freteBulk, setFreteBulk] = useState('')
+  // filtro por coluna — valor exato (o texto da célula) que tem que bater; coluna ausente = todos
+  const [filtros, setFiltros] = useState<Partial<Record<ColunaKey, string>>>({})
+  // fica aqui (e não dentro de cada linha) porque carregar o histórico costuma trocar o fornecedor
+  // do item — e aí ele muda de grupo, a linha é remontada em outro lugar e perderia o aviso
+  const [historicos, setHistoricos] = useState<Record<string, HistoricoPreco>>({})
 
   useEffect(() => {
     listFornecedores()
@@ -172,8 +239,60 @@ export function QuoteItemsList({
     e.stopPropagation()
   }
 
+  // --- filtros ---------------------------------------------------------------
+  const filtrosAtivos = Object.keys(filtros).length > 0
+
+  const valoresPorColuna = useMemo(() => {
+    const resultado = {} as Record<ColunaKey, string[]>
+    for (const chave of COLUNAS_PADRAO) {
+      const distintos = new Set(items.map((item) => textoDaColuna(item, chave, modoFrete)))
+      resultado[chave] = Array.from(distintos).sort((a, b) => a.localeCompare(b, 'pt-BR', { numeric: true }))
+    }
+    return resultado
+  }, [items, modoFrete])
+
+  const itensFiltrados = useMemo(
+    () =>
+      items.filter((item) =>
+        (Object.entries(filtros) as [ColunaKey, string][]).every(([chave, valor]) => textoDaColuna(item, chave, modoFrete) === valor),
+      ),
+    [items, filtros, modoFrete],
+  )
+
+  function setFiltro(chave: ColunaKey, valorSelect: string) {
+    setFiltros((prev) => {
+      const next = { ...prev }
+      if (valorSelect === FILTRO_TODOS) delete next[chave]
+      else next[chave] = valorSelect === FILTRO_VAZIO ? '' : valorSelect
+      return next
+    })
+  }
+
+  // --- agrupamento por fornecedor ---------------------------------------------
+  // itens de fornecedores diferentes ficam em blocos separados, cada um com cabeçalho próprio
+  // (nome, quantidade de itens, subtotal) — só quando há mais de um fornecedor na tela; com um só,
+  // a tabela fica corrida, sem um cabeçalho de grupo que não separaria nada
+  const grupos = useMemo(() => {
+    const mapa = new Map<string, { fornecedor: string; itens: QuoteItem[] }>()
+    for (const item of itensFiltrados) {
+      const nome = item.product.fornecedor.trim()
+      const chave = nome.toUpperCase()
+      if (!mapa.has(chave)) mapa.set(chave, { fornecedor: nome, itens: [] })
+      mapa.get(chave)!.itens.push(item)
+    }
+    return Array.from(mapa.values())
+  }, [itensFiltrados])
+  const agrupar = grupos.length > 1
+
+  // número da linha = posição do item na cotação inteira, não na tela — continua o mesmo com filtro
+  // ou agrupamento, pra "item 7" ser sempre o mesmo item
+  const numeroDoItem = useMemo(() => new Map(items.map((item, i) => [item.id, i + 1])), [items])
+
+  // --- marcação ----------------------------------------------------------------
   // só os ids marcados que ainda existem (um item marcado pode ter sido removido nesse meio-tempo)
   const idsMarcados = useMemo(() => items.map((i) => i.id).filter((id) => marcados.has(id)), [items, marcados])
+  const idsVisiveis = useMemo(() => itensFiltrados.map((i) => i.id), [itensFiltrados])
+  const todosVisiveisMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => marcados.has(id))
 
   function toggleMarcado(id: string) {
     setMarcados((prev) => {
@@ -184,8 +303,17 @@ export function QuoteItemsList({
     })
   }
 
-  function toggleMarcarTodos() {
-    setMarcados(idsMarcados.length === items.length ? new Set() : new Set(items.map((i) => i.id)))
+  /** Marca/desmarca um conjunto de itens de uma vez (todos os visíveis, ou um grupo de fornecedor). */
+  function toggleConjunto(ids: string[]) {
+    setMarcados((prev) => {
+      const next = new Set(prev)
+      const todosMarcados = ids.every((id) => next.has(id))
+      for (const id of ids) {
+        if (todosMarcados) next.delete(id)
+        else next.add(id)
+      }
+      return next
+    })
   }
 
   const sugestoesFornecedorBulk = useMemo(() => {
@@ -208,6 +336,14 @@ export function QuoteItemsList({
   function handleAplicarFornecedorBulkDigitado() {
     const encontrado = fornecedores.find((f) => f.nome.toLowerCase() === fornecedorBulk.trim().toLowerCase())
     aplicarFornecedorAosMarcados(fornecedorBulk, encontrado?.estado)
+  }
+
+  function handleAplicarMarcaAosMarcados() {
+    const marcaLimpa = marcaBulk.trim()
+    if (!marcaLimpa || idsMarcados.length === 0) return
+    for (const id of idsMarcados) onPatchItem(id, { marca: marcaLimpa })
+    setMarcados(new Set())
+    setMarcaBulk('')
   }
 
   function handleAplicarNcmAosMarcados() {
@@ -322,13 +458,79 @@ export function QuoteItemsList({
     )
   }
 
+  function renderFiltro(chave: ColunaKey) {
+    const ativo = chave in filtros
+    const valorAtual = filtros[chave]
+    const valorSelect = !ativo ? FILTRO_TODOS : valorAtual === '' ? FILTRO_VAZIO : (valorAtual as string)
+    return (
+      <th key={chave} className="px-1 pb-1.5 font-normal">
+        <select
+          value={valorSelect}
+          onChange={(e) => setFiltro(chave, e.target.value)}
+          title={`Filtrar por ${LABEL_COLUNA[chave]}`}
+          className={`w-full min-w-[4.5rem] rounded-md border px-1 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-400 ${
+            ativo ? 'border-brand-400 bg-brand-50 text-ink-900 font-semibold' : 'border-ink-200 bg-surface text-ink-500'
+          }`}
+        >
+          <option value={FILTRO_TODOS}>Todos</option>
+          {valoresPorColuna[chave].map((v) => (
+            <option key={v || FILTRO_VAZIO} value={v || FILTRO_VAZIO}>
+              {v || '(vazio)'}
+            </option>
+          ))}
+        </select>
+      </th>
+    )
+  }
+
+  const totalColunas = ordemColunas.length + 3
+
+  function renderLinha(item: QuoteItem) {
+    const totalItens = (item.product.qtd || 0) * (item.product.valorUnt || 0)
+    return (
+      <LinhaItem
+        key={item.id}
+        item={item}
+        numero={numeroDoItem.get(item.id) ?? 0}
+        isActive={item.id === activeItemId}
+        totalItens={totalItens}
+        modoFrete={modoFrete}
+        fornecedores={fornecedores}
+        fornecedorAberto={fornecedorAbertoId === item.id}
+        onAbrirFornecedor={() => setFornecedorAbertoId(item.id)}
+        onFecharFornecedor={() => setFornecedorAbertoId((atual) => (atual === item.id ? null : atual))}
+        marcado={marcados.has(item.id)}
+        onToggleMarcado={() => toggleMarcado(item.id)}
+        onSelect={() => onSelect(item.id)}
+        onRemove={() => onRemove(item.id)}
+        onPatch={(patch) => onPatchItem(item.id, patch)}
+        podeRemover={items.length > 1}
+        cellCls={cellCls}
+        inputCls={inputCls}
+        stop={stop}
+        ordemColunas={ordemColunas}
+        totalColunas={totalColunas}
+        historico={historicos[item.id]}
+        onHistorico={(h) =>
+          setHistoricos((prev) => {
+            const next = { ...prev }
+            if (h) next[item.id] = h
+            else delete next[item.id]
+            return next
+          })
+        }
+      />
+    )
+  }
+
   return (
     <div className="card">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <div>
           <h2 className="font-display text-lg font-semibold text-ink-900">Itens da cotação</h2>
           <p className="text-sm text-ink-400">
-            Edite direto na planilha — arraste o cabeçalho pra reordenar as colunas do seu jeito.
+            Edite direto na planilha — arraste o cabeçalho pra reordenar as colunas, e use a linha de filtros logo
+            abaixo dele pra ver só o que interessa.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -422,6 +624,22 @@ export function QuoteItemsList({
           <span className="w-px self-stretch bg-brand-200" />
           <input
             type="text"
+            placeholder="Marca"
+            value={marcaBulk}
+            onChange={(e) => setMarcaBulk(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleAplicarMarcaAosMarcados()}
+            className="field-input w-32 py-1 text-sm"
+          />
+          <button
+            type="button"
+            onClick={handleAplicarMarcaAosMarcados}
+            className="pill-tab border border-brand-600 bg-brand-600 text-white hover:bg-brand-700"
+          >
+            Aplicar marca
+          </button>
+          <span className="w-px self-stretch bg-brand-200" />
+          <input
+            type="text"
             placeholder="NCM"
             value={ncmBulk}
             onChange={(e) => setNcmBulk(e.target.value)}
@@ -480,6 +698,22 @@ export function QuoteItemsList({
         />
       )}
 
+      {filtrosAtivos && (
+        <div className="flex flex-wrap items-center gap-2 mb-2 text-xs">
+          <span className="text-ink-500">
+            Mostrando <strong className="text-ink-900">{itensFiltrados.length}</strong> de {items.length} itens (filtrado
+            por {(Object.keys(filtros) as ColunaKey[]).map((c) => LABEL_COLUNA[c]).join(', ')})
+          </span>
+          <button
+            type="button"
+            onClick={() => setFiltros({})}
+            className="pill-tab border border-ink-200 py-1 text-ink-600 hover:bg-ink-50"
+          >
+            Limpar filtros
+          </button>
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-xl border border-ink-100">
         <table className="w-full text-sm border-collapse">
           <thead>
@@ -487,45 +721,66 @@ export function QuoteItemsList({
               <th className="py-2 px-2 w-8">
                 <input
                   type="checkbox"
-                  checked={items.length > 0 && idsMarcados.length === items.length}
-                  onChange={toggleMarcarTodos}
-                  title="Marcar/desmarcar todos"
+                  checked={todosVisiveisMarcados}
+                  onChange={() => toggleConjunto(idsVisiveis)}
+                  title="Marcar/desmarcar todos os itens visíveis"
                 />
               </th>
               <th className="py-2 px-2 font-medium w-8">#</th>
               {ordemColunas.map((chave) => renderCabecalho(chave))}
               <th className="w-8"></th>
             </tr>
+            <tr className="bg-ink-50 text-left">
+              <th />
+              <th />
+              {ordemColunas.map((chave) => renderFiltro(chave))}
+              <th />
+            </tr>
           </thead>
           <tbody>
-            {items.map((item, index) => {
-              const isActive = item.id === activeItemId
-              const totalItens = (item.product.qtd || 0) * (item.product.valorUnt || 0)
-              return (
-                <LinhaItem
-                  key={item.id}
-                  item={item}
-                  index={index}
-                  isActive={isActive}
-                  totalItens={totalItens}
-                  modoFrete={modoFrete}
-                  fornecedores={fornecedores}
-                  fornecedorAberto={fornecedorAbertoId === item.id}
-                  onAbrirFornecedor={() => setFornecedorAbertoId(item.id)}
-                  onFecharFornecedor={() => setFornecedorAbertoId((atual) => (atual === item.id ? null : atual))}
-                  marcado={marcados.has(item.id)}
-                  onToggleMarcado={() => toggleMarcado(item.id)}
-                  onSelect={() => onSelect(item.id)}
-                  onRemove={() => onRemove(item.id)}
-                  onPatch={(patch) => onPatchItem(item.id, patch)}
-                  podeRemover={items.length > 1}
-                  cellCls={cellCls}
-                  inputCls={inputCls}
-                  stop={stop}
-                  ordemColunas={ordemColunas}
-                />
-              )
-            })}
+            {itensFiltrados.length === 0 && (
+              <tr>
+                <td colSpan={totalColunas} className="py-6 text-center text-sm text-ink-400 border-t border-ink-100">
+                  Nenhum item com esses filtros.
+                </td>
+              </tr>
+            )}
+            {agrupar
+              ? grupos.map((grupo) => {
+                  const idsGrupo = grupo.itens.map((i) => i.id)
+                  const grupoMarcado = idsGrupo.every((id) => marcados.has(id))
+                  const subtotal = grupo.itens.reduce(
+                    (s, i) => s + (i.product.qtd || 0) * (i.product.valorUnt || 0),
+                    0,
+                  )
+                  return (
+                    <Fragment key={grupo.fornecedor.toUpperCase() || '__sem_fornecedor__'}>
+                      <tr className="bg-ink-100/70">
+                        <td className="px-2 py-2 border-t-2 border-ink-200 text-center">
+                          <input
+                            type="checkbox"
+                            checked={grupoMarcado}
+                            onChange={() => toggleConjunto(idsGrupo)}
+                            title="Marcar/desmarcar todos os itens desse fornecedor"
+                          />
+                        </td>
+                        {/* tudo alinhado à esquerda de propósito: a tabela costuma ser mais larga que
+                         * a tela (rola de lado), e o que ficasse na ponta direita sumia de vista */}
+                        <td colSpan={totalColunas - 1} className="px-2 py-2 border-t-2 border-ink-200">
+                          <span className="font-display font-semibold text-ink-900">
+                            {grupo.fornecedor || 'Sem fornecedor definido'}
+                          </span>
+                          <span className="ml-2 text-xs text-ink-500">
+                            {grupo.itens.length} item{grupo.itens.length > 1 ? 's' : ''} · Subtotal{' '}
+                            <span className="font-mono font-semibold tabular-nums text-ink-900">{formatCurrency(subtotal)}</span>
+                          </span>
+                        </td>
+                      </tr>
+                      {grupo.itens.map(renderLinha)}
+                    </Fragment>
+                  )
+                })
+              : itensFiltrados.map(renderLinha)}
           </tbody>
         </table>
       </div>
@@ -535,7 +790,7 @@ export function QuoteItemsList({
 
 function LinhaItem({
   item,
-  index,
+  numero,
   isActive,
   totalItens,
   modoFrete,
@@ -553,9 +808,12 @@ function LinhaItem({
   inputCls,
   stop,
   ordemColunas,
+  totalColunas,
+  historico,
+  onHistorico,
 }: {
   item: QuoteItem
-  index: number
+  numero: number
   isActive: boolean
   totalItens: number
   modoFrete: ModoFrete
@@ -573,6 +831,9 @@ function LinhaItem({
   inputCls: string
   stop: (e: MouseEvent) => void
   ordemColunas: ColunaKey[]
+  totalColunas: number
+  historico: HistoricoPreco | undefined
+  onHistorico: (h: HistoricoPreco | null) => void
 }) {
   const vlrProduto = (item.product.qtd || 0) * (item.product.valorUnt || 0)
   const valorFreteAtual = vlrProduto * (item.product.freteRate || 0)
@@ -580,6 +841,9 @@ function LinhaItem({
     () => calculateItem(item.product, item.pricing).precoVendaUnitario,
     [item.product, item.pricing],
   )
+  // último código buscado — evita recarregar (e sobrescrever o que já foi editado na linha) só por
+  // entrar e sair do campo sem ter mudado nada
+  const ultimaBusca = useRef({ interno: item.product.interno.trim(), referencia: item.product.referencia.trim() })
 
   const sugestoesFornecedor = useMemo(() => {
     const termo = item.product.fornecedor.trim().toLowerCase()
@@ -592,40 +856,60 @@ function LinhaItem({
     onFecharFornecedor()
   }
 
-  // ao achar um produto já cadastrado com o mesmo Interno/Referência, carrega os demais dados
-  // dele — menos qtd (quantidade é sempre desse pedido, não do histórico) e as cotações de
-  // fornecedor registradas (pertencem à análise antiga, não fazem sentido aqui)
-  function aplicarProdutoEncontrado(found: ProductInput) {
-    onPatch({
-      perfil: found.perfil,
-      referencia: found.referencia,
-      ncm: found.ncm,
-      interno: found.interno,
-      fornecedor: found.fornecedor,
-      marca: found.marca,
-      freteRate: found.freteRate,
-      estadoOrigem: found.estadoOrigem,
-      descricao: found.descricao,
-      valorUnt: found.valorUnt,
-      peso: found.peso,
-      prazoEntrega: found.prazoEntrega,
-      stRetido: found.stRetido,
-      outrasDespesas: found.outrasDespesas,
-      desconto: found.desconto,
-      ipi: found.ipi,
-      freteAdicional: found.freteAdicional,
-      credIcmsFrete: found.credIcmsFrete,
-    })
+  // ao achar um produto já usado em outra cotação com o mesmo Interno/Referência, carrega os demais
+  // dados dele — menos qtd (quantidade é sempre desse pedido, não do histórico) e as cotações de
+  // fornecedor registradas (pertencem à análise antiga, não fazem sentido aqui) — e mostra, logo
+  // abaixo da linha, o último preço usado (com o fornecedor) e o mais barato já registrado no
+  // catálogo de Produtos
+  async function carregarHistorico(campo: 'interno' | 'referencia') {
+    const valor = item.product[campo].trim()
+    if (!valor || valor === ultimaBusca.current[campo]) return
+    ultimaBusca.current = { ...ultimaBusca.current, [campo]: valor }
+
+    const [ultimoUso, produto] = await Promise.all([
+      buscarUltimoUsoDoProduto(campo, valor).catch(() => undefined),
+      findProdutoPorInternoOuReferencia(
+        campo === 'interno' ? valor : item.product.interno,
+        campo === 'referencia' ? valor : item.product.referencia,
+      ).catch(() => undefined),
+    ])
+    const maisBarato = produto?.melhoresCotacoes?.[0]
+    if (!ultimoUso && !maisBarato) {
+      onHistorico(null)
+      return
+    }
+    if (ultimoUso) {
+      const found = ultimoUso.product
+      onPatch({
+        perfil: found.perfil,
+        referencia: found.referencia,
+        ncm: found.ncm,
+        interno: found.interno,
+        fornecedor: found.fornecedor,
+        marca: found.marca,
+        freteRate: found.freteRate,
+        estadoOrigem: found.estadoOrigem,
+        descricao: found.descricao,
+        valorUnt: found.valorUnt,
+        peso: found.peso,
+        prazoEntrega: found.prazoEntrega,
+        stRetido: found.stRetido,
+        outrasDespesas: found.outrasDespesas,
+        desconto: found.desconto,
+        ipi: found.ipi,
+        freteAdicional: found.freteAdicional,
+        credIcmsFrete: found.credIcmsFrete,
+      })
+      ultimaBusca.current = { interno: found.interno.trim(), referencia: found.referencia.trim() }
+    }
+    onHistorico({ ultimoUso, maisBarato })
   }
 
-  async function handleInternoBlur() {
-    const found = await findByInterno(item.product.interno)
-    if (found) aplicarProdutoEncontrado(found)
-  }
-
-  async function handleReferenciaBlur() {
-    const found = await findByReferencia(item.product.referencia)
-    if (found) aplicarProdutoEncontrado(found)
+  function usarMaisBarato() {
+    const mb = historico?.maisBarato
+    if (!mb) return
+    const f = fornecedores.find((x) => x.nome.trim().toLowerCase() === mb.fornecedor.trim().toLowerCase())
+    onPatch({ fornecedor: mb.fornecedor, marca: mb.marca, valorUnt: mb.valorUnt, ...(f?.estado ? { estadoOrigem: f.estado } : {}) })
   }
 
   const celulas: Record<ColunaKey, JSX.Element> = {
@@ -635,7 +919,8 @@ function LinhaItem({
           className={`${inputCls} font-mono`}
           value={item.product.interno}
           onChange={(e) => onPatch({ interno: e.target.value })}
-          onBlur={handleInternoBlur}
+          onBlur={() => carregarHistorico('interno')}
+          onKeyDown={(e) => e.key === 'Enter' && carregarHistorico('interno')}
           onClick={stop}
         />
       </td>
@@ -646,7 +931,8 @@ function LinhaItem({
           className={inputCls}
           value={item.product.referencia}
           onChange={(e) => onPatch({ referencia: e.target.value })}
-          onBlur={handleReferenciaBlur}
+          onBlur={() => carregarHistorico('referencia')}
+          onKeyDown={(e) => e.key === 'Enter' && carregarHistorico('referencia')}
           onClick={stop}
         />
       </td>
@@ -706,6 +992,16 @@ function LinhaItem({
             ))}
           </div>
         )}
+      </td>
+    ),
+    marca: (
+      <td key="marca" className={cellCls}>
+        <input
+          className={inputCls}
+          value={item.product.marca}
+          onChange={(e) => onPatch({ marca: e.target.value })}
+          onClick={stop}
+        />
       </td>
     ),
     uf: (
@@ -818,31 +1114,93 @@ function LinhaItem({
     ),
   }
 
+  const maisBarato = historico?.maisBarato
+  const ultimoUso = historico?.ultimoUso
+  // o mais barato só vale destacar/oferecer quando é diferente do que já está na linha
+  const maisBaratoJaAplicado =
+    maisBarato !== undefined &&
+    maisBarato.valorUnt === item.product.valorUnt &&
+    maisBarato.fornecedor.trim().toLowerCase() === item.product.fornecedor.trim().toLowerCase()
+
   return (
-    <tr
-      onClick={onSelect}
-      className={`cursor-pointer transition ${isActive ? 'bg-brand-50' : marcado ? 'bg-brand-50/40' : 'hover:bg-ink-50'}`}
-    >
-      <td className={`${cellCls} text-center`} onClick={stop}>
-        <input type="checkbox" checked={marcado} onChange={onToggleMarcado} />
-      </td>
-      <td className={`${cellCls} text-ink-400 text-xs text-center`}>{index + 1}</td>
-      {ordemColunas.map((chave) => celulas[chave])}
-      <td className={`${cellCls} text-center`}>
-        {podeRemover && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              onRemove()
-            }}
-            aria-label="Remover item"
-            className="h-6 w-6 rounded-full text-xs leading-none text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
-          >
-            ×
-          </button>
-        )}
-      </td>
-    </tr>
+    <>
+      <tr
+        onClick={onSelect}
+        className={`cursor-pointer transition ${isActive ? 'bg-brand-50' : marcado ? 'bg-brand-50/40' : 'hover:bg-ink-50'}`}
+      >
+        <td className={`${cellCls} text-center`} onClick={stop}>
+          <input type="checkbox" checked={marcado} onChange={onToggleMarcado} />
+        </td>
+        <td className={`${cellCls} text-ink-400 text-xs text-center`}>{numero}</td>
+        {ordemColunas.map((chave) => celulas[chave])}
+        <td className={`${cellCls} text-center`}>
+          {podeRemover && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation()
+                onRemove()
+              }}
+              aria-label="Remover item"
+              className="h-6 w-6 rounded-full text-xs leading-none text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
+            >
+              ×
+            </button>
+          )}
+        </td>
+      </tr>
+      {historico && (
+        <tr className="bg-surface">
+          <td colSpan={totalColunas} className="px-3 pb-2 pt-0">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-ink-100 bg-ink-50/70 px-3 py-1.5 text-xs">
+              {ultimoUso && ultimoUso.product.valorUnt > 0 && (
+                <span className="text-ink-600">
+                  Último preço usado:{' '}
+                  <strong className="font-mono tabular-nums text-ink-900">{formatCurrency(ultimoUso.product.valorUnt)}</strong>
+                  {' — '}
+                  <strong className="text-ink-900">{ultimoUso.product.fornecedor || 'fornecedor não informado'}</strong>
+                  {ultimoUso.product.marca ? ` · ${ultimoUso.product.marca}` : ''}
+                  <span className="text-ink-400">
+                    {' '}
+                    (cotação {ultimoUso.codigo || 'sem código'}, {formatDate(ultimoUso.data)})
+                  </span>
+                </span>
+              )}
+              {maisBarato && (
+                <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-emerald-800">
+                  <span className="font-semibold uppercase tracking-wide text-[10px]">Mais barato já cotado</span>
+                  <strong className="font-mono tabular-nums text-ink-900">{formatCurrency(maisBarato.valorUnt)}</strong>
+                  — <strong className="text-ink-900">{maisBarato.fornecedor || 'fornecedor não informado'}</strong>
+                  {maisBarato.marca ? ` · ${maisBarato.marca}` : ''}
+                  {!maisBaratoJaAplicado && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        usarMaisBarato()
+                      }}
+                      className="ml-1 rounded border border-emerald-300 bg-white px-1.5 py-0.5 font-medium text-emerald-700 hover:bg-emerald-100"
+                    >
+                      Usar este
+                    </button>
+                  )}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onHistorico(null)
+                }}
+                aria-label="Fechar"
+                className="ml-auto text-ink-400 hover:text-ink-700"
+              >
+                ×
+              </button>
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
   )
 }
