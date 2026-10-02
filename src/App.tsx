@@ -323,10 +323,21 @@ export default function App() {
   // envolve um setter/handler de edição com a guarda acima — usado nos callbacks passados pro
   // Dashboard, pra não duplicar o "if (!(await confirmarAlteracaoSeJaSalva())) return" em cada um
   function protegido<A extends unknown[]>(fn: (...args: A) => void): (...args: A) => void {
-    return async (...args: A) => {
-      if (!(await confirmarAlteracaoSeJaSalva())) return
-      fn(...args)
-      setTemAlteracoesNaoSalvas(true)
+    return (...args: A) => {
+      // sem confirmação pendente, aplica na hora (síncrono): campo controlado precisa receber o valor
+      // novo ainda dentro do evento de digitação — esperar um await aqui fazia o React devolver o
+      // valor antigo pro campo e depois aplicar o novo, jogando o cursor pro fim a cada letra (quem
+      // corrigia algo no meio do texto só conseguia digitar uma letra por vez)
+      if (!salvoInalterado) {
+        fn(...args)
+        setTemAlteracoesNaoSalvas(true)
+        return
+      }
+      void (async () => {
+        if (!(await confirmarAlteracaoSeJaSalva())) return
+        fn(...args)
+        setTemAlteracoesNaoSalvas(true)
+      })()
     }
   }
 

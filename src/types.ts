@@ -183,6 +183,9 @@ export interface ProductInput {
   peso: number
   /** Prazo de entrega (texto livre, ex.: "IMEDIATO", "2 DIAS") — usado ao devolver a planilha do cliente preenchida. */
   prazoEntrega: string
+  /** Observação do item (coluna "Observação" de Itens da cotação, no estilo comentário do Excel).
+   * Itens salvos antes dela não têm. */
+  observacao?: string
   /** Cotações de fornecedores registradas em "Comparar fornecedores" — a mais barata preenche fornecedor/marca/valorUnt automaticamente. */
   cotacoesFornecedores: CotacaoFornecedorItem[]
 

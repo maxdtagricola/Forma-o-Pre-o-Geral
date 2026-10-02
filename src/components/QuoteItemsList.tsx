@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -28,6 +27,7 @@ import {
 import { findProdutoPorInternoOuReferencia } from '../db/produtosRepo'
 import { PlanilhaFornecedorModal } from './PlanilhaFornecedorModal'
 import { FreteFornecedorSlots } from './FreteFornecedorSlots'
+import { CelulaObservacao } from './CelulaObservacao'
 import { Button } from './ui/Basics'
 import { avisar, confirmar } from '../dialogs'
 import type {
@@ -45,6 +45,7 @@ type ColunaKey =
   | 'interno'
   | 'referencia'
   | 'descricao'
+  | 'observacao'
   | 'ncm'
   | 'fornecedor'
   | 'marca'
@@ -61,6 +62,7 @@ const COLUNAS_PADRAO: ColunaKey[] = [
   'interno',
   'referencia',
   'descricao',
+  'observacao',
   'ncm',
   'fornecedor',
   'marca',
@@ -78,6 +80,7 @@ const LABEL_COLUNA: Record<ColunaKey, string> = {
   interno: 'Interno',
   referencia: 'Referência',
   descricao: 'Descrição',
+  observacao: 'Observação',
   ncm: 'NCM',
   fornecedor: 'Fornecedor',
   marca: 'Marca',
@@ -100,6 +103,7 @@ const LARGURA_PADRAO: Record<ColunaKey, number> = {
   interno: 112,
   referencia: 128,
   descricao: 220,
+  observacao: 122,
   ncm: 104,
   fornecedor: 160,
   marca: 120,
@@ -122,6 +126,8 @@ const MINIMO_RELATIVO: Record<ColunaKey, number> = {
   interno: 0.85,
   referencia: 0.85,
   descricao: 0.55,
+  // a célula em si é estreita (o texto abre no balão), mas o título "Observação" precisa caber
+  observacao: 0.95,
   ncm: 1,
   fornecedor: 0.75,
   marca: 0.7,
@@ -273,6 +279,8 @@ function textoDaColuna(item: QuoteItem, chave: ColunaKey, modoFrete: ModoFrete):
       return p.referencia.trim()
     case 'descricao':
       return p.descricao.trim()
+    case 'observacao':
+      return (p.observacao ?? '').trim()
     case 'ncm':
       return p.ncm.trim()
     case 'fornecedor':
@@ -611,12 +619,30 @@ export function QuoteItemsList({
     return resultado
   }, [items, modoFrete])
 
+  // a linha em que se está digitando fica "parada" — no mesmo grupo e à vista mesmo que o que foi
+  // digitado a tire do filtro. Sem isso, cada letra no Fornecedor mudava o item de grupo (ou o
+  // tirava do filtro), a linha ia pra outro lugar e o campo perdia o foco: só dava pra digitar uma
+  // letra por vez. Ela vai pro lugar certo quando o foco sai da linha.
+  const [linhaEmEdicao, setLinhaEmEdicao] = useState<{ itemId: string; chave: string; remetente: RemetenteFrete } | null>(null)
+
+  function entrarNaLinha(item: QuoteItem) {
+    setLinhaEmEdicao((atual) =>
+      atual?.itemId === item.id ? atual : { itemId: item.id, chave: chaveDoGrupo(item), remetente: remetenteDoItem(item) },
+    )
+  }
+
+  function sairDaLinha(itemId: string) {
+    setLinhaEmEdicao((atual) => (atual?.itemId === itemId ? null : atual))
+  }
+
   const itensFiltrados = useMemo(
     () =>
-      items.filter((item) =>
-        (Object.entries(filtros) as [ColunaKey, string][]).every(([chave, valor]) => textoDaColuna(item, chave, modoFrete) === valor),
+      items.filter(
+        (item) =>
+          item.id === linhaEmEdicao?.itemId ||
+          (Object.entries(filtros) as [ColunaKey, string][]).every(([chave, valor]) => textoDaColuna(item, chave, modoFrete) === valor),
       ),
-    [items, filtros, modoFrete],
+    [items, filtros, modoFrete, linhaEmEdicao],
   )
 
   function setFiltro(chave: ColunaKey, valorSelect: string) {
@@ -636,12 +662,14 @@ export function QuoteItemsList({
   const grupos = useMemo(() => {
     const mapa = new Map<string, { remetente: RemetenteFrete; itens: QuoteItem[] }>()
     for (const item of itensFiltrados) {
-      const chave = chaveDoGrupo(item)
-      if (!mapa.has(chave)) mapa.set(chave, { remetente: remetenteDoItem(item), itens: [] })
+      // a linha em edição continua no grupo de quando o foco entrou nela (ver linhaEmEdicao)
+      const congelada = linhaEmEdicao?.itemId === item.id ? linhaEmEdicao : undefined
+      const chave = congelada ? congelada.chave : chaveDoGrupo(item)
+      if (!mapa.has(chave)) mapa.set(chave, { remetente: congelada ? congelada.remetente : remetenteDoItem(item), itens: [] })
       mapa.get(chave)!.itens.push(item)
     }
     return Array.from(mapa.entries()).map(([chave, g]) => ({ chave, ...g }))
-  }, [itensFiltrados])
+  }, [itensFiltrados, linhaEmEdicao])
   const agrupar = grupos.length > 1
 
   // número da linha = posição do item na cotação inteira, não na tela — continua o mesmo com filtro
@@ -980,6 +1008,8 @@ export function QuoteItemsList({
         onToggleMarcado={() => toggleMarcado(item.id)}
         onSelect={() => onSelect(item.id)}
         onPatch={(patch) => onPatchItem(item.id, patch)}
+        onEntrar={() => entrarNaLinha(item)}
+        onSair={() => sairDaLinha(item.id)}
         cellCls={cellCls}
         inputCls={inputCls}
         stop={stop}
@@ -1372,22 +1402,23 @@ export function QuoteItemsList({
                     </td>
                   </tr>
                 )}
+                {/* tópicos e linhas como irmãos numa lista só (sem aninhar por grupo): um item que muda
+                 * de grupo só muda de posição — a linha não é recriada e o campo não perde o foco */}
                 {agrupar
-                  ? grupos.map((grupo) => {
+                  ? grupos.flatMap((grupo) => {
                       const idsGrupo = grupo.itens.map((i) => i.id)
                       const grupoMarcado = idsGrupo.every((id) => marcados.has(id))
                       const subtotal = grupo.itens.reduce(
                         (s, i) => s + (i.product.qtd || 0) * (i.product.valorUnt || 0),
                         0,
                       )
-                      return (
-                        <Fragment key={grupo.chave || '__sem_fornecedor__'}>
-                          {/* cabeçalho do grupo como um "tópico" dos itens logo abaixo: barra lateral,
+                      return [
+                          /* cabeçalho do grupo como um "tópico" dos itens logo abaixo: barra lateral,
                            * nome do fornecedor (e a UF de onde ele despacha) em destaque e, na mesma
                            * linha, o frete dele (até 3 cotações de transportadora) — preso na
                            * esquerda da área visível, então continua à vista mesmo com a planilha
-                           * rolada de lado */}
-                          <tr>
+                           * rolada de lado */
+                          <tr key={`grupo:${grupo.chave || '__sem_fornecedor__'}`}>
                             <td colSpan={totalColunas} className="px-0 pt-3 pb-0 border-t border-ink-100">
                               <div
                                 className="sticky left-0 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-l-4 border-ink-900 bg-ink-50 py-1.5 pl-2 pr-3"
@@ -1417,10 +1448,9 @@ export function QuoteItemsList({
                                 )}
                               </div>
                             </td>
-                          </tr>
-                          {grupo.itens.map(renderLinha)}
-                        </Fragment>
-                      )
+                          </tr>,
+                          ...grupo.itens.map(renderLinha),
+                        ]
                     })
                   : itensFiltrados.map(renderLinha)}
               </tbody>
@@ -1506,6 +1536,8 @@ function LinhaItem({
   onToggleMarcado,
   onSelect,
   onPatch,
+  onEntrar,
+  onSair,
   cellCls,
   inputCls,
   stop,
@@ -1527,6 +1559,9 @@ function LinhaItem({
   onToggleMarcado: () => void
   onSelect: () => void
   onPatch: (patch: Partial<ProductInput>) => void
+  /** O foco entrou/saiu da linha — enquanto estiver nela, a linha não muda de grupo nem some do filtro. */
+  onEntrar: () => void
+  onSair: () => void
   cellCls: string
   inputCls: string
   stop: (e: MouseEvent) => void
@@ -1554,6 +1589,8 @@ function LinhaItem({
   function handleSelecionarFornecedor(f: Fornecedor) {
     onPatch({ fornecedor: f.nome, ...(f.estado ? { estadoOrigem: f.estado } : {}) })
     onFecharFornecedor()
+    // fornecedor escolhido: a linha já pode ir pro grupo dele (não precisa esperar o foco sair)
+    onSair()
   }
 
   // ao achar um produto já usado em outra cotação com o mesmo Interno/Referência, carrega os demais
@@ -1647,6 +1684,16 @@ function LinhaItem({
         />
       </td>
     ),
+    observacao: (
+      <td key="observacao" className={cellCls}>
+        <CelulaObservacao
+          valor={item.product.observacao ?? ''}
+          onChange={(observacao) => onPatch({ observacao })}
+          idLinha={item.id}
+          descricaoItem={item.product.descricao.trim() || item.product.referencia.trim() || `item ${numero}`}
+        />
+      </td>
+    ),
     ncm: (
       <td key="ncm" className={cellCls}>
         <input
@@ -1677,7 +1724,12 @@ function LinhaItem({
           <div
             className="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-ink-200 bg-surface shadow-lg max-h-56 overflow-auto"
             onClick={stop}
-            onMouseDown={stop}
+            // preventDefault: escolher uma sugestão não tira o foco do campo — sem isso a linha "soltava"
+            // (ver linhaEmEdicao) no meio do clique e podia mudar de lugar antes do clique chegar
+            onMouseDown={(e) => {
+              e.preventDefault()
+              stop(e)
+            }}
           >
             {sugestoesFornecedor.map((f) => (
               <button
@@ -1826,6 +1878,14 @@ function LinhaItem({
     <>
       <tr
         onClick={onSelect}
+        onFocus={onEntrar}
+        onBlur={(e) => {
+          // só quando o foco sai da linha inteira — pular de um campo pro outro dela não conta, nem ir
+          // pro balão da observação (que fica fora da tabela, ver CelulaObservacao)
+          const destino = e.relatedTarget as HTMLElement | null
+          if (destino && (e.currentTarget.contains(destino) || destino.closest(`[data-linha-item="${item.id}"]`))) return
+          onSair()
+        }}
         className={`cursor-pointer transition ${isActive ? 'bg-ink-100' : marcado ? 'bg-ink-50' : 'hover:bg-ink-50'}`}
       >
         <td className={`${cellCls} text-center`} onClick={stop}>

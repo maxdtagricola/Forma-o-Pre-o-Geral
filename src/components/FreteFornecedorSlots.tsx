@@ -118,6 +118,11 @@ function EspacoFrete({
   const valorNumerico = parseNumeroFlexivel(valor)
   const inputCls =
     'rounded border border-ink-200 bg-surface px-1.5 py-0.5 text-[11px] text-ink-900 placeholder:text-ink-300 focus:outline-none focus:ring-1 focus:ring-brand-400 disabled:opacity-60'
+  // os campos acompanham o tamanho do que foi digitado (fonte mono: 1ch = 1 caractere) — número de
+  // cotação comprido não fica mais cortado; vazio, o campo fica pequeno. +14px = espaçamento e borda
+  // do campo; o de valor ainda tem o "R$" na frente
+  const larguraNumero = `calc(${Math.min(24, Math.max(3, numero.length + 1))}ch + 14px)`
+  const larguraValor = `max(4.75rem, calc(${Math.min(16, valor.length + 1)}ch + 28px))`
 
   return (
     <div
@@ -154,9 +159,11 @@ function EspacoFrete({
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         placeholder="Nº"
         title={numero ? `Nº da cotação de frete: ${numero}` : 'Número da cotação de frete'}
-        className={`${inputCls} w-[3.5rem] sm:w-[3.75rem] font-mono`}
+        style={{ width: larguraNumero }}
+        className={`${inputCls} max-w-full font-mono transition-[width] duration-100`}
       />
-      <div className="relative w-[4.75rem] sm:w-[5.25rem]">
+      {/* fonte mono 11px no contêiner também — é ela que define o "ch" da largura */}
+      <div className="relative max-w-full font-mono text-[11px] transition-[width] duration-100" style={{ width: larguraValor }}>
         <span className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] text-ink-400">R$</span>
         <input
           type="text"

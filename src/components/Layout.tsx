@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { aplicarTema, getTema, type Tema } from '../theme'
+import { ICONES_ABAS } from './IconesAbas'
 
 export type TabKey =
   | 'telaInicial'
@@ -195,7 +196,9 @@ export function Layout({
                         isActive ? 'bg-ink-950 text-white' : 'text-ink-500 hover:bg-ink-100'
                       } ${collapsed ? 'justify-center' : ''}`}
                     >
-                      <span className={`h-2 w-2 shrink-0 rounded-full ${isActive ? 'bg-white' : 'bg-ink-300'}`} />
+                      <span aria-hidden className={`shrink-0 ${isActive ? 'text-white' : 'text-ink-500'}`}>
+                        {ICONES_ABAS[tab.key]}
+                      </span>
                       {!collapsed && <span className="truncate">{tab.label}</span>}
                     </button>
                   )
