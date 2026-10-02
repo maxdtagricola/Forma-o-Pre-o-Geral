@@ -4,6 +4,7 @@ import { ImportarCotacaoFornecedorModal, type ItemImportadoConfirmado } from '..
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { formatCurrency, makeId, melhorCotacaoFornecedor, selecionarTudoAoFocar } from '../utils'
 import { avisar } from '../dialogs'
+import { parseNumeroFlexivel } from '../numeros'
 import type { CotacaoFornecedorItem, Fornecedor, ProductInput, QuoteItem, QuoteStatus } from '../types'
 
 const ID_LISTA_FORNECEDORES = 'comparar-fornecedores-sugestoes'
@@ -12,11 +13,10 @@ const cellCls = 'px-1 py-1 border-t border-ink-100'
 const inputCls =
   'w-full bg-transparent border-0 rounded px-1.5 py-1.5 text-ink-800 focus:outline-none focus:ring-1 focus:ring-brand-400 disabled:opacity-60'
 
-/** "" -> undefined; texto numérico -> número (aceita vírgula). */
+/** "" -> undefined; texto numérico -> número (aceita vírgula e milhar: "1.234,56"). */
 function numeroOuVazio(texto: string): number | undefined {
   if (!texto.trim()) return undefined
-  const valor = Number(texto.replace(',', '.'))
-  return Number.isFinite(valor) ? valor : undefined
+  return parseNumeroFlexivel(texto)
 }
 
 /** Linha de uma cotação de fornecedor, editável direto na célula — igual às linhas de "Itens da
@@ -40,13 +40,13 @@ function LinhaCotacao({
   const diferenca = menorValor !== undefined ? cotacao.valorUnitario - menorValor : 0
   const diferencaPct = menorValor ? (diferenca / menorValor) * 100 : 0
   return (
-    <tr className={melhor ? 'bg-emerald-50/70' : 'hover:bg-ink-50'}>
+    <tr className={melhor ? 'bg-emerald-500/10' : 'hover:bg-ink-50'}>
       <td className={`${cellCls} text-center`}>
         {melhor && <span className="text-emerald-600" title="Mais barato desse item">★</span>}
       </td>
       <td className={cellCls}>
         <input
-          className={`${inputCls} ${melhor ? 'font-semibold text-emerald-900' : ''}`}
+          className={`${inputCls} ${melhor ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}
           list={ID_LISTA_FORNECEDORES}
           value={cotacao.fornecedor}
           disabled={travadaPorOutro}
@@ -75,7 +75,7 @@ function LinhaCotacao({
           type="number"
           min={0}
           step={0.01}
-          className={`${inputCls} text-right tabular-nums ${melhor ? 'font-semibold text-emerald-900' : ''}`}
+          className={`${inputCls} text-right tabular-nums ${melhor ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}
           value={cotacao.valorUnitario}
           disabled={travadaPorOutro}
           onChange={(e) => onChange({ valorUnitario: Number(e.target.value) || 0 })}
@@ -92,7 +92,8 @@ function LinhaCotacao({
           title={cotacao.valorTotal === undefined ? 'Vazio: vale o valor unitário × quantidade do item' : 'Valor total informado pelo fornecedor'}
           value={cotacao.valorTotal ?? ''}
           disabled={travadaPorOutro}
-          onChange={(e) => onChange({ valorTotal: numeroOuVazio(e.target.value) })}
+          // campo type="number": o navegador já entrega com ponto decimal — Number() direto
+          onChange={(e) => onChange({ valorTotal: e.target.value.trim() ? Number(e.target.value) || undefined : undefined })}
           onFocus={selecionarTudoAoFocar}
         />
       </td>
@@ -378,7 +379,7 @@ export function CompararFornecedoresPage({
               onChange={(e) => setBusca(e.target.value)}
             />
             <select
-              className={`field-input w-56 py-1.5 text-sm ${filtroFornecedor ? 'border-brand-400 bg-brand-50 font-semibold' : ''}`}
+              className={`field-input w-56 py-1.5 text-sm ${filtroFornecedor ? 'border-ink-400 bg-ink-100 font-semibold' : ''}`}
               value={filtroFornecedor}
               onChange={(e) => setFiltroFornecedor(e.target.value)}
               title="Mostrar só as cotações desse fornecedor"

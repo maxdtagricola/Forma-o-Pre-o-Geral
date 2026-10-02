@@ -666,7 +666,7 @@ export function QuoteItemsList({
         <span
           aria-hidden
           className={`inline-flex h-4 w-4 items-center justify-center rounded text-[10px] leading-none transition ${
-            ativo ? 'bg-brand-600 text-white' : 'text-ink-300 group-hover:text-ink-500'
+            ativo ? 'bg-ink-900 text-surface' : 'text-ink-300 group-hover:text-ink-500'
           }`}
         >
           ▾
@@ -705,7 +705,7 @@ export function QuoteItemsList({
     const conteudo =
       chave === 'frete' ? (
         <div className="flex items-center justify-end gap-1">
-          <span className={ativo ? 'font-semibold text-brand-700' : ''}>Frete</span>
+          <span className={ativo ? 'font-semibold text-ink-900 underline decoration-dotted underline-offset-2' : ''}>Frete</span>
           {renderFiltroNoTitulo(chave)}
           <span className="inline-flex rounded-md border border-ink-200 overflow-hidden shrink-0">
             <button
@@ -730,7 +730,7 @@ export function QuoteItemsList({
         </div>
       ) : (
         <div className={`flex items-center gap-1 ${alinhadoDireita ? 'justify-end' : ''}`}>
-          <span className={ativo ? 'font-semibold text-brand-700' : ''}>{LABEL_COLUNA[chave]}</span>
+          <span className={ativo ? 'font-semibold text-ink-900 underline decoration-dotted underline-offset-2' : ''}>{LABEL_COLUNA[chave]}</span>
           {renderFiltroNoTitulo(chave)}
         </div>
       )
@@ -755,7 +755,7 @@ export function QuoteItemsList({
         {conteudo}
         {ativo && (
           <div
-            className={`mt-0.5 truncate text-[10px] font-semibold normal-case text-brand-700 ${alinhadoDireita ? 'text-right' : ''}`}
+            className={`mt-0.5 truncate text-[10px] font-semibold normal-case text-ink-600 ${alinhadoDireita ? 'text-right' : ''}`}
             title={valorFiltro || '(vazio)'}
           >
             = {valorFiltro || '(vazio)'}
@@ -839,7 +839,7 @@ export function QuoteItemsList({
             nome dela pra filtrar.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {salvoRecentemente && (
             <span className="text-xs font-medium text-emerald-600">✓ Cotação salva!</span>
           )}
@@ -885,8 +885,8 @@ export function QuoteItemsList({
       )}
 
       {idsMarcados.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 mb-4 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2">
-          <span className="text-xs font-medium text-brand-700">
+        <div className="flex flex-wrap items-center gap-2 mb-4 rounded-lg border border-ink-300 bg-ink-100 px-3 py-2">
+          <span className="text-xs font-medium text-ink-800">
             {idsMarcados.length} item{idsMarcados.length > 1 ? 's' : ''} marcado{idsMarcados.length > 1 ? 's' : ''}:
           </span>
           <div className="relative">
@@ -1040,7 +1040,7 @@ export function QuoteItemsList({
             onClick={() => setMenuColunasAberto((v) => !v)}
             aria-expanded={menuColunasAberto}
             className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
-              colunasOcultas.length > 0 ? 'border-brand-400 bg-brand-50 text-ink-900' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+              colunasOcultas.length > 0 ? 'border-ink-400 bg-ink-100 text-ink-900' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
             }`}
           >
             Colunas{colunasOcultas.length > 0 ? ` (${colunasOcultas.length} oculta${colunasOcultas.length > 1 ? 's' : ''})` : ''}
@@ -1517,7 +1517,7 @@ function LinhaItem({
     <>
       <tr
         onClick={onSelect}
-        className={`cursor-pointer transition ${isActive ? 'bg-brand-50' : marcado ? 'bg-brand-50/40' : 'hover:bg-ink-50'}`}
+        className={`cursor-pointer transition ${isActive ? 'bg-ink-100' : marcado ? 'bg-ink-50' : 'hover:bg-ink-50'}`}
       >
         <td className={`${cellCls} text-center`} onClick={stop}>
           <input type="checkbox" checked={marcado} onChange={onToggleMarcado} />

@@ -54,7 +54,7 @@ export function ProductValuesTable({
         Frete, valor de compra, custo e preço de venda de cada item da cotação — unitário e total.
       </p>
       {recorte && (
-        <p className="mb-3 inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1.5 text-xs text-ink-700">
+        <p className="mb-3 inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-ink-300 bg-ink-100 px-2.5 py-1.5 text-xs text-ink-700">
           <span aria-hidden>◉</span>
           Mostrando só <strong className="text-ink-900">{items.length}</strong> de {recorte.total} itens — {recorte.motivo}.
         </p>

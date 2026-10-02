@@ -1275,7 +1275,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
           <div>
             <h2 className="font-display text-lg font-semibold text-ink-900">
               {config.tituloRegistro}
-              {editingId && <span className="ml-2 text-xs font-medium text-brand-700">(editando)</span>}
+              {editingId && <span className="ml-2 text-xs font-medium text-ink-500">(editando)</span>}
             </h2>
           </div>
           <span className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-ink-300 bg-ink-50 px-3 py-1.5 text-xs font-semibold text-ink-700 hover:bg-ink-100 hover:border-ink-400 transition">
@@ -1429,7 +1429,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
             onChange={(e) => setQuery(e.target.value)}
           />
           <select
-            className={`field-input w-auto ${filtroNecessidade ? 'border-brand-400 bg-brand-50 font-semibold' : ''}`}
+            className={`field-input w-auto ${filtroNecessidade ? 'border-ink-400 bg-ink-100 font-semibold' : ''}`}
             value={filtroNecessidade}
             onChange={(e) => setFiltroNecessidade(e.target.value)}
             aria-label="Filtrar pela necessidade da transferência"

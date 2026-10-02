@@ -286,7 +286,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                 type="button"
                 onClick={() => setCotacaoId(q.id)}
                 className={`w-full flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition ${
-                  cotacaoId === q.id ? 'border-brand-400 bg-brand-50' : 'border-ink-100 hover:border-ink-300 hover:bg-ink-50'
+                  cotacaoId === q.id ? 'border-ink-400 bg-ink-100' : 'border-ink-100 hover:border-ink-300 hover:bg-ink-50'
                 }`}
               >
                 <span className="flex items-center gap-2 min-w-0">

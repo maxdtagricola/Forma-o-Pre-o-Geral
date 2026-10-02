@@ -383,7 +383,7 @@ function FormularioFrete({
         )}
       </div>
 
-      <div className="rounded-lg border border-brand-200 bg-brand-50/40 p-3">
+      <div className="rounded-lg border border-ink-200 bg-ink-50 p-3">
         <p className="text-xs font-medium text-ink-600 mb-2">Retorno da transportadora</p>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <label>
@@ -490,7 +490,7 @@ function CardTransportadora({
         </div>
       )}
       {!aberta && (dadosSalvos?.valorCotacao || dadosSalvos?.numeroCotacao) && (
-        <div className="mt-3 rounded-lg border border-brand-200 bg-brand-50/40 p-2.5 text-xs text-ink-700">
+        <div className="mt-3 rounded-lg border border-ink-200 bg-ink-50 p-2.5 text-xs text-ink-700">
           {dadosSalvos.valorCotacao && (
             <p>
               Cotação:{' '}
@@ -641,10 +641,21 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
   // ao chegar direto de uma cotação (botão "Ir para Frete" da Precificação) com mais de um
   // fornecedor nos itens, pergunta qual é antes de mostrar o resto da página — sem isso os dados
   // de peso/valor/descrição do pedido de frete juntariam itens de fornecedores diferentes
+  const jaPerguntouPara = useRef('')
   useEffect(() => {
-    if (cotacaoIdInicial && cotacaoId === cotacaoIdInicial && nomesFornecedorNaCotacao.length > 1 && !selecaoFornecedor) {
+    // pergunta uma vez só por cotação — "Escolher depois" não pode fazer a janela voltar sozinha
+    if (
+      cotacaoIdInicial &&
+      cotacaoId === cotacaoIdInicial &&
+      nomesFornecedorNaCotacao.length > 1 &&
+      !selecaoFornecedor &&
+      jaPerguntouPara.current !== cotacaoId
+    ) {
+      jaPerguntouPara.current = cotacaoId
       setPerguntandoFornecedor(true)
     }
+    // escolheu o fornecedor de outro jeito (pela lista da página): a pergunta não precisa mais ficar aberta
+    if (selecaoFornecedor) setPerguntandoFornecedor(false)
   }, [cotacaoIdInicial, cotacaoId, nomesFornecedorNaCotacao, selecaoFornecedor])
 
   const fornecedorCadastro = useMemo(() => {
@@ -893,8 +904,8 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
       )}
 
       {perguntandoFornecedor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="card max-w-sm w-full">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setPerguntandoFornecedor(false)}>
+          <div className="card max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-display text-base font-semibold text-ink-900 mb-1">De qual fornecedor é esse frete?</h3>
             <p className="text-sm text-ink-400 mb-4">
               Essa cotação tem itens de mais de um fornecedor — escolha um pra não juntar tudo num pedido de frete só.
@@ -910,6 +921,13 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
                   {nome}
                 </button>
               ))}
+              <button
+                type="button"
+                onClick={() => setPerguntandoFornecedor(false)}
+                className="mt-1 text-xs font-medium text-ink-400 hover:text-ink-700"
+              >
+                Escolher depois
+              </button>
             </div>
           </div>
         </div>

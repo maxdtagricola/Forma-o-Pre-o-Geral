@@ -121,8 +121,8 @@ function EspacoFrete({
 
   return (
     <div
-      className={`flex items-center gap-1 rounded-md border px-1 py-0.5 ${
-        maisBarata ? 'border-emerald-400 bg-emerald-50/70' : cotacao ? 'border-ink-200 bg-surface' : 'border-dashed border-ink-200 bg-surface/60'
+      className={`flex max-w-full flex-wrap items-center gap-1 rounded-md border px-1 py-0.5 ${
+        maisBarata ? 'border-emerald-500 bg-emerald-500/10' : cotacao ? 'border-ink-200 bg-surface' : 'border-dashed border-ink-200 bg-surface/60'
       }`}
       onClick={(e) => e.stopPropagation()}
       // grava só quando o foco sai do espaço inteiro (não ao pular do Nº pro valor): gravar um
@@ -137,7 +137,7 @@ function EspacoFrete({
         disabled={!habilitado || salvando}
         onChange={(e) => void handleTrocarTransportadora(e.target.value)}
         title="Transportadora dessa cotação de frete"
-        className={`${inputCls} w-[6.25rem] font-medium`}
+        className={`${inputCls} w-[5.75rem] sm:w-[6.25rem] font-medium`}
       >
         <option value="">Transportad.…</option>
         {opcoesTransportadora.map((t) => (
@@ -154,9 +154,9 @@ function EspacoFrete({
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         placeholder="Nº"
         title={numero ? `Nº da cotação de frete: ${numero}` : 'Número da cotação de frete'}
-        className={`${inputCls} w-[3.75rem] font-mono`}
+        className={`${inputCls} w-[3.5rem] sm:w-[3.75rem] font-mono`}
       />
-      <div className="relative w-[5.25rem]">
+      <div className="relative w-[4.75rem] sm:w-[5.25rem]">
         <span className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 text-[9px] text-ink-400">R$</span>
         <input
           type="text"
