@@ -5,10 +5,45 @@ import { listFornecedores } from '../db/fornecedoresRepo'
 import { formatCurrency, makeId, melhorCotacaoFornecedor, selecionarTudoAoFocar } from '../utils'
 import { avisar, confirmar } from '../dialogs'
 import { parseNumeroFlexivel } from '../numeros'
+import { normalizarNcm } from '../importacao/ncm'
 import type { CotacaoFornecedorItem, Fornecedor, ProductInput, QuoteItem, QuoteStatus } from '../types'
 
 const ID_LISTA_FORNECEDORES = 'comparar-fornecedores-sugestoes'
-const TOTAL_COLUNAS = 8
+const TOTAL_COLUNAS = 9
+
+/** Campo de NCM da cotação de um fornecedor: aceita com ou sem pontos e arruma (0000.00.00) ao sair;
+ * inválido fica marcado em vermelho e não é usado no item. */
+function CampoNcm({
+  valor,
+  onChange,
+  className,
+  disabled,
+  placeholder = 'NCM',
+}: {
+  valor: string
+  onChange: (valor: string) => void
+  className: string
+  disabled?: boolean
+  placeholder?: string
+}) {
+  const invalido = !!valor.trim() && !normalizarNcm(valor)
+  return (
+    <input
+      className={`${className} font-mono ${invalido ? 'text-rose-600 ring-1 ring-rose-400' : ''}`}
+      inputMode="numeric"
+      placeholder={placeholder}
+      value={valor}
+      disabled={disabled}
+      aria-invalid={invalido}
+      title={invalido ? 'NCM precisa ter 8 dígitos (ex.: 8433.90.90)' : 'NCM informado por esse fornecedor'}
+      onChange={(e) => onChange(e.target.value)}
+      onBlur={() => {
+        const ncm = normalizarNcm(valor)
+        if (ncm && ncm !== valor) onChange(ncm)
+      }}
+    />
+  )
+}
 const cellCls = 'px-1 py-1 border-t border-ink-100'
 const inputCls =
   'w-full bg-transparent border-0 rounded px-1.5 py-1.5 text-ink-800 focus:outline-none focus:ring-1 focus:ring-brand-400 disabled:opacity-60'
@@ -71,6 +106,15 @@ function LinhaCotacao({
         />
       </td>
       <td className={cellCls}>
+        <CampoNcm
+          className={`${inputCls} ${melhor ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}
+          valor={cotacao.ncm ?? ''}
+          placeholder="—"
+          disabled={travadaPorOutro}
+          onChange={(ncm) => onChange({ ncm })}
+        />
+      </td>
+      <td className={cellCls}>
         <input
           type="number"
           min={0}
@@ -126,6 +170,7 @@ function LinhaNovaCotacao({ qtdItem, onAdicionar }: { qtdItem: number; onAdicion
   const [fornecedor, setFornecedor] = useState('')
   const [marca, setMarca] = useState('')
   const [prazo, setPrazo] = useState('')
+  const [ncm, setNcm] = useState('')
   const [valorUnitario, setValorUnitario] = useState('')
   const [valorTotal, setValorTotal] = useState('')
 
@@ -139,6 +184,11 @@ function LinhaNovaCotacao({ qtdItem, onAdicionar }: { qtdItem: number; onAdicion
       void avisar('Informe o valor unitário cotado.')
       return
     }
+    const ncmNormalizado = normalizarNcm(ncm)
+    if (ncm.trim() && !ncmNormalizado) {
+      void avisar('O NCM precisa ter 8 dígitos (ex.: 8433.90.90) — corrija ou deixe em branco.')
+      return
+    }
     const total = numeroOuVazio(valorTotal)
     onAdicionar({
       fornecedor: fornecedor.trim(),
@@ -146,10 +196,12 @@ function LinhaNovaCotacao({ qtdItem, onAdicionar }: { qtdItem: number; onAdicion
       valorUnitario: unitario,
       ...(total !== undefined && total > 0 ? { valorTotal: total } : {}),
       ...(prazo.trim() ? { prazoEntrega: prazo.trim() } : {}),
+      ...(ncmNormalizado ? { ncm: ncmNormalizado } : {}),
     })
     setFornecedor('')
     setMarca('')
     setPrazo('')
+    setNcm('')
     setValorUnitario('')
     setValorTotal('')
   }
@@ -171,6 +223,9 @@ function LinhaNovaCotacao({ qtdItem, onAdicionar }: { qtdItem: number; onAdicion
       </td>
       <td className={cellCls}>
         <input className={novoCls} placeholder="Prazo" value={prazo} onChange={(e) => setPrazo(e.target.value)} onKeyDown={aoTeclar} />
+      </td>
+      <td className={cellCls} onKeyDown={aoTeclar}>
+        <CampoNcm className={novoCls} valor={ncm} onChange={setNcm} />
       </td>
       <td className={cellCls}>
         <input
@@ -263,6 +318,9 @@ export function CompararFornecedoresPage({
 
   function aplicarCotacoes(itemId: string, cotacoes: CotacaoFornecedorItem[]) {
     const melhor = melhorCotacaoFornecedor(cotacoes.filter((c) => c.valorUnitario > 0))
+    // o NCM do item é o do fornecedor mais barato (quando ele informou um NCM válido) — cada
+    // fornecedor guarda o seu na própria cotação; sem NCM no mais barato, o do item fica como está
+    const ncmDoMelhor = melhor?.ncm ? normalizarNcm(melhor.ncm) : undefined
     onPatchItem(itemId, {
       cotacoesFornecedores: cotacoes,
       ...(melhor
@@ -271,6 +329,7 @@ export function CompararFornecedoresPage({
             fornecedor: melhor.fornecedor,
             marca: melhor.marca,
             ...(melhor.prazoEntrega ? { prazoEntrega: melhor.prazoEntrega } : {}),
+            ...(ncmDoMelhor ? { ncm: ncmDoMelhor } : {}),
           }
         : {}),
     })
@@ -313,6 +372,7 @@ export function CompararFornecedoresPage({
         valorUnitario: c.valorUnitario,
         ...(c.valorTotal !== undefined ? { valorTotal: c.valorTotal } : {}),
         ...(c.prazoEntrega ? { prazoEntrega: c.prazoEntrega } : {}),
+        ...(c.ncm ? { ncm: c.ncm } : {}),
       })
     }
   }
@@ -359,7 +419,7 @@ export function CompararFornecedoresPage({
             <h2 className="font-display text-lg font-semibold text-ink-900">Comparar fornecedores</h2>
             <p className="text-sm text-ink-400">
               Registre as cotações que os fornecedores devolverem — edite direto na tabela. A mais barata de cada item
-              (★) já atualiza o fornecedor, a marca, o valor unitário e o prazo do item automaticamente.
+              (★) já atualiza o fornecedor, a marca, o valor unitário, o prazo e o NCM do item automaticamente.
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
@@ -439,6 +499,7 @@ export function CompararFornecedoresPage({
                   <th className="py-2 px-2 font-medium min-w-[12rem]">Fornecedor</th>
                   <th className="py-2 px-2 font-medium min-w-[8rem]">Marca</th>
                   <th className="py-2 px-2 font-medium min-w-[7rem]">Prazo</th>
+                  <th className="py-2 px-2 font-medium w-32">NCM</th>
                   <th className="py-2 px-2 font-medium w-32 text-right">Valor unt.</th>
                   <th className="py-2 px-2 font-medium w-32 text-right">Valor total</th>
                   <th className="py-2 px-2 font-medium w-40 text-right">Dif. p/ melhor</th>
@@ -459,6 +520,12 @@ export function CompararFornecedoresPage({
                   const validas = todas.filter((c) => c.valorUnitario > 0)
                   const menorValor = validas.length > 0 ? Math.min(...validas.map((c) => c.valorUnitario)) : undefined
                   const melhor = melhorCotacaoFornecedor(validas)
+                  // fornecedores que classificaram o item com NCMs diferentes — vale um aviso, porque o
+                  // NCM muda o imposto (o item fica com o do mais barato)
+                  const ncmsDosFornecedores = new Set(
+                    todas.map((c) => normalizarNcm(c.ncm ?? '')).filter((n): n is string => !!n),
+                  )
+                  const ncmDoMelhor = melhor?.ncm ? normalizarNcm(melhor.ncm) : undefined
                   const cotacoesVisiveis = filtroFornecedor
                     ? todas.filter((c) => c.fornecedor.trim().toUpperCase() === filtroFornecedor.toUpperCase())
                     : todas
@@ -476,9 +543,24 @@ export function CompararFornecedoresPage({
                               <span className="ml-2 text-ink-600">{p.descricao || '—'}</span>
                               <span className="ml-2 text-xs text-ink-500">
                                 · Qtd <strong className="text-ink-800">{p.qtd}</strong>
-                                {p.ncm ? <> · NCM <span className="font-mono">{p.ncm}</span></> : null}
+                                {p.ncm ? (
+                                  <>
+                                    {' '}· NCM <span className="font-mono">{p.ncm}</span>
+                                    {ncmDoMelhor && normalizarNcm(p.ncm) === ncmDoMelhor && (
+                                      <span className="text-ink-400"> (do mais barato)</span>
+                                    )}
+                                  </>
+                                ) : null}
                                 {' '}· {todas.length} cotaç{todas.length === 1 ? 'ão' : 'ões'}
                               </span>
+                              {ncmsDosFornecedores.size > 1 && (
+                                <span
+                                  className="ml-2 inline-flex items-center gap-1 rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800"
+                                  title={`NCMs informados: ${Array.from(ncmsDosFornecedores).join(', ')}`}
+                                >
+                                  ⚠ NCMs diferentes entre fornecedores ({Array.from(ncmsDosFornecedores).join(' · ')})
+                                </span>
+                              )}
                             </div>
                             {melhor ? (
                               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs text-emerald-800">

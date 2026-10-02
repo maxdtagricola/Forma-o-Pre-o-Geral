@@ -4,6 +4,7 @@ import { lerPdf } from './importacao/leitorPdf'
 import { ocrDeImagem } from './importacao/ocr'
 import { agruparEmLinhas, normalizarTexto, type LinhaTexto, type PaginaPosicionada } from './importacao/textoPosicionado'
 import { acharReferenciaNaLinha, mesmaReferencia } from './importacao/referencias'
+import { acharNcmNasPalavras, documentoMencionaNcm, normalizarNcm } from './importacao/ncm'
 import { valoresMonetariosNoTexto } from './numeros'
 import type { QuoteItem } from './types'
 
@@ -23,6 +24,9 @@ export interface ItemDetectadoFornecedor {
   conferido?: boolean
   marcaDetectada?: string
   prazoDetectado?: string
+  /** NCM que o fornecedor informou pro item (formato 0000.00.00) — fica guardado na cotação dele, e o
+   * do fornecedor mais barato vira o NCM do item. */
+  ncmDetectado?: string
 }
 
 export interface ResultadoImportacaoFornecedor {
@@ -98,7 +102,12 @@ const PRAZO_NO_TEXTO = /\b(IMEDIATO|PRONTA ENTREGA|\d{1,3}\s*(?:DIAS?(?:\s+[ÚU]
 /** Acha cada referência dos itens da cotação nas linhas lidas (PDF/OCR) e pega os valores da mesma
  * linha (ou da linha logo abaixo, quando o preço quebrou pra baixo). Só procura pelas referências
  * que já existem na cotação, porque só essas podem virar uma linha no comparador. */
-function interpretarLinhas(linhas: LinhaTexto[], items: QuoteItem[], ocr: boolean): ItemDetectadoFornecedor[] {
+function interpretarLinhas(
+  linhas: LinhaTexto[],
+  items: QuoteItem[],
+  ocr: boolean,
+  aceitaNcmSemPontos: boolean,
+): ItemDetectadoFornecedor[] {
   const palavrasPorLinha = linhas.map((l) => l.texto.split(/\s+/).filter(Boolean))
   const encontrados: ItemDetectadoFornecedor[] = []
   for (const item of items) {
@@ -114,6 +123,8 @@ function interpretarLinhas(linhas: LinhaTexto[], items: QuoteItem[], ocr: boolea
       if (valores.length === 0 && i + 1 < linhas.length) valores = valoresMonetariosNoTexto(linhas[i + 1].texto)
       const { unitario, total, conferido } = escolherUnitarioETotal(valores, item.product.qtd || 0)
       const prazo = normalizarTexto(resto).match(PRAZO_NO_TEXTO)?.[1]
+      // NCM na mesma linha (antes ou depois da referência, menos as palavras da própria referência)
+      const ncm = acharNcmNasPalavras(palavrasPorLinha[i], { ignorar: posicao, aceitaSemPontos: aceitaNcmSemPontos, ocr })
       achado = {
         itemId: item.id,
         referencia,
@@ -122,6 +133,7 @@ function interpretarLinhas(linhas: LinhaTexto[], items: QuoteItem[], ocr: boolea
         valorTotalDetectado: total,
         conferido,
         ...(prazo ? { prazoDetectado: prazo } : {}),
+        ...(ncm ? { ncmDetectado: ncm } : {}),
       }
     }
     if (achado) encontrados.push(achado)
@@ -132,11 +144,12 @@ function interpretarLinhas(linhas: LinhaTexto[], items: QuoteItem[], ocr: boolea
 function interpretarPaginas(paginas: PaginaPosicionada[], items: QuoteItem[]): ItemDetectadoFornecedor[] {
   const ocr = paginas.some((p) => p.ocr)
   const linhas = paginas.flatMap((p) => agruparEmLinhas(p.trechos))
-  const exatos = interpretarLinhas(linhas, items, false)
+  const mencionaNcm = documentoMencionaNcm(linhas.map((l) => l.texto).join('\n'))
+  const exatos = interpretarLinhas(linhas, items, false, mencionaNcm)
   if (!ocr) return exatos
   // OCR: tenta de novo, tolerando trocas típicas (O/0, I/1, S/5…), só pros itens que faltaram
   const faltando = items.filter((item) => !exatos.some((e) => e.itemId === item.id))
-  return [...exatos, ...interpretarLinhas(linhas, faltando, true)]
+  return [...exatos, ...interpretarLinhas(linhas, faltando, true, mencionaNcm)]
 }
 
 async function importarDePlanilha(
@@ -154,11 +167,21 @@ async function importarDePlanilha(
     const ws = workbook.Sheets[nomeAba]
     if (!ws) continue
     const { maxRow, maxCol } = sheetDims(ws)
+    let textoAba = ''
     for (let r = 1; r <= maxRow; r++) {
       for (let c = 1; c <= maxCol; c++) {
         const v = cellValue(ws, r, c)
-        if (!vazio(v)) textoCompleto += ` ${String(v)}`
+        if (!vazio(v)) textoAba += ` ${String(v)}`
       }
+    }
+    textoCompleto += textoAba
+    const abaMencionaNcm = documentoMencionaNcm(textoAba)
+    /** NCM numa célula: com os pontos sempre vale; só os 8 dígitos, quando a aba fala em NCM. */
+    const ncmDaCelula = (r: number, c: number): string | undefined => {
+      const texto = cellTexto(ws, r, c)
+      if (!texto) return undefined
+      if (!abaMencionaNcm && !/^\d{4}\.\d{2}\.\d{2}$/.test(texto.trim())) return undefined
+      return normalizarNcm(texto)
     }
 
     const tabela = procurarTabelaItens(ws)
@@ -176,6 +199,8 @@ async function importarDePlanilha(
           unitarioCel !== undefined && totalCel !== undefined && qtd > 0 && Math.abs(unitarioCel * qtd - totalCel) <= Math.max(0.02, totalCel * 0.005)
         const marca = tabela.colMarca > 0 ? cellTexto(ws, r, tabela.colMarca) : ''
         const prazo = tabela.colEntrega > 0 ? cellTexto(ws, r, tabela.colEntrega) : ''
+        // coluna com título NCM: os 8 dígitos valem mesmo sem os pontos
+        const ncm = tabela.colNcm > 0 ? normalizarNcm(cellTexto(ws, r, tabela.colNcm)) : undefined
         encontrados.set(item.id, {
           itemId: item.id,
           referencia: item.product.referencia,
@@ -185,6 +210,7 @@ async function importarDePlanilha(
           conferido,
           ...(marca ? { marcaDetectada: marca.toUpperCase() } : {}),
           ...(prazo ? { prazoDetectado: prazo.toUpperCase() } : {}),
+          ...(ncm ? { ncmDetectado: ncm } : {}),
         })
       }
     }
@@ -197,9 +223,15 @@ async function importarDePlanilha(
         for (let c = 1; c <= maxCol; c++) {
           const texto = cellTexto(ws, r, c)
           if (!texto || !mesmaReferencia(item.product.referencia, texto)) continue
+          let ncm: string | undefined
+          for (let c2 = 1; c2 <= maxCol && !ncm; c2++) if (c2 !== c) ncm = ncmDaCelula(r, c2)
           const numeros: number[] = []
           for (let c2 = c + 1; c2 <= maxCol; c2++) {
+            // célula que é o NCM (ex.: 84339090 numa célula de número) não é preço — nem um número
+            // inteiro de 8 dígitos sem título nenhum: preço de dezenas de milhões não existe aqui
+            if (ncmDaCelula(r, c2)) continue
             const bruto = cellValue(ws, r, c2)
+            if (typeof bruto === 'number' && Number.isInteger(bruto) && bruto >= 1e7 && bruto < 1e8) continue
             if (typeof bruto === 'number') {
               if (bruto > 0) numeros.push(bruto)
             } else if (typeof bruto === 'string') {
@@ -214,6 +246,7 @@ async function importarDePlanilha(
             valorUnitarioDetectado: unitario,
             valorTotalDetectado: total,
             conferido,
+            ...(ncm ? { ncmDetectado: ncm } : {}),
           })
           break
         }

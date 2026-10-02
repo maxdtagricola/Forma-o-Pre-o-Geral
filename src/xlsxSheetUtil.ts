@@ -79,6 +79,7 @@ const CABECALHOS = {
   valorUnitario: [/^vlr unt$/, /^vlr unt/, /^valor unt/, /^vlr unit/, /^valor unit/, /^v unit/, /^vl unit/, /^preco unit/, /^unitario$/, /^preco$/, /^valor$/],
   valorTotal: [/^vlr total$/, /^vlr total/, /^valor total/, /^v total/, /^vl total/, /^total$/, /^subtotal$/],
   marca: [/^marca$/, /^fabricante$/],
+  ncm: [/^ncm$/, /^ncm\b/, /^(cod|codigo) ncm$/, /^classif(icacao)? fiscal$/, /^class fiscal$/],
 } satisfies Record<string, RegExp[]>
 
 type ColunaCabecalho = keyof typeof CABECALHOS
@@ -92,6 +93,7 @@ export interface TabelaItensLocalizada {
   colVlrUnt: number
   colVlrTotal: number
   colMarca: number
+  colNcm: number
   maxRow: number
   maxCol: number
 }
@@ -132,6 +134,7 @@ export function procurarTabelaItens(ws: XLSX.WorkSheet, linhasProcura = 60): Tab
     colVlrUnt: c.valorUnitario ?? -1,
     colVlrTotal: c.valorTotal ?? -1,
     colMarca: c.marca ?? -1,
+    colNcm: c.ncm ?? -1,
     maxRow,
     maxCol,
   }

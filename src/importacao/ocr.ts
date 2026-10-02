@@ -84,25 +84,28 @@ export function prepararParaOcr(origem: HTMLCanvasElement): HTMLCanvasElement {
     histograma[l]++
   }
   const total = largura * altura
-  let acumulado = 0
-  let baixo = 0
-  let alto = 255
-  for (let v = 0; v < 256; v++) {
-    acumulado += histograma[v]
-    if (acumulado >= total * 0.02) {
-      baixo = v
-      break
+  /** Tom abaixo (ou acima, de cima pra baixo) do qual fica a fração pedida dos pixels. */
+  function percentil(fracao: number, deCima: boolean): number {
+    let acumulado = 0
+    for (let k = 0; k < 256; k++) {
+      const v = deCima ? 255 - k : k
+      acumulado += histograma[v]
+      if (acumulado >= total * fracao) return v
     }
+    return deCima ? 0 : 255
   }
-  acumulado = 0
-  for (let v = 255; v >= 0; v--) {
-    acumulado += histograma[v]
-    if (acumulado >= total * 0.02) {
-      alto = v
-      break
-    }
+  let baixo = percentil(0.02, false)
+  const alto = percentil(0.02, true)
+  // print limpo com pouco texto (cotação curta, fundo branco): a tinta é menos de 2% da imagem e os
+  // "2% mais escuros" já caem no fundo branco — o esticamento deixava a imagem inteira preta e o
+  // OCR não lia nada. Nesse caso o preto é o pixel mais escuro de verdade (0,1%)
+  if (alto - baixo < 64) baixo = percentil(0.001, false)
+  // imagem quase lisa (sem contraste nenhum pra esticar): segue como está
+  if (alto - baixo < 32) {
+    ctx.putImageData(imagem, 0, 0)
+    return canvas
   }
-  const faixa = Math.max(alto - baixo, 1)
+  const faixa = alto - baixo
   for (let i = 0, j = 0; i < px.length; i += 4, j++) {
     const v = ((cinza[j] - baixo) * 255) / faixa
     px[i] = px[i + 1] = px[i + 2] = v

@@ -7,6 +7,7 @@ import {
   type ItemDetectadoFornecedor,
 } from '../cotacaoFornecedorImport'
 import { formatarNumeroBR, parseNumeroFlexivel } from '../numeros'
+import { normalizarNcm } from '../importacao/ncm'
 import type { QuoteItem } from '../types'
 
 interface LinhaEditavel extends ItemDetectadoFornecedor {
@@ -15,6 +16,12 @@ interface LinhaEditavel extends ItemDetectadoFornecedor {
   valorTotalTexto: string
   marcaTexto: string
   prazoTexto: string
+  ncmTexto: string
+}
+
+/** NCM digitado/lido é válido? (vazio também vale — fica sem NCM) */
+function ncmValidoOuVazio(texto: string): boolean {
+  return !texto.trim() || normalizarNcm(texto) !== undefined
 }
 
 /** "1.234,56" / "123,45" / "R$ 9,90" -> number; vazio/inválido/zero -> undefined. */
@@ -35,6 +42,8 @@ export interface ItemImportadoConfirmado {
   valorTotal?: number
   marca?: string
   prazoEntrega?: string
+  /** NCM informado pelo fornecedor (0000.00.00). */
+  ncm?: string
 }
 
 export function ImportarCotacaoFornecedorModal({
@@ -78,6 +87,7 @@ export function ImportarCotacaoFornecedorModal({
           valorTotalTexto: valorParaTexto(item.valorTotalDetectado),
           marcaTexto: item.marcaDetectada ?? '',
           prazoTexto: item.prazoDetectado ?? '',
+          ncmTexto: item.ncmDetectado ?? '',
         })),
       )
     } catch (err) {
@@ -92,21 +102,28 @@ export function ImportarCotacaoFornecedorModal({
   }
 
   const linhasProntas = (linhas ?? []).filter((l) => l.incluir && textoParaValor(l.valorUnitarioTexto) !== undefined)
-  const podeConfirmar = fornecedor.trim().length > 0 && linhasProntas.length > 0
+  // NCM errado não entra: ele muda o cálculo de ICMS-ST/RBC do item — corrige ou apaga antes
+  const linhasComNcmInvalido = linhasProntas.filter((l) => !ncmValidoOuVazio(l.ncmTexto))
+  const podeConfirmar = fornecedor.trim().length > 0 && linhasProntas.length > 0 && linhasComNcmInvalido.length === 0
   const temMarcaOuPrazo = (linhas ?? []).some((l) => l.marcaDetectada || l.prazoDetectado)
+  const ncmsLidos = (linhas ?? []).filter((l) => l.ncmDetectado).length
 
   function handleConfirmar() {
     if (!podeConfirmar) return
     onConfirmar(
       fornecedor.trim(),
       marca.trim(),
-      linhasProntas.map((l) => ({
-        itemId: l.itemId,
-        valorUnitario: textoParaValor(l.valorUnitarioTexto)!,
-        valorTotal: textoParaValor(l.valorTotalTexto),
-        ...(l.marcaTexto.trim() ? { marca: l.marcaTexto.trim() } : {}),
-        ...(l.prazoTexto.trim() ? { prazoEntrega: l.prazoTexto.trim() } : {}),
-      })),
+      linhasProntas.map((l) => {
+        const ncm = normalizarNcm(l.ncmTexto)
+        return {
+          itemId: l.itemId,
+          valorUnitario: textoParaValor(l.valorUnitarioTexto)!,
+          valorTotal: textoParaValor(l.valorTotalTexto),
+          ...(l.marcaTexto.trim() ? { marca: l.marcaTexto.trim() } : {}),
+          ...(l.prazoTexto.trim() ? { prazoEntrega: l.prazoTexto.trim() } : {}),
+          ...(ncm ? { ncm } : {}),
+        }
+      }),
     )
     onClose()
   }
@@ -160,6 +177,12 @@ export function ImportarCotacaoFornecedorModal({
                   Fornecedor identificado no arquivo: <strong>{fornecedorDetectado}</strong> — confirme ou troque abaixo.
                 </p>
               )}
+              <p className="text-xs text-ink-500">
+                {ncmsLidos > 0
+                  ? `NCM lido em ${ncmsLidos} item(ns). `
+                  : 'Não achei NCM no arquivo — dá pra digitar abaixo, se o fornecedor informou. '}
+                O NCM fica guardado na cotação desse fornecedor, e o do fornecedor mais barato vira o NCM do item.
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <AutocompleteField label="Fornecedor" value={fornecedor} onChange={setFornecedor} suggestions={fornecedorSuggestions} />
                 <TextField
@@ -178,6 +201,7 @@ export function ImportarCotacaoFornecedorModal({
                         <th className="py-2 px-2 font-medium">Item da cotação</th>
                         <th className="py-2 px-2 font-medium w-28 text-right">Valor unt.</th>
                         <th className="py-2 px-2 font-medium w-28 text-right">Valor total</th>
+                        <th className="py-2 px-2 font-medium w-32">NCM</th>
                         {temMarcaOuPrazo && <th className="py-2 px-2 font-medium w-28">Marca</th>}
                         {temMarcaOuPrazo && <th className="py-2 px-2 font-medium w-24">Prazo</th>}
                       </tr>
@@ -229,6 +253,36 @@ export function ImportarCotacaoFornecedorModal({
                                 className={inputCls}
                               />
                             </td>
+                            <td className="py-2 px-1">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                placeholder="0000.00.00"
+                                value={l.ncmTexto}
+                                onChange={(e) => patchLinha(l.itemId, { ncmTexto: e.target.value })}
+                                onBlur={() => {
+                                  const ncm = normalizarNcm(l.ncmTexto)
+                                  if (ncm) patchLinha(l.itemId, { ncmTexto: ncm })
+                                }}
+                                aria-invalid={!ncmValidoOuVazio(l.ncmTexto)}
+                                title={
+                                  ncmValidoOuVazio(l.ncmTexto)
+                                    ? item?.product.ncm && l.ncmTexto && normalizarNcm(l.ncmTexto) !== normalizarNcm(item.product.ncm)
+                                      ? `Diferente do NCM atual do item (${item.product.ncm})`
+                                      : 'NCM informado pelo fornecedor'
+                                    : 'NCM precisa ter 8 dígitos (ex.: 8433.90.90)'
+                                }
+                                className={`field-input py-1 font-mono text-sm ${
+                                  ncmValidoOuVazio(l.ncmTexto) ? '' : 'border-rose-400 focus:border-rose-500 focus:ring-rose-100'
+                                }`}
+                              />
+                              {item?.product.ncm &&
+                                l.ncmTexto &&
+                                ncmValidoOuVazio(l.ncmTexto) &&
+                                normalizarNcm(l.ncmTexto) !== normalizarNcm(item.product.ncm) && (
+                                  <p className="mt-0.5 text-[10px] text-amber-700">item hoje: {item.product.ncm}</p>
+                                )}
+                            </td>
                             {temMarcaOuPrazo && (
                               <td className="py-2 px-1">
                                 <input
@@ -265,8 +319,10 @@ export function ImportarCotacaoFornecedorModal({
         </div>
 
         <div className="flex justify-between items-center gap-2 pt-3 border-t border-ink-100">
-          <p className="text-xs text-ink-400">
-            {linhasProntas.length > 0 && `${linhasProntas.length} item(ns) pronto(s) — confira os valores antes de confirmar.`}
+          <p className={`text-xs ${linhasComNcmInvalido.length > 0 ? 'text-rose-600' : 'text-ink-400'}`}>
+            {linhasComNcmInvalido.length > 0
+              ? `NCM inválido em ${linhasComNcmInvalido.length} item(ns) — precisa ter 8 dígitos; corrija ou apague.`
+              : linhasProntas.length > 0 && `${linhasProntas.length} item(ns) pronto(s) — confira os valores antes de confirmar.`}
           </p>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>

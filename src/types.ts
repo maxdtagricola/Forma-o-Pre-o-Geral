@@ -406,6 +406,9 @@ export interface CotacaoFornecedorItem {
   valorTotal?: number
   /** Prazo de entrega que esse fornecedor deu (texto livre, ex.: "IMEDIATO", "5 DIAS"). */
   prazoEntrega?: string
+  /** NCM que esse fornecedor informou pro item (0000.00.00) — cada fornecedor pode classificar
+   * diferente; o do fornecedor mais barato é o que vai pro item (ver aplicarCotacoes no comparador). */
+  ncm?: string
 }
 
 export interface PreRegistroItem {
