@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DonutChart, limitarComOutros, type DonutDatum } from '../components/DonutChart'
 import { GroupedBarChart } from '../components/BarChart'
+import { GraficoFaturamentoPrejuizo, type MesFaturamentoPrejuizo } from '../components/GraficoFaturamentoPrejuizo'
 import { KpiCard, IconCaminhao, IconDocumento, IconTendencia } from '../components/KpiCard'
 import { listNotasFiscais } from '../db/notasFiscaisRepo'
 import { getStatusColors } from '../db/configRepo'
@@ -9,8 +10,99 @@ import { formatCurrency } from '../utils'
 import { PERIODOS, inicioPeriodo, type Periodo } from '../periodo'
 import { NOTA_FISCAL_STATUSES, NOTA_FISCAL_TIPOS } from '../types'
 import type { NotaFiscal, NotaFiscalTipo } from '../types'
-import { chaveMesDaNota, labelCurtoDoMes, corDoTipo, labelDoTipo } from '../notasFiscaisHelpers'
+import {
+  COR_FATURADO,
+  COR_PREJUIZO,
+  chaveMesDaNota,
+  corDoTipo,
+  labelCurtoDoMes,
+  labelDoTipo,
+  resultadoDoItem,
+  valorDoItem,
+  valoresPorResultado,
+} from '../notasFiscaisHelpers'
+import { formatarNumeroCurtoBR } from '../numeros'
 import { avisar } from '../dialogs'
+
+interface ProdutoNoResultado {
+  chave: string
+  codigo: string
+  descricao: string
+  quantidade: number
+  unidade: string
+  valor: number
+  notas: Set<string>
+}
+
+/** Os produtos que mais pesaram num resultado (faturado ou parado no estoque), por valor. */
+function rankingDeProdutos(notas: NotaFiscal[], resultado: 'FATURADO' | 'ESTOQUE', limite = 5): ProdutoNoResultado[] {
+  const porProduto = new Map<string, ProdutoNoResultado>()
+  for (const n of notas) {
+    for (const item of n.itens ?? []) {
+      if (resultadoDoItem(item, n) !== resultado) continue
+      const chave = (item.codigo.trim() || item.descricao.trim()).toUpperCase()
+      if (!chave) continue
+      const atual = porProduto.get(chave) ?? {
+        chave,
+        codigo: item.codigo.trim(),
+        descricao: item.descricao.trim(),
+        quantidade: 0,
+        unidade: item.unidade,
+        valor: 0,
+        notas: new Set<string>(),
+      }
+      atual.quantidade += item.quantidade || 0
+      atual.valor += valorDoItem(item)
+      atual.notas.add(n.id)
+      porProduto.set(chave, atual)
+    }
+  }
+  return Array.from(porProduto.values())
+    .sort((a, b) => b.valor - a.valor)
+    .slice(0, limite)
+}
+
+function ListaRanking({ titulo, cor, produtos, vazio }: { titulo: string; cor: string; produtos: ProdutoNoResultado[]; vazio: string }) {
+  return (
+    <div>
+      <p className="mb-2 inline-flex items-center gap-1.5 text-sm font-semibold text-ink-900">
+        <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: cor }} />
+        {titulo}
+      </p>
+      {produtos.length === 0 ? (
+        <p className="text-xs text-ink-400">{vazio}</p>
+      ) : (
+        <ol className="space-y-1.5">
+          {produtos.map((p, i) => (
+            <li key={p.chave} className="flex items-baseline gap-2 text-xs">
+              <span className="w-4 shrink-0 text-right text-ink-400">{i + 1}.</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-ink-800" title={p.descricao}>
+                  {p.codigo ? <span className="font-mono text-ink-500">{p.codigo} · </span> : null}
+                  {p.descricao || '—'}
+                </span>
+                <span className="text-[11px] text-ink-400">
+                  {formatarNumeroCurtoBR(p.quantidade, 3)} {p.unidade} em {p.notas.size} nota{p.notas.size === 1 ? '' : 's'}
+                </span>
+              </span>
+              <span className="shrink-0 font-mono tabular-nums text-ink-900">{formatCurrency(p.valor)}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+}
+
+function Indicador({ titulo, valor, detalhe }: { titulo: string; valor: string; detalhe?: string }) {
+  return (
+    <div className="rounded-lg border border-ink-100 bg-ink-50/60 p-3">
+      <p className="text-xs text-ink-400 mb-1">{titulo}</p>
+      <p className="font-mono text-base font-semibold tabular-nums text-ink-900">{valor}</p>
+      {detalhe && <p className="mt-0.5 text-[11px] text-ink-500">{detalhe}</p>}
+    </div>
+  )
+}
 
 const tipoOptions = NOTA_FISCAL_TIPOS
 
@@ -116,6 +208,56 @@ export function NotasFiscaisDashboardPage() {
 
   const tipoFiltroOptions = ['TODOS', ...tipoOptions.map((t) => t.value)] as const
 
+  // faturamento × prejuízo — no período escolhido (indicadores e ranking de produtos) e mês a mês
+  // (últimos meses, como os outros gráficos de tendência), respeitando o filtro de tipo
+  const resultadosDoPeriodo = useMemo(
+    () =>
+      notasDoPeriodo.reduce(
+        (acc, n) => {
+          const v = valoresPorResultado(n)
+          return {
+            faturado: acc.faturado + v.faturado,
+            parado: acc.parado + v.parado,
+            freteParado: acc.freteParado + v.freteParado,
+            semResultado: acc.semResultado + v.semResultado,
+          }
+        },
+        { faturado: 0, parado: 0, freteParado: 0, semResultado: 0 },
+      ),
+    [notasDoPeriodo],
+  )
+  const baseAproveitamento = resultadosDoPeriodo.faturado + resultadosDoPeriodo.parado
+  const aproveitamentoDoPeriodo =
+    baseAproveitamento > 0 ? `${Math.round((resultadosDoPeriodo.faturado / baseAproveitamento) * 100)}%` : '—'
+
+  const mesesFaturamento: MesFaturamentoPrejuizo[] = useMemo(() => {
+    const porMes = new Map<string, MesFaturamentoPrejuizo>()
+    for (const n of notas) {
+      if (tipoFiltro !== 'TODOS' && (n.tipo ?? 'PECAS') !== tipoFiltro) continue
+      const mesKey = chaveMesDaNota(n)
+      const atual = porMes.get(mesKey) ?? {
+        mesKey,
+        rotulo: labelCurtoDoMes(mesKey),
+        faturado: 0,
+        parado: 0,
+        freteParado: 0,
+        semResultado: 0,
+      }
+      const v = valoresPorResultado(n)
+      atual.faturado += v.faturado
+      atual.parado += v.parado
+      atual.freteParado += v.freteParado
+      atual.semResultado += v.semResultado
+      porMes.set(mesKey, atual)
+    }
+    return Array.from(porMes.values())
+      .sort((a, b) => (a.mesKey < b.mesKey ? -1 : 1))
+      .slice(-6)
+  }, [notas, tipoFiltro])
+
+  const maisParados = useMemo(() => rankingDeProdutos(notasDoPeriodo, 'ESTOQUE'), [notasDoPeriodo])
+  const maisFaturados = useMemo(() => rankingDeProdutos(notasDoPeriodo, 'FATURADO'), [notasDoPeriodo])
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -203,6 +345,53 @@ export function NotasFiscaisDashboardPage() {
                 chartValueFormatter={formatCurrencyCompacto}
                 emptyText="Nenhuma nota com valor nesse período."
               />
+            </div>
+
+            <div className="card">
+              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Faturamento × prejuízo</h3>
+              <p className="text-xs text-ink-400 mb-4">
+                O que as transferências viraram: faturado (venda) ou parado no estoque — prejuízo, a transferência não gerou
+                o lucro esperado. Marcado em Transferências Fiscais, na nota inteira ou em cada produto. Indicadores do
+                período selecionado; gráfico dos últimos meses.
+              </p>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+                <Indicador titulo="Faturado" valor={formatCurrency(resultadosDoPeriodo.faturado)} />
+                <Indicador titulo="Parado no estoque (prejuízo)" valor={formatCurrency(resultadosDoPeriodo.parado)} />
+                <Indicador
+                  titulo="Frete gasto com os parados"
+                  valor={formatCurrency(resultadosDoPeriodo.freteParado)}
+                  detalhe="parte do frete das notas, pelo valor dos produtos parados"
+                />
+                <Indicador
+                  titulo="Virou venda"
+                  valor={aproveitamentoDoPeriodo}
+                  detalhe={
+                    resultadosDoPeriodo.semResultado > 0
+                      ? `${formatCurrency(resultadosDoPeriodo.semResultado)} ainda sem resultado`
+                      : undefined
+                  }
+                />
+              </div>
+              <GraficoFaturamentoPrejuizo meses={mesesFaturamento} />
+            </div>
+
+            <div className="card">
+              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Produtos faturados e parados</h3>
+              <p className="text-xs text-ink-400 mb-4">Os que mais pesaram em cada lado, por valor, no período selecionado.</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <ListaRanking
+                  titulo="Mais parados no estoque"
+                  cor={COR_PREJUIZO}
+                  produtos={maisParados}
+                  vazio="Nenhum produto marcado como parado no estoque no período."
+                />
+                <ListaRanking
+                  titulo="Mais faturados"
+                  cor={COR_FATURADO}
+                  produtos={maisFaturados}
+                  vazio="Nenhum produto marcado como faturado no período."
+                />
+              </div>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

@@ -11,6 +11,8 @@ const CONFIG_TRANSFERENCIAS: ConfigRegistroNotas = {
   salvar: saveNotaFiscal,
   atualizarStatus: updateNotaFiscalStatus,
   excluir: deleteNotaFiscal,
+  // faturado / parado no estoque — alimenta o gráfico de faturamento × prejuízo do Dashboard de Transferências
+  controleResultado: true,
 }
 
 export function AcompanhamentoNotasPage({ currentAdmin }: { currentAdmin: string }) {

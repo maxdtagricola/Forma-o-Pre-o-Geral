@@ -14,11 +14,30 @@ import {
   NOTA_FISCAL_STATUSES,
   NOTA_FISCAL_TIPOS,
   RECEBEDORES,
+  RESULTADOS_TRANSFERENCIA,
   TRANSPORTADORAS,
   labelNecessidade,
+  labelResultado,
 } from '../types'
-import type { Empresa, Fornecedor, NotaFiscal, NotaFiscalItem, NotaFiscalStatus, NotaFiscalTipo } from '../types'
-import { chaveMes, chaveMesDaNota, labelCurtoDoMes, labelDoMes, labelDoTipo } from '../notasFiscaisHelpers'
+import type {
+  Empresa,
+  Fornecedor,
+  NotaFiscal,
+  NotaFiscalItem,
+  NotaFiscalStatus,
+  NotaFiscalTipo,
+  ResultadoTransferencia,
+} from '../types'
+import {
+  chaveMes,
+  chaveMesDaNota,
+  labelCurtoDoMes,
+  labelDoMes,
+  labelDoTipo,
+  resultadoDoItem,
+  valorDoItem,
+  valoresPorResultado,
+} from '../notasFiscaisHelpers'
 import {
   extrairDadosNotaFiscalImagem,
   extrairDadosNotaFiscalPdf,
@@ -51,10 +70,14 @@ export interface ConfigRegistroNotas {
   salvar: (dados: DadosNota, criadoPor: string, existingId?: string, statusInicial?: NotaFiscalStatus) => Promise<NotaFiscal>
   atualizarStatus: (id: string, status: NotaFiscalStatus) => Promise<NotaFiscal>
   excluir: (id: string) => Promise<void>
+  /** Mostra o "resultado" (faturado / parado no estoque) da nota e dos produtos — usado nas
+   * Transferências, onde isso alimenta o gráfico de faturamento × prejuízo do dashboard. */
+  controleResultado?: boolean
 }
 
 const STATUS_CONCLUIDO: NotaFiscalStatus = 'CONCLUIDO'
 const FILTRO_SEM_NECESSIDADE = '__sem__'
+const FILTRO_SEM_RESULTADO = '__sem__'
 
 const transportadoraSuggestions = TRANSPORTADORAS.map((t) => ({ value: t, label: t }))
 const recebedorSuggestions = RECEBEDORES.map((r) => ({ value: r, label: r }))
@@ -67,6 +90,13 @@ function itensDaNota(n: { itens?: NotaFiscalItem[] }): NotaFiscalItem[] {
 /** Necessidade que vale pro produto: a dele mesmo, ou (vazia) a da nota. */
 function necessidadeEfetiva(item: NotaFiscalItem, nota: { necessidade?: string }): string {
   return item.necessidade || nota.necessidade || ''
+}
+
+/** Os dados editáveis de uma nota já salva (sem id/status/histórico) — pra regravar só um detalhe dela. */
+function dadosDaNota(n: NotaFiscal): DadosNota {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { id, criadoPor, createdAt, status, statusHistory, ...dados } = n
+  return dados
 }
 
 function itemDeExtraido(extraido: ItemNotaExtraido): NotaFiscalItem {
@@ -198,6 +228,71 @@ function BadgeNecessidade({ valor, herdada = false }: { valor: string; herdada?:
 }
 
 // ---------------------------------------------------------------------------------------------
+// Resultado da transferência — faturado (virou venda) ou parado no estoque (prejuízo)
+// ---------------------------------------------------------------------------------------------
+function SeletorResultado({
+  valor,
+  onChange,
+  rotuloVazio,
+  compacto = false,
+  disabled = false,
+  ariaLabel,
+}: {
+  valor: ResultadoTransferencia
+  onChange: (valor: ResultadoTransferencia) => void
+  rotuloVazio: string
+  compacto?: boolean
+  disabled?: boolean
+  ariaLabel?: string
+}) {
+  const cls = compacto
+    ? 'w-full rounded-md border border-ink-200 bg-surface px-1.5 py-1 text-xs text-ink-900 focus:outline-none focus:ring-1 focus:ring-brand-400 disabled:opacity-60'
+    : 'field-input'
+  return (
+    <select
+      className={cls}
+      value={valor}
+      disabled={disabled}
+      aria-label={ariaLabel}
+      onChange={(e) => onChange(e.target.value as ResultadoTransferencia)}
+    >
+      <option value="">{rotuloVazio}</option>
+      {RESULTADOS_TRANSFERENCIA.map((r) => (
+        <option key={r.value} value={r.value}>
+          {r.label}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+function BadgeResultado({ valor, herdado = false }: { valor: ResultadoTransferencia | undefined; herdado?: boolean }) {
+  if (!valor) return null
+  const faturado = valor === 'FATURADO'
+  return (
+    <span
+      title={
+        herdado
+          ? 'Resultado da nota (vale pra esse produto)'
+          : faturado
+            ? 'Faturado — virou venda'
+            : 'Parado no estoque — não gerou o lucro esperado (prejuízo)'
+      }
+      className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap ${
+        herdado ? 'border-dashed' : ''
+      } ${
+        faturado
+          ? 'border-[#2a78d6]/50 bg-[#2a78d6]/10 text-[#1d5fae] dark:text-[#8db8ee]'
+          : 'border-[#e34948]/50 bg-[#e34948]/10 text-[#b52d2c] dark:text-[#f19c9b]'
+      }`}
+    >
+      <span aria-hidden>{faturado ? '✓' : '▼'}</span>
+      {faturado ? 'Faturado' : 'Parado no estoque'}
+    </span>
+  )
+}
+
+// ---------------------------------------------------------------------------------------------
 // Campo decimal que aceita vírgula (12,5) — guarda texto enquanto digita, converte ao sair
 // ---------------------------------------------------------------------------------------------
 function CampoDecimal({
@@ -249,11 +344,15 @@ function CampoDecimal({
 function ItensNotaEditor({
   itens,
   necessidadeNota,
+  resultadoNota,
+  controleResultado,
   opcoesExtras,
   onChange,
 }: {
   itens: NotaFiscalItem[]
   necessidadeNota: string
+  resultadoNota: ResultadoTransferencia
+  controleResultado: boolean
   opcoesExtras: string[]
   onChange: (itens: NotaFiscalItem[]) => void
 }) {
@@ -296,6 +395,14 @@ function ItensNotaEditor({
 
   const somaItens = itens.reduce((s, i) => s + (i.valorTotal || 0), 0)
   const rotuloHerdado = necessidadeNota ? `(da nota: ${labelNecessidade(necessidadeNota)})` : '(mesma da nota)'
+  const rotuloResultadoHerdado = resultadoNota ? `(da nota: ${labelResultado(resultadoNota, true)})` : '(mesmo da nota)'
+
+  // tirar um produto também pede confirmação — como toda exclusão de item no sistema
+  async function tirarProduto(item: NotaFiscalItem) {
+    const nome = [item.codigo, item.descricao].filter((x) => x.trim()).join(' — ')
+    if (!(await confirmar(`Tirar este produto da nota?${nome ? `\n\n${nome}` : ''}`, { confirmText: 'Tirar', tone: 'danger' }))) return
+    onChange(itens.filter((i) => i.id !== item.id))
+  }
 
   return (
     <div className="mt-5 rounded-xl border border-ink-100">
@@ -346,6 +453,7 @@ function ItensNotaEditor({
                 <th className="px-2 py-1.5 font-medium w-28 text-right">Vlr unit.</th>
                 <th className="px-2 py-1.5 font-medium w-28 text-right">Vlr total</th>
                 <th className="px-2 py-1.5 font-medium min-w-[11rem]">Necessidade</th>
+                {controleResultado && <th className="px-2 py-1.5 font-medium min-w-[10rem]">Resultado</th>}
                 <th className="w-8" />
               </tr>
             </thead>
@@ -414,10 +522,21 @@ function ItensNotaEditor({
                       rotuloVazio={rotuloHerdado}
                     />
                   </td>
+                  {controleResultado && (
+                    <td className="px-1 py-1">
+                      <SeletorResultado
+                        compacto
+                        valor={item.resultado ?? ''}
+                        onChange={(v) => patchItem(item.id, { resultado: v })}
+                        rotuloVazio={rotuloResultadoHerdado}
+                        ariaLabel={`Resultado de ${item.descricao || item.codigo || 'produto'}`}
+                      />
+                    </td>
+                  )}
                   <td className="px-1 py-1 text-center">
                     <button
                       type="button"
-                      onClick={() => onChange(itens.filter((i) => i.id !== item.id))}
+                      onClick={() => void tirarProduto(item)}
                       title="Tirar esse produto"
                       aria-label="Tirar esse produto"
                       className="h-6 w-6 rounded-full text-ink-400 hover:bg-rose-50 hover:text-rose-600"
@@ -438,7 +557,7 @@ function ItensNotaEditor({
                   Soma dos produtos
                 </td>
                 <td className="px-2 py-1.5 text-right font-mono font-semibold tabular-nums text-ink-900">{formatCurrency(somaItens)}</td>
-                <td colSpan={2} />
+                <td colSpan={controleResultado ? 3 : 2} />
               </tr>
             </tfoot>
           </table>
@@ -451,24 +570,60 @@ function ItensNotaEditor({
 // ---------------------------------------------------------------------------------------------
 // Lista
 // ---------------------------------------------------------------------------------------------
+
+/** Marcar o resultado direto da lista: da nota inteira, ou (com itemId) de um produto dela. */
+export type MarcarResultado = (n: NotaFiscal, alvo: { itemId?: string; resultado: ResultadoTransferencia }) => Promise<void>
+
+/** Resumo do resultado no topo do cartão: o selo, quando a nota inteira tem um só; com produtos de
+ * resultados diferentes, quantos foram faturados e quantos ficaram parados. */
+function ResumoResultadoNota({ n }: { n: NotaFiscal }) {
+  const itens = itensDaNota(n)
+  if (itens.length === 0) return <BadgeResultado valor={n.resultado} />
+  const efetivos = itens.map((i) => resultadoDoItem(i, n))
+  const faturados = efetivos.filter((r) => r === 'FATURADO').length
+  const parados = efetivos.filter((r) => r === 'ESTOQUE').length
+  if (faturados === itens.length) return <BadgeResultado valor="FATURADO" />
+  if (parados === itens.length) return <BadgeResultado valor="ESTOQUE" />
+  if (faturados === 0 && parados === 0) return null
+  return (
+    <span className="text-[11px] text-ink-500">
+      {faturados} faturado{faturados === 1 ? '' : 's'} · {parados} parado{parados === 1 ? '' : 's'} no estoque
+    </span>
+  )
+}
+
 function NotaCard({
   n,
   mesAtualKey,
   corDoStatus,
   onEdit,
   onAbrirStatus,
+  controleResultado,
+  onMarcarResultado,
 }: {
   n: NotaFiscal
   mesAtualKey: string
   corDoStatus: (status: string) => string
   onEdit: (n: NotaFiscal) => void
   onAbrirStatus: (n: NotaFiscal) => void
+  controleResultado: boolean
+  onMarcarResultado: MarcarResultado
 }) {
   const [expandido, setExpandido] = useState(false)
   const [menuAberto, setMenuAberto] = useState(false)
+  const [salvandoResultado, setSalvandoResultado] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const itens = itensDaNota(n)
   const mesDaNota = chaveMesDaNota(n)
+
+  async function marcar(alvo: { itemId?: string; resultado: ResultadoTransferencia }) {
+    setSalvandoResultado(true)
+    try {
+      await onMarcarResultado(n, alvo)
+    } finally {
+      setSalvandoResultado(false)
+    }
+  }
 
   useEffect(() => {
     if (!menuAberto) return
@@ -511,6 +666,7 @@ function NotaCard({
             </span>
           )}
           <BadgeNecessidade valor={n.necessidade ?? ''} />
+          {controleResultado && <ResumoResultadoNota n={n} />}
           {itens.length > 0 && (
             <span className="text-[11px] text-ink-400">
               {itens.length} produto{itens.length > 1 ? 's' : ''}
@@ -587,6 +743,39 @@ function NotaCard({
             </div>
           </div>
 
+          {controleResultado && (
+            // marcar faturado / parado no estoque direto daqui, sem abrir a edição da nota — o
+            // resultado de cada produto (se for diferente) fica na tabela logo abaixo
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="text-ink-400">Resultado da nota inteira:</span>
+              {RESULTADOS_TRANSFERENCIA.map((r) => {
+                const ativo = n.resultado === r.value
+                const faturado = r.value === 'FATURADO'
+                return (
+                  <button
+                    key={r.value}
+                    type="button"
+                    disabled={salvandoResultado}
+                    aria-pressed={ativo}
+                    onClick={() => void marcar({ resultado: ativo ? '' : r.value })}
+                    title={ativo ? 'Clique de novo pra tirar a marcação' : undefined}
+                    className={`rounded-full border px-2.5 py-1 font-semibold transition disabled:opacity-50 ${
+                      ativo
+                        ? faturado
+                          ? 'border-[#2a78d6] bg-[#2a78d6] text-white'
+                          : 'border-[#e34948] bg-[#e34948] text-white'
+                        : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+                    }`}
+                  >
+                    {faturado ? '✓ ' : '▼ '}
+                    {r.label}
+                  </button>
+                )
+              })}
+              {salvandoResultado && <span className="text-ink-400">salvando…</span>}
+            </div>
+          )}
+
           {itens.length > 0 && (
             <div className="overflow-x-auto rounded-lg border border-ink-100">
               <table className="w-full text-xs border-collapse">
@@ -598,6 +787,7 @@ function NotaCard({
                     <th className="px-2 py-1.5 font-medium text-right">Vlr unit.</th>
                     <th className="px-2 py-1.5 font-medium text-right">Vlr total</th>
                     <th className="px-2 py-1.5 font-medium">Necessidade</th>
+                    {controleResultado && <th className="px-2 py-1.5 font-medium min-w-[9.5rem]">Resultado</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -613,6 +803,18 @@ function NotaCard({
                       <td className="px-2 py-1">
                         <BadgeNecessidade valor={necessidadeEfetiva(item, n)} herdada={!item.necessidade} />
                       </td>
+                      {controleResultado && (
+                        <td className="px-2 py-1">
+                          <SeletorResultado
+                            compacto
+                            disabled={salvandoResultado}
+                            valor={item.resultado ?? ''}
+                            onChange={(v) => void marcar({ itemId: item.id, resultado: v })}
+                            rotuloVazio={n.resultado ? `(da nota: ${labelResultado(n.resultado, true)})` : '(mesmo da nota)'}
+                            ariaLabel={`Resultado de ${item.descricao || item.codigo || 'produto'}`}
+                          />
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -632,6 +834,8 @@ function GrupoStatusTable({
   corDoStatus,
   onEdit,
   onAbrirStatus,
+  controleResultado,
+  onMarcarResultado,
 }: {
   prefixoChave: string
   grupo: { status: NotaFiscalStatus; itens: NotaFiscal[] }
@@ -639,6 +843,8 @@ function GrupoStatusTable({
   corDoStatus: (status: string) => string
   onEdit: (n: NotaFiscal) => void
   onAbrirStatus: (n: NotaFiscal) => void
+  controleResultado: boolean
+  onMarcarResultado: MarcarResultado
 }) {
   const [aberto, setAberto] = useEstadoPersistente(`${prefixoChave}:grupoStatusAberto:${grupo.status}`, false)
   return (
@@ -658,7 +864,16 @@ function GrupoStatusTable({
       {aberto && (
         <div className="space-y-2">
           {grupo.itens.map((n) => (
-            <NotaCard key={n.id} n={n} mesAtualKey={mesAtualKey} corDoStatus={corDoStatus} onEdit={onEdit} onAbrirStatus={onAbrirStatus} />
+            <NotaCard
+              key={n.id}
+              n={n}
+              mesAtualKey={mesAtualKey}
+              corDoStatus={corDoStatus}
+              onEdit={onEdit}
+              onAbrirStatus={onAbrirStatus}
+              controleResultado={controleResultado}
+              onMarcarResultado={onMarcarResultado}
+            />
           ))}
         </div>
       )}
@@ -681,6 +896,8 @@ function PastaMes({
   corDoStatus,
   onEdit,
   onAbrirStatus,
+  controleResultado,
+  onMarcarResultado,
 }: {
   prefixoChave: string
   mesKey: string
@@ -689,6 +906,8 @@ function PastaMes({
   corDoStatus: (status: string) => string
   onEdit: (n: NotaFiscal) => void
   onAbrirStatus: (n: NotaFiscal) => void
+  controleResultado: boolean
+  onMarcarResultado: MarcarResultado
 }) {
   const [aberta, setAberta] = useEstadoPersistente(`${prefixoChave}:pastaMesAberta:${mesKey}`, false)
   const [completa, setCompleta] = useState(false)
@@ -697,6 +916,13 @@ function PastaMes({
   const valorFrete = itens.reduce((s, n) => s + n.valorFrete, 0)
   const totalProdutos = itens.reduce((s, n) => s + itensDaNota(n).length, 0)
   const grupos = agruparPorStatus(itens)
+  const resultadosDoMes = itens.reduce(
+    (acc, n) => {
+      const v = valoresPorResultado(n)
+      return { faturado: acc.faturado + v.faturado, parado: acc.parado + v.parado }
+    },
+    { faturado: 0, parado: 0 },
+  )
 
   return (
     <div className="rounded-xl border border-ink-100 overflow-hidden">
@@ -734,6 +960,18 @@ function PastaMes({
               <p className="text-ink-400 text-xs">Valor de frete</p>
               <p className="font-medium text-ink-900">{formatCurrency(valorFrete)}</p>
             </div>
+            {controleResultado && (
+              <>
+                <div>
+                  <p className="text-ink-400 text-xs">Faturado</p>
+                  <p className="font-medium text-ink-900">{formatCurrency(resultadosDoMes.faturado)}</p>
+                </div>
+                <div>
+                  <p className="text-ink-400 text-xs">Parado no estoque (prejuízo)</p>
+                  <p className="font-medium text-ink-900">{formatCurrency(resultadosDoMes.parado)}</p>
+                </div>
+              </>
+            )}
           </div>
 
           {!completa ? (
@@ -755,6 +993,8 @@ function PastaMes({
                     corDoStatus={corDoStatus}
                     onEdit={onEdit}
                     onAbrirStatus={onAbrirStatus}
+                    controleResultado={controleResultado}
+                    onMarcarResultado={onMarcarResultado}
                   />
                 ))}
               </div>
@@ -825,16 +1065,31 @@ function AlterarStatusModal({
 function ListaItensTransferidos({
   linhas,
   corDoStatus,
+  controleResultado,
 }: {
   linhas: { nota: NotaFiscal; item: NotaFiscalItem }[]
   corDoStatus: (status: string) => string
+  controleResultado: boolean
 }) {
   const totalQtd = linhas.reduce((s, l) => s + (l.item.quantidade || 0), 0)
   const totalValor = linhas.reduce((s, l) => s + (l.item.valorTotal || 0), 0)
+  const totalFaturado = linhas.reduce((s, l) => s + (resultadoDoItem(l.item, l.nota) === 'FATURADO' ? valorDoItem(l.item) : 0), 0)
+  const totalParado = linhas.reduce((s, l) => s + (resultadoDoItem(l.item, l.nota) === 'ESTOQUE' ? valorDoItem(l.item) : 0), 0)
   if (linhas.length === 0) {
     return <p className="text-sm text-ink-400 text-center py-6">Nenhum produto com esses filtros.</p>
   }
   return (
+    <>
+    {controleResultado && (totalFaturado > 0 || totalParado > 0) && (
+      <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-ink-500">
+        <span>
+          Faturado: <strong className="font-mono tabular-nums text-ink-900">{formatCurrency(totalFaturado)}</strong>
+        </span>
+        <span>
+          Parado no estoque (prejuízo): <strong className="font-mono tabular-nums text-ink-900">{formatCurrency(totalParado)}</strong>
+        </span>
+      </div>
+    )}
     <div className="overflow-x-auto rounded-xl border border-ink-100">
       <table className="w-full text-xs border-collapse">
         <thead>
@@ -847,6 +1102,7 @@ function ListaItensTransferidos({
             <th className="px-2 py-2 font-medium text-right">Qtd</th>
             <th className="px-2 py-2 font-medium text-right">Vlr total</th>
             <th className="px-2 py-2 font-medium">Necessidade</th>
+            {controleResultado && <th className="px-2 py-2 font-medium">Resultado</th>}
             <th className="px-2 py-2 font-medium">Status</th>
           </tr>
         </thead>
@@ -868,6 +1124,12 @@ function ListaItensTransferidos({
                 <BadgeNecessidade valor={necessidadeEfetiva(item, nota)} herdada={!item.necessidade} />
                 {!necessidadeEfetiva(item, nota) && <span className="text-ink-300">—</span>}
               </td>
+              {controleResultado && (
+                <td className="px-2 py-1.5">
+                  <BadgeResultado valor={resultadoDoItem(item, nota)} herdado={!item.resultado} />
+                  {!resultadoDoItem(item, nota) && <span className="text-ink-300">—</span>}
+                </td>
+              )}
               <td className="px-2 py-1.5">
                 <span
                   className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
@@ -886,11 +1148,12 @@ function ListaItensTransferidos({
             </td>
             <td className="px-2 py-2 text-right tabular-nums">{formatarNumeroCurtoBR(totalQtd, 4)}</td>
             <td className="px-2 py-2 text-right font-mono tabular-nums">{formatCurrency(totalValor)}</td>
-            <td colSpan={2} />
+            <td colSpan={controleResultado ? 3 : 2} />
           </tr>
         </tfoot>
       </table>
     </div>
+    </>
   )
 }
 
@@ -899,6 +1162,7 @@ function ListaItensTransferidos({
 // ---------------------------------------------------------------------------------------------
 export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: string; config: ConfigRegistroNotas }) {
   const { prefixoChave } = config
+  const controleResultado = !!config.controleResultado
   const [notas, setNotas] = useState<NotaFiscal[]>([])
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   // "recebedor" é a mesma Empresa cadastrada em Configurações/Frete — usada pra casar o
@@ -907,6 +1171,8 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [filtroNecessidade, setFiltroNecessidade] = useEstadoPersistente(`${prefixoChave}:filtroNecessidade`, '')
+  const [filtroResultadoSalvo, setFiltroResultado] = useEstadoPersistente(`${prefixoChave}:filtroResultado`, '')
+  const filtroResultado = controleResultado ? filtroResultadoSalvo : ''
   const [visao, setVisao] = useEstadoPersistente<'notas' | 'itens'>(`${prefixoChave}:visaoLista`, 'notas')
   // persistido (não só useState): o registro é preenchido aos poucos, muitas vezes intercalando
   // com outras abas (conferir um fornecedor, importar um XML de outra tela…) — sem isso, trocar de
@@ -930,6 +1196,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
 
   const itensForm = form.itens ?? []
   const necessidadeForm = form.necessidade ?? ''
+  const resultadoForm: ResultadoTransferencia = form.resultado ?? ''
 
   async function refresh() {
     setLoading(true)
@@ -994,6 +1261,29 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
     const nota = notaParaStatus
     setNotaParaStatus(null)
     await handleStatusChange(nota, status)
+  }
+
+  // marcar faturado / parado no estoque direto da lista: regrava a nota só com essa mudança (status,
+  // histórico e quem criou continuam os mesmos — ver config.salvar)
+  const handleMarcarResultado: MarcarResultado = async (nota, alvo) => {
+    const dados = dadosDaNota(nota)
+    const atualizados: DadosNota = alvo.itemId
+      ? { ...dados, itens: itensDaNota(nota).map((i) => (i.id === alvo.itemId ? { ...i, resultado: alvo.resultado } : i)) }
+      : { ...dados, resultado: alvo.resultado }
+    try {
+      const salva = await config.salvar(atualizados, nota.criadoPor, nota.id)
+      setNotas((prev) => prev.map((x) => (x.id === salva.id ? salva : x)))
+      // a nota aberta no formulário (editando) acompanha, pra um "Salvar alterações" depois não desfazer a marcação
+      if (editingId === nota.id) {
+        setForm((prev) =>
+          alvo.itemId
+            ? { ...prev, itens: (prev.itens ?? []).map((i) => (i.id === alvo.itemId ? { ...i, resultado: alvo.resultado } : i)) }
+            : { ...prev, resultado: alvo.resultado },
+        )
+      }
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
+    }
   }
 
   function patch(p: Partial<DadosNota>) {
@@ -1133,7 +1423,12 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
     }
     setSaving(true)
     try {
-      await config.salvar({ ...form, necessidade: necessidadeForm, itens: itensValidos }, currentAdmin, editingId, statusInicial)
+      await config.salvar(
+        { ...form, necessidade: necessidadeForm, resultado: resultadoForm, itens: itensValidos },
+        currentAdmin,
+        editingId,
+        statusInicial,
+      )
       handleCancelEdit()
       await refresh()
     } catch (err) {
@@ -1154,6 +1449,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
       dataEmissao: n.dataEmissao ?? '',
       tipo: n.tipo ?? 'PECAS',
       necessidade: n.necessidade ?? '',
+      resultado: n.resultado ?? '',
       itens: itensDaNota(n).map((i) => ({ ...i })),
     })
     setEditingId(n.id)
@@ -1187,9 +1483,16 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
     [query],
   )
 
+  /** O resultado (efetivo) bate com o filtro de resultado escolhido? */
+  function resultadoPassa(resultado: ResultadoTransferencia): boolean {
+    if (!filtroResultado) return true
+    return filtroResultado === FILTRO_SEM_RESULTADO ? !resultado : resultado === filtroResultado
+  }
+
   function itemPassa(item: NotaFiscalItem, nota: NotaFiscal): boolean {
     const efetiva = necessidadeEfetiva(item, nota)
     if (filtroNecessidade === FILTRO_SEM_NECESSIDADE ? !!efetiva : filtroNecessidade && efetiva !== filtroNecessidade) return false
+    if (!resultadoPassa(resultadoDoItem(item, nota))) return false
     if (termos.length === 0) return true
     const alvo = `${item.codigo} ${item.descricao} ${nota.numeroNfe} ${nota.fornecedor} ${nota.recebedor} ${nota.transportadora}`.toLowerCase()
     return termos.every((t) => alvo.includes(t))
@@ -1203,6 +1506,11 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
     } else if (filtroNecessidade) {
       if (n.necessidade !== filtroNecessidade && !itens.some((i) => necessidadeEfetiva(i, n) === filtroNecessidade)) return false
     }
+    // resultado: o da nota (sem produtos) ou o de algum produto dela
+    if (filtroResultado) {
+      const passa = itens.length === 0 ? resultadoPassa(n.resultado ?? '') : itens.some((i) => resultadoPassa(resultadoDoItem(i, n)))
+      if (!passa) return false
+    }
     if (termos.length === 0) return true
     const alvoNota = `${n.numeroNfe} ${n.fornecedor} ${n.recebedor} ${n.transportadora}`.toLowerCase()
     if (termos.every((t) => alvoNota.includes(t))) return true
@@ -1213,8 +1521,8 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
     })
   }
 
-  const filtrosAtivos = termos.length > 0 || !!filtroNecessidade
-  const filtradas = useMemo(() => notas.filter(notaPassa), [notas, termos, filtroNecessidade]) // eslint-disable-line react-hooks/exhaustive-deps
+  const filtrosAtivos = termos.length > 0 || !!filtroNecessidade || !!filtroResultado
+  const filtradas = useMemo(() => notas.filter(notaPassa), [notas, termos, filtroNecessidade, filtroResultado]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const mesAtualKey = chaveMes(new Date())
 
@@ -1255,7 +1563,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
       (a, b) =>
         (b.nota.dataEmissao || '').localeCompare(a.nota.dataEmissao || '') || b.nota.createdAt - a.nota.createdAt,
     )
-  }, [notas, termos, filtroNecessidade]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [notas, termos, filtroNecessidade, filtroResultado]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const opcoesFiltroNecessidade = [
     { value: '', label: 'Todas as necessidades' },
@@ -1366,6 +1674,20 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
                 />
                 <span className="mt-1 block text-xs text-ink-400">Vale pra todos os produtos da nota, menos os que tiverem a sua própria.</span>
               </label>
+              {controleResultado && (
+                <label className="block">
+                  <span className="field-label">Resultado da transferência</span>
+                  <SeletorResultado
+                    valor={resultadoForm}
+                    onChange={(v) => patch({ resultado: v })}
+                    rotuloVazio="— ainda não se sabe —"
+                  />
+                  <span className="mt-1 block text-xs text-ink-400">
+                    Faturado (virou venda) ou parado no estoque (prejuízo). Vale pra todos os produtos, menos os que
+                    tiverem o seu próprio.
+                  </span>
+                </label>
+              )}
               {!editingId && (
                 <SelectField
                   label="Status inicial"
@@ -1379,6 +1701,8 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
             <ItensNotaEditor
               itens={itensForm}
               necessidadeNota={necessidadeForm}
+              resultadoNota={resultadoForm}
+              controleResultado={controleResultado}
               opcoesExtras={necessidadesExtras}
               onChange={(itens) => patch({ itens })}
             />
@@ -1440,12 +1764,29 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
               </option>
             ))}
           </select>
+          {controleResultado && (
+            <select
+              className={`field-input w-auto ${filtroResultado ? 'border-ink-400 bg-ink-100 font-semibold' : ''}`}
+              value={filtroResultado}
+              onChange={(e) => setFiltroResultado(e.target.value)}
+              aria-label="Filtrar pelo resultado da transferência"
+            >
+              <option value="">Todos os resultados</option>
+              {RESULTADOS_TRANSFERENCIA.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
+              <option value={FILTRO_SEM_RESULTADO}>Sem resultado ainda</option>
+            </select>
+          )}
           {filtrosAtivos && (
             <button
               type="button"
               onClick={() => {
                 setQuery('')
                 setFiltroNecessidade('')
+                setFiltroResultado('')
               }}
               className="pill-tab border border-ink-200 py-1.5 text-xs text-ink-600 hover:bg-ink-50"
             >
@@ -1457,7 +1798,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
         {loading ? (
           <p className="text-sm text-ink-400 text-center py-6">Carregando…</p>
         ) : visao === 'itens' ? (
-          <ListaItensTransferidos linhas={linhasItens} corDoStatus={corDoStatus} />
+          <ListaItensTransferidos linhas={linhasItens} corDoStatus={corDoStatus} controleResultado={controleResultado} />
         ) : filtradas.length === 0 ? (
           <p className="text-sm text-ink-400 text-center py-6">
             {notas.length === 0 ? 'Nenhuma nota fiscal registrada ainda.' : 'Nada encontrado com esses filtros.'}
@@ -1481,6 +1822,8 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
                     corDoStatus={corDoStatus}
                     onEdit={handleEdit}
                     onAbrirStatus={setNotaParaStatus}
+                    controleResultado={controleResultado}
+                    onMarcarResultado={handleMarcarResultado}
                   />
                 ))}
               </div>
@@ -1511,6 +1854,8 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
                       corDoStatus={corDoStatus}
                       onEdit={handleEdit}
                       onAbrirStatus={setNotaParaStatus}
+                      controleResultado={controleResultado}
+                      onMarcarResultado={handleMarcarResultado}
                     />
                   ))}
                 </div>
