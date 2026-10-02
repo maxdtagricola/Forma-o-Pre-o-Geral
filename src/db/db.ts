@@ -73,8 +73,11 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
       clearTimeout(timeoutId)
     }
   } catch {
+    // sem o endereço do servidor nem detalhes de infraestrutura no texto — essa mensagem aparece na
+    // tela de qualquer admin (e em prints/compartilhamento de tela); quem precisa do endereço pra
+    // diagnosticar acha ele em DEFAULT_SERVER_URL / localStorage 'serverUrl'
     throw new ServidorInalcancavelError(
-      `Não foi possível conectar ao servidor (${getServerUrl()}). Verifique se o celular está ligado, com o servidor rodando no Termux, e com o Tailscale conectado (tanto no celular quanto neste dispositivo).`,
+      'Não foi possível conectar ao servidor. Verifique se o celular do servidor está ligado, com o servidor rodando, e se o Tailscale está conectado (tanto no celular quanto neste aparelho).',
     )
   }
   if (res.status === 404) {
