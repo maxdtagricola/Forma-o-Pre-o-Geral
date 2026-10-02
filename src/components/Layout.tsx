@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { aplicarTema, getTema, type Tema } from '../theme'
 
 export type TabKey =
   | 'telaInicial'
@@ -90,10 +91,19 @@ export function Layout({
   // recolhido por padrão (igual ao menu do celular, que começa fechado) — só fica expandido se o usuário escolher
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') !== '0')
   const [mobileOpen, setMobileOpen] = useState(false)
+  // tema claro/escuro fica aqui na barra lateral (sempre à mão, em qualquer tela) — vale só nesse
+  // aparelho, cada admin escolhe o seu (ver theme.ts)
+  const [tema, setTema] = useState<Tema>(() => getTema())
 
   useEffect(() => {
     localStorage.setItem('sidebarCollapsed', collapsed ? '1' : '0')
   }, [collapsed])
+
+  function alternarTema() {
+    const novo: Tema = tema === 'escuro' ? 'claro' : 'escuro'
+    setTema(novo)
+    aplicarTema(novo)
+  }
 
   function handleSelect(tab: TabKey) {
     onChangeTab(tab)
@@ -195,6 +205,43 @@ export function Layout({
             )
           })}
         </nav>
+
+        <div className="border-t border-ink-100 px-2 pt-2">
+          <button
+            type="button"
+            onClick={alternarTema}
+            role="switch"
+            aria-checked={tema === 'escuro'}
+            title={tema === 'escuro' ? 'Mudar pro modo claro' : 'Mudar pro modo escuro'}
+            aria-label={tema === 'escuro' ? 'Mudar pro modo claro' : 'Mudar pro modo escuro'}
+            className={`w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-ink-500 hover:bg-ink-100 hover:text-ink-800 transition ${
+              collapsed ? 'justify-center' : ''
+            }`}
+          >
+            <span aria-hidden className="text-base leading-none">
+              {tema === 'escuro' ? '☀' : '☾'}
+            </span>
+            {!collapsed && (
+              <>
+                <span className="flex-1 text-left">{tema === 'escuro' ? 'Modo escuro' : 'Modo claro'}</span>
+                <span
+                  aria-hidden
+                  className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition ${
+                    tema === 'escuro' ? 'bg-ink-800' : 'bg-ink-200'
+                  }`}
+                >
+                  {/* bg-surface/bg-ink-800 (variáveis que trocam com o tema) em vez de branco/preto fixos —
+                   * no modo escuro a trilha fica clara e a bolinha escura, sempre com contraste */}
+                  <span
+                    className={`inline-block h-4 w-4 rounded-full bg-surface shadow transition-transform ${
+                      tema === 'escuro' ? 'translate-x-[18px]' : 'translate-x-0.5'
+                    }`}
+                  />
+                </span>
+              </>
+            )}
+          </button>
+        </div>
 
         <div className="border-t border-ink-100 p-3">
           {collapsed ? (

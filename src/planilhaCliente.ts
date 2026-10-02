@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx'
 import { calculateItem } from './calc/calculator'
-import { cellValue, clearCellValue, localizarTabelaItens, normalizar, setCellValue, vazio } from './xlsxSheetUtil'
+import { abaComTabelaItens, cellTexto, cellValue, clearCellValue, localizarTabelaItens, normalizar, setCellValue } from './xlsxSheetUtil'
+import { mesmaReferencia } from './importacao/referencias'
 import { avisar } from './dialogs'
 import type { QuoteItem } from './types'
 
@@ -34,17 +35,18 @@ export interface PlanilhaAtualizada {
 export function gerarPlanilhaAtualizada(conteudoBase64: string, items: QuoteItem[]): PlanilhaAtualizada {
   const buffer = base64ParaArrayBuffer(conteudoBase64)
   const workbook = XLSX.read(buffer, { type: 'array' })
-  const ws = workbook.Sheets[workbook.SheetNames[0]]
+  // a mesma aba de onde a cotação foi importada (a primeira que tem a tabela de itens)
+  const { ws } = abaComTabelaItens(workbook)
 
   const tabela = localizarTabelaItens(ws)
   let itensAtualizados = 0
   let somaVlrTotal = 0
 
   for (let r = tabela.linhaCabecalho + 1; r <= tabela.maxRow; r++) {
-    const referenciaCel = cellValue(ws, r, tabela.colReferencia)
-    if (!vazio(referenciaCel)) {
-      const referenciaTexto = String(referenciaCel).trim().toLowerCase()
-      const item = items.find((it) => it.product.referencia.trim().toLowerCase() === referenciaTexto)
+    const referenciaTexto = cellTexto(ws, r, tabela.colReferencia)
+    if (referenciaTexto) {
+      // mesma referência ignorando espaço/hífen/maiúscula ("KK-45376" = "kk45376")
+      const item = items.find((it) => it.product.referencia.trim() && mesmaReferencia(it.product.referencia, referenciaTexto))
       if (item) {
         const resultado = calculateItem(item.product, item.pricing)
         if (tabela.colVlrUnt > -1) {
@@ -57,7 +59,7 @@ export function gerarPlanilhaAtualizada(conteudoBase64: string, items: QuoteItem
           setCellValue(ws, r, tabela.colEntrega, item.product.prazoEntrega.trim())
         }
         for (let c = 1; c <= tabela.maxCol; c++) {
-          if (normalizar(cellValue(ws, r, c)) === 'cotar') clearCellValue(ws, r, c)
+          if (/^(a\s+)?cotar[\s!.]*$/.test(normalizar(cellValue(ws, r, c)))) clearCellValue(ws, r, c)
         }
         itensAtualizados++
       }
@@ -138,6 +140,20 @@ export function abrirParaImpressao(htmlTable: string, titulo: string): void {
 </html>`)
   win.document.close()
   setTimeout(() => win.print(), 300)
+}
+
+/** Igual a abrirParaImpressao, mas com uma página HTML já completa (com o próprio CSS) — usado
+ * quando a prévia precisa sair impressa exatamente como foi montada (ex.: pedido de compra). */
+export function abrirPaginaParaImpressao(htmlCompleto: string): void {
+  const win = window.open('', '_blank')
+  if (!win) {
+    void avisar('O navegador bloqueou a nova aba — permita pop-ups pra esse site e tente de novo.')
+    return
+  }
+  win.document.write(htmlCompleto)
+  win.document.close()
+  // espera a logo (imagem embutida) carregar antes de abrir a impressão
+  setTimeout(() => win.print(), 500)
 }
 
 export function linkWhatsApp(mensagem: string): string {

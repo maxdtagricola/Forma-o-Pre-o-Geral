@@ -1,4 +1,4 @@
-import type { DadosExtraidosNotaFiscal } from './pdfNotaFiscal'
+import type { DadosExtraidosNotaFiscal, ItemNotaExtraido } from './pdfNotaFiscal'
 
 // -----------------------------------------------------------------------
 // Lê o XML da NF-e (o mesmo arquivo autorizado pela SEFAZ) e extrai os
@@ -145,7 +145,34 @@ export function interpretarXmlNotaFiscal(xmlTexto: string, listas: ListasConheci
   const transportadora = nomeOuBrutoDoXml(transporta && textoDe(transporta, 'xNome'), listas.transportadorasConhecidas)
   if (transportadora) resultado.transportadora = transportadora
 
+  const itens = itensDoXml(infNFe)
+  if (itens.length > 0) resultado.itens = itens
+
   return resultado
+}
+
+/** Os produtos da NF-e — um <det> por item, com os dados dele em <prod>: código (cProd), descrição
+ * (xProd), NCM, unidade comercial (uCom), quantidade (qCom), valor unitário (vUnCom) e o valor
+ * total do item (vProd). Quantidade/valores vêm sempre com ponto decimal no XML. */
+function itensDoXml(infNFe: Element): ItemNotaExtraido[] {
+  const itens: ItemNotaExtraido[] = []
+  for (const det of Array.from(infNFe.getElementsByTagName('det'))) {
+    const prod = det.getElementsByTagName('prod')[0]
+    if (!prod) continue
+    const quantidade = numeroDe(prod, 'qCom') ?? numeroDe(prod, 'qTrib') ?? 0
+    const valorTotal = numeroDe(prod, 'vProd') ?? 0
+    const valorUnitario = numeroDe(prod, 'vUnCom') ?? (quantidade > 0 ? valorTotal / quantidade : 0)
+    itens.push({
+      codigo: textoDe(prod, 'cProd') ?? '',
+      descricao: textoDe(prod, 'xProd') ?? '',
+      ncm: textoDe(prod, 'NCM') ?? '',
+      unidade: textoDe(prod, 'uCom') ?? textoDe(prod, 'uTrib') ?? '',
+      quantidade,
+      valorUnitario,
+      valorTotal,
+    })
+  }
+  return itens
 }
 
 export async function extrairDadosNotaFiscalXml(file: File, listas: ListasConhecidasXml): Promise<DadosExtraidosNotaFiscal> {

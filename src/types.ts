@@ -63,6 +63,38 @@ export const NOTA_FISCAL_TIPOS: { value: NotaFiscalTipo; label: string }[] = [
   { value: 'IMPLEMENTOS', label: 'Implementos' },
 ]
 
+/** Por que algo foi transferido — o "selecionador" da nota e de cada produto dela, pra depois
+ * filtrar quais transferências eram de fato necessárias (venda já fechada, oficina parada…) e quais
+ * foram só reposição/remanejamento. Além dessas, aceita qualquer outra digitada na hora. */
+export const NECESSIDADES_TRANSFERENCIA: { value: string; label: string }[] = [
+  { value: 'VENDA', label: 'Venda (cliente aguardando)' },
+  { value: 'OFICINA', label: 'Oficina / ordem de serviço' },
+  { value: 'GARANTIA', label: 'Garantia' },
+  { value: 'ESTOQUE', label: 'Reposição de estoque' },
+  { value: 'REMANEJAMENTO', label: 'Remanejamento entre filiais' },
+  { value: 'DEVOLUCAO', label: 'Devolução' },
+]
+
+export function labelNecessidade(valor: string | undefined): string {
+  if (!valor) return ''
+  return NECESSIDADES_TRANSFERENCIA.find((n) => n.value === valor)?.label ?? valor
+}
+
+/** Um produto da nota (as linhas "Dados do produto/serviço" da DANFE, ou os <det> do XML). */
+export interface NotaFiscalItem {
+  id: string
+  /** Código do produto na nota (cProd) — normalmente o código interno da empresa. */
+  codigo: string
+  descricao: string
+  ncm: string
+  unidade: string
+  quantidade: number
+  valorUnitario: number
+  valorTotal: number
+  /** Necessidade da transferência desse produto — vazio = vale a da nota inteira. */
+  necessidade: string
+}
+
 export interface NotaFiscal {
   id: string
   numeroNfe: string
@@ -74,6 +106,11 @@ export interface NotaFiscal {
   /** Data em que a nota foi emitida (YYYY-MM-DD) — pode ser anterior à data de registro no sistema. */
   dataEmissao: string
   tipo: NotaFiscalTipo
+  /** Necessidade da transferência da nota como um todo (padrão pros produtos dela). Registros
+   * antigos não têm. */
+  necessidade?: string
+  /** Produtos a que a nota se refere. Registros antigos não têm. */
+  itens?: NotaFiscalItem[]
   status: NotaFiscalStatus
   statusHistory: NotaFiscalStatusChange[]
   criadoPor: string
@@ -89,6 +126,8 @@ export const DEFAULT_NOTA_FISCAL: Omit<NotaFiscal, 'id' | 'criadoPor' | 'created
   valorFrete: 0,
   dataEmissao: '',
   tipo: 'PECAS',
+  necessidade: '',
+  itens: [],
 }
 
 // ---------------------------------------------------------------------------
@@ -360,6 +399,17 @@ export interface DadosFreteTransportadora {
   camposPedido: Record<string, string>
   valorCotacao: string
   numeroCotacao: string
+  /** Quando foi salvo pela última vez. */
+  salvoEm?: number
+}
+
+/** Medidas da carga pro pedido de frete — comprimento/largura/altura sempre em centímetros e peso
+ * em quilos, informados uma vez e repassados (já com a unidade) pra todas as transportadoras. */
+export interface MedidasCargaFrete {
+  comprimentoCm: number
+  larguraCm: number
+  alturaCm: number
+  pesoKg: number
 }
 
 export interface QuoteRecord {
@@ -391,8 +441,16 @@ export interface QuoteRecord {
   dataSolicitacao?: number
   /** Número da cotação de frete que a transportadora informou, pra referência depois. */
   numeroCotacaoTransportadora?: string
-  /** Dados de pedido de frete + retorno (valor, número) salvos por transportadora, ver Frete. */
+  /** Dados de pedido de frete + retorno (valor, número) salvos por transportadora, ver Frete —
+   * formato antigo, um conjunto só pra cotação inteira (hoje só usado quando os itens ainda não têm
+   * fornecedor definido). O atual é `fretePorFornecedor`. */
   freteTransportadoras?: Record<string, DadosFreteTransportadora>
+  /** Frete separado por fornecedor (chave: nome do fornecedor dos itens em maiúsculas, ver
+   * chaveFornecedorFrete) e, dentro dele, por transportadora — cada fornecedor despacha de um
+   * lugar diferente e tem as suas próprias cotações de frete. */
+  fretePorFornecedor?: Record<string, Record<string, DadosFreteTransportadora>>
+  /** Medidas da carga (cm/kg) por fornecedor, informadas na aba Frete. */
+  cargaFretePorFornecedor?: Record<string, MedidasCargaFrete>
   /** Valores fechados por item na aba Pedido de Compra — chave é o id do QuoteItem. */
   itensFechados?: Record<string, ItemFechado>
   createdAt: number

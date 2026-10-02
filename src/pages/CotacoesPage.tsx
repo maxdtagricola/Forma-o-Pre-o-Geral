@@ -75,9 +75,13 @@ function QuoteCard({
           <span className={`inline-block transition-transform ${expandido ? 'rotate-90' : ''}`}>▸</span>
         </button>
 
+        {/* clicar na cotação só mostra os detalhes (o mesmo que a setinha) — abrir na Precificação é
+         * pelo "Editar", pra ninguém sair da lista sem querer só por ter tocado na linha */}
         <button
           type="button"
-          onClick={() => onOpenQuote(r)}
+          onClick={() => setExpandido((v) => !v)}
+          aria-expanded={expandido}
+          title={expandido ? 'Recolher detalhes' : 'Ver detalhes'}
           className="flex-1 min-w-0 flex flex-wrap items-center gap-2 text-left py-1"
         >
           <span className="font-mono text-sm text-ink-500">{r.codigo || '—'}</span>
@@ -108,7 +112,7 @@ function QuoteCard({
             ⋯
           </button>
           {menuAberto && (
-            <div className="absolute right-0 top-8 z-10 w-36 rounded-lg border border-ink-100 bg-white py-1 shadow-lg">
+            <div className="absolute right-0 top-8 z-10 w-36 rounded-lg border border-ink-100 bg-surface py-1 shadow-lg">
               <button
                 type="button"
                 onClick={() => {
@@ -135,6 +139,16 @@ function QuoteCard({
               <p className="text-ink-400">Em análise por</p>
               <p className="text-ink-700">{r.responsavelStatus || '—'}</p>
             </div>
+            <div>
+              <p className="text-ink-400">Itens</p>
+              <p className="text-ink-700">{r.summary.totalItens || r.items.length}</p>
+            </div>
+            {r.maquina && (
+              <div>
+                <p className="text-ink-400">Máquina</p>
+                <p className="text-ink-700">{r.maquina}</p>
+              </div>
+            )}
           </div>
           <div>
             <p className="text-ink-400 mb-1">Alterar status</p>
@@ -155,6 +169,13 @@ function QuoteCard({
               </select>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => onOpenQuote(r)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 px-3 py-1.5 text-xs font-semibold text-ink-700 hover:bg-ink-50 transition"
+          >
+            Editar (abrir na Precificação)
+          </button>
         </div>
       )}
     </div>

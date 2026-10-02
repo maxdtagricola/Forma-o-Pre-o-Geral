@@ -54,6 +54,7 @@ export function Dashboard({
   numeroCotacaoTransportadora,
   onChangeNumeroCotacaoTransportadora,
   cotacaoSalva,
+  cotacaoId,
 }: {
   currentAdmin: string
   codigo: string
@@ -96,8 +97,16 @@ export function Dashboard({
   onChangeNumeroCotacaoTransportadora: (v: string) => void
   /** true por alguns segundos logo depois de salvar — mostra a confirmação ao lado do botão, agora em Itens da cotação. */
   cotacaoSalva: boolean
+  /** Id da cotação no servidor — o frete de cada fornecedor (Itens da cotação) é salvo direto nela. */
+  cotacaoId?: string
 }) {
   const [mostrarEnvioCotacao, setMostrarEnvioCotacao] = useState(false)
+  // itens em foco em Itens da cotação (marcados ou filtrados) — "Valores dos produtos" mostra só eles
+  const [recorteItens, setRecorteItens] = useState<{ ids: string[]; motivo: string } | undefined>(undefined)
+  const itensValores = useMemo(
+    () => (recorteItens ? items.filter((i) => recorteItens.ids.includes(i.id)) : items),
+    [items, recorteItens],
+  )
   const travadaPorOutro = activeStatus !== 'PENDENTE' && !!activeResponsavel && activeResponsavel !== currentAdmin
 
   const empresaOptions = [
@@ -234,11 +243,16 @@ export function Dashboard({
         onSave={onSave}
         podeSalvar={!travadaPorOutro}
         salvoRecentemente={cotacaoSalva}
+        cotacaoId={cotacaoId}
+        onRecorteChange={setRecorteItens}
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         <div className="lg:col-span-3 space-y-6">
-          <ProductValuesTable items={items} />
+          <ProductValuesTable
+            items={itensValores}
+            recorte={recorteItens ? { motivo: recorteItens.motivo, total: items.length } : undefined}
+          />
         </div>
 
         <div className="lg:col-span-2 space-y-4">

@@ -8,7 +8,15 @@ import type { QuoteItem } from '../types'
  * cada produto custa (frete por unidade e total, valor em preço de compra, custo — já com impostos
  * — e preço de venda, cada um unitário e total). Só leitura — a edição continua na tabela de Itens
  * da cotação. */
-export function ProductValuesTable({ items }: { items: QuoteItem[] }) {
+export function ProductValuesTable({
+  items,
+  recorte,
+}: {
+  items: QuoteItem[]
+  /** Quando a tabela está mostrando só parte dos itens (os marcados ou os filtrados em Itens da
+   * cotação) — explica o recorte e de quantos itens no total. */
+  recorte?: { motivo: string; total: number }
+}) {
   const linhas = useMemo(
     () =>
       items.map((item) => {
@@ -45,6 +53,12 @@ export function ProductValuesTable({ items }: { items: QuoteItem[] }) {
       <p className="text-sm text-ink-400 mb-4">
         Frete, valor de compra, custo e preço de venda de cada item da cotação — unitário e total.
       </p>
+      {recorte && (
+        <p className="mb-3 inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-brand-200 bg-brand-50 px-2.5 py-1.5 text-xs text-ink-700">
+          <span aria-hidden>◉</span>
+          Mostrando só <strong className="text-ink-900">{items.length}</strong> de {recorte.total} itens — {recorte.motivo}.
+        </p>
+      )}
       <div className="overflow-x-auto rounded-xl border border-ink-100">
         <table className="w-full text-sm border-collapse">
           <thead>
@@ -87,6 +101,15 @@ export function ProductValuesTable({ items }: { items: QuoteItem[] }) {
               </tr>
             ))}
           </tbody>
+          {linhas.length === 0 && (
+            <tbody>
+              <tr className="border-t border-ink-100">
+                <td colSpan={8} className="py-4 text-center text-sm text-ink-400">
+                  Nenhum item nesse recorte.
+                </td>
+              </tr>
+            </tbody>
+          )}
           {linhas.length > 1 && (
             <tfoot>
               <tr className="border-t-2 border-ink-200 font-semibold">

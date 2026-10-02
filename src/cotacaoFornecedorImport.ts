@@ -1,7 +1,10 @@
 import * as XLSX from 'xlsx'
-import { createWorker } from 'tesseract.js'
-import { cellValue, localizarTabelaItens, vazio } from './xlsxSheetUtil'
-import { carregarPdfjs, extrairTextoPdf } from './pdfNotaFiscal'
+import { cellNumero, cellTexto, cellValue, procurarTabelaItens, sheetDims, vazio } from './xlsxSheetUtil'
+import { lerPdf } from './importacao/leitorPdf'
+import { ocrDeImagem } from './importacao/ocr'
+import { agruparEmLinhas, normalizarTexto, type LinhaTexto, type PaginaPosicionada } from './importacao/textoPosicionado'
+import { acharReferenciaNaLinha, mesmaReferencia } from './importacao/referencias'
+import { valoresMonetariosNoTexto } from './numeros'
 import type { QuoteItem } from './types'
 
 /** Um item da cotação atual que foi encontrado (pela Referência) no arquivo importado. */
@@ -9,159 +12,219 @@ export interface ItemDetectadoFornecedor {
   itemId: string
   referencia: string
   descricao: string
-  /** Preço unitário encontrado perto da referência no arquivo — sempre revisável/editável antes de
+  /** Preço unitário encontrado junto da referência no arquivo — sempre revisável/editável antes de
    * confirmar, nunca aplicado direto: leitura de PDF/planilha variada e OCR de imagem não são 100%
    * confiáveis. */
   valorUnitarioDetectado?: number
   /** Valor total encontrado junto do unitário, quando o arquivo trazia os dois. */
   valorTotalDetectado?: number
+  /** true quando unitário × quantidade do item bate com o total encontrado — a leitura "fecha a
+   * conta", então é bem provável que esteja certa. */
+  conferido?: boolean
+  marcaDetectada?: string
+  prazoDetectado?: string
 }
 
 export interface ResultadoImportacaoFornecedor {
-  /** Nome de um fornecedor já cadastrado que apareceu no texto do arquivo — ainda assim precisa de
-   * confirmação explícita do usuário, nunca é aplicado sozinho. */
+  /** Fornecedor já cadastrado que apareceu no arquivo (pelo CNPJ ou pelo nome) — ainda assim
+   * precisa de confirmação explícita do usuário, nunca é aplicado sozinho. */
   fornecedorDetectado?: string
   itens: ItemDetectadoFornecedor[]
-  /** Preenchido quando o arquivo foi lido (sem erro) mas não achou nenhum texto aproveitável — ex.:
-   * imagem borrada, PDF escaneado que o OCR não deu conta. */
+  /** Preenchido quando o arquivo foi lido (sem erro) mas não achou nada aproveitável — ex.: imagem
+   * borrada, PDF escaneado que o OCR não deu conta. */
   avisoLeituraFraca?: string
 }
 
-const EXTENSOES_PLANILHA = ['xlsx', 'xls', 'csv']
+export interface FornecedorConhecido {
+  nome: string
+  cnpj?: string
+}
+
+const EXTENSOES_PLANILHA = ['xlsx', 'xlsm', 'xls', 'csv', 'ods']
 const EXTENSOES_IMAGEM = ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif']
 
 function extensaoDoArquivo(nome: string): string {
   return nome.toLowerCase().split('.').pop() ?? ''
 }
 
-/** Primeiro nome de fornecedor já cadastrado que aparece em algum lugar do texto. */
-function detectarFornecedorConhecido(texto: string, fornecedoresConhecidos: string[]): string | undefined {
-  const textoMaiusculo = texto.toUpperCase()
-  for (const nome of fornecedoresConhecidos) {
-    const nomeLimpo = nome.trim()
-    if (nomeLimpo && textoMaiusculo.includes(nomeLimpo.toUpperCase())) return nome
+/** Fornecedor cadastrado que aparece no texto — primeiro pelo CNPJ (identifica sem ambiguidade),
+ * depois pelo nome (o mais comprido que aparecer, pra "TRACTOR TERRA PEÇAS" ganhar de "TRACTOR"). */
+function detectarFornecedorConhecido(texto: string, fornecedores: FornecedorConhecido[]): string | undefined {
+  const digitos = texto.replace(/\D/g, '')
+  for (const f of fornecedores) {
+    const cnpj = (f.cnpj ?? '').replace(/\D/g, '')
+    if (cnpj.length === 14 && digitos.includes(cnpj)) return f.nome
   }
-  return undefined
+  const normal = normalizarTexto(texto)
+  const porNome = fornecedores
+    .filter((f) => {
+      const nome = normalizarTexto(f.nome)
+      return nome.length >= 3 && new RegExp(`(^|[^A-Z0-9])${nome.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^A-Z0-9]|$)`).test(normal)
+    })
+    .sort((a, b) => b.nome.length - a.nome.length)
+  return porNome[0]?.nome
 }
 
-/** Todos os números em formato de dinheiro brasileiro ("123,45" ou "1.234,56") numa janela de
- * texto, na ordem em que aparecem — uma linha de cotação solta costuma trazer o valor unitário
- * seguido do total ("... R$ 50,00 ... R$ 500,00"), então o primeiro vira unitário e o segundo,
- * total (ver interpretarTextoSolto). */
-function extrairValoresMonetarios(janela: string): number[] {
-  const matches = janela.match(/\d{1,3}(?:\.\d{3})*,\d{2}|\d+,\d{2}/g) ?? []
-  return matches
-    .map((m) => parseFloat(m.replace(/\.(?=\d{3}(?:,|$))/g, '').replace(',', '.')))
-    .filter((v) => Number.isFinite(v) && v > 0)
+/** Escolhe unitário/total entre os valores de dinheiro achados junto da referência, usando a
+ * quantidade do item pra conferir: o par em que unitário × quantidade = total é o certo (mesmo que
+ * apareçam outros valores na linha, tipo IPI, desconto ou preço de lista). Sem par que feche a
+ * conta, o primeiro valor é o unitário e um seguinte maior ou igual a ele, o total. */
+export function escolherUnitarioETotal(
+  valores: number[],
+  quantidade: number,
+): { unitario?: number; total?: number; conferido: boolean } {
+  if (valores.length === 0) return { conferido: false }
+  const qtd = quantidade > 0 ? quantidade : 1
+  for (let i = 0; i < valores.length; i++) {
+    for (let j = 0; j < valores.length; j++) {
+      if (i === j) continue
+      const esperado = valores[i] * qtd
+      if (Math.abs(esperado - valores[j]) <= Math.max(0.02, valores[j] * 0.005)) {
+        return { unitario: valores[i], total: valores[j], conferido: true }
+      }
+    }
+  }
+  // a quantidade às vezes vem escrita como valor ("10,00") antes do preço — não é o unitário
+  const candidatos = valores.length >= 2 && quantidade > 0 && valores[0] === quantidade ? valores.slice(1) : valores
+  // quantidade 1 (ou um valor só): unitário = total
+  if (candidatos.length === 1) return { unitario: candidatos[0], total: qtd === 1 ? candidatos[0] : undefined, conferido: false }
+  const [unitario, ...resto] = candidatos
+  const total = resto.find((v) => v >= unitario)
+  return { unitario, total, conferido: false }
 }
 
-/** Acha, no texto solto (PDF ou OCR de imagem), cada referência dos itens da cotação atual — e os
- * valores monetários logo depois dela, se tiver. Uma linha de cotação costuma trazer o unitário
- * seguido do total ("... R$ 50,00 ... R$ 500,00"): o primeiro valor vira unitário; o segundo só
- * vira total se for maior ou igual ao unitário (total = unitário × quantidade, quantidade ≥ 1) —
- * senão é mais provável ser outro número solto (código, prazo…), não um total de verdade. Só
- * procura pelas referências que já existem na cotação porque só essas podem virar uma linha no
- * comparador (ele é organizado por item já existente, não por item novo). */
-function interpretarTextoSolto(texto: string, items: QuoteItem[], fornecedoresConhecidos: string[]): ResultadoImportacaoFornecedor {
-  const textoMaiusculo = texto.toUpperCase()
-  const fornecedorDetectado = detectarFornecedorConhecido(texto, fornecedoresConhecidos)
+const PRAZO_NO_TEXTO = /\b(IMEDIATO|PRONTA ENTREGA|\d{1,3}\s*(?:DIAS?(?:\s+[ÚU]TEIS)?|D\.?U\.?|DD))\b/
 
-  const itens: ItemDetectadoFornecedor[] = []
+/** Acha cada referência dos itens da cotação nas linhas lidas (PDF/OCR) e pega os valores da mesma
+ * linha (ou da linha logo abaixo, quando o preço quebrou pra baixo). Só procura pelas referências
+ * que já existem na cotação, porque só essas podem virar uma linha no comparador. */
+function interpretarLinhas(linhas: LinhaTexto[], items: QuoteItem[], ocr: boolean): ItemDetectadoFornecedor[] {
+  const palavrasPorLinha = linhas.map((l) => l.texto.split(/\s+/).filter(Boolean))
+  const encontrados: ItemDetectadoFornecedor[] = []
   for (const item of items) {
     const referencia = item.product.referencia.trim()
     if (!referencia) continue
-    const posicao = textoMaiusculo.indexOf(referencia.toUpperCase())
-    if (posicao === -1) continue
-    const janela = texto.slice(posicao, posicao + 160)
-    const [valorUnitarioDetectado, possivelTotal] = extrairValoresMonetarios(janela)
-    itens.push({
-      itemId: item.id,
-      referencia,
-      descricao: item.product.descricao,
-      valorUnitarioDetectado,
-      valorTotalDetectado:
-        possivelTotal !== undefined && valorUnitarioDetectado !== undefined && possivelTotal >= valorUnitarioDetectado
-          ? possivelTotal
-          : undefined,
-    })
+    let achado: ItemDetectadoFornecedor | undefined
+    for (let i = 0; i < linhas.length && !achado; i++) {
+      const posicao = acharReferenciaNaLinha(palavrasPorLinha[i], referencia, ocr)
+      if (!posicao) continue
+      // o que vem depois da referência na mesma linha (e, se não tiver preço, a linha de baixo)
+      const resto = palavrasPorLinha[i].slice(posicao[1]).join(' ')
+      let valores = valoresMonetariosNoTexto(resto)
+      if (valores.length === 0 && i + 1 < linhas.length) valores = valoresMonetariosNoTexto(linhas[i + 1].texto)
+      const { unitario, total, conferido } = escolherUnitarioETotal(valores, item.product.qtd || 0)
+      const prazo = normalizarTexto(resto).match(PRAZO_NO_TEXTO)?.[1]
+      achado = {
+        itemId: item.id,
+        referencia,
+        descricao: item.product.descricao,
+        valorUnitarioDetectado: unitario,
+        valorTotalDetectado: total,
+        conferido,
+        ...(prazo ? { prazoDetectado: prazo } : {}),
+      }
+    }
+    if (achado) encontrados.push(achado)
   }
+  return encontrados
+}
 
-  return { fornecedorDetectado, itens }
+function interpretarPaginas(paginas: PaginaPosicionada[], items: QuoteItem[]): ItemDetectadoFornecedor[] {
+  const ocr = paginas.some((p) => p.ocr)
+  const linhas = paginas.flatMap((p) => agruparEmLinhas(p.trechos))
+  const exatos = interpretarLinhas(linhas, items, false)
+  if (!ocr) return exatos
+  // OCR: tenta de novo, tolerando trocas típicas (O/0, I/1, S/5…), só pros itens que faltaram
+  const faltando = items.filter((item) => !exatos.some((e) => e.itemId === item.id))
+  return [...exatos, ...interpretarLinhas(linhas, faltando, true)]
 }
 
 async function importarDePlanilha(
   file: File,
   items: QuoteItem[],
-  fornecedoresConhecidos: string[],
+  fornecedores: FornecedorConhecido[],
 ): Promise<ResultadoImportacaoFornecedor> {
   const buffer = await file.arrayBuffer()
   const workbook = XLSX.read(buffer, { type: 'array' })
-  const ws = workbook.Sheets[workbook.SheetNames[0]]
-  const tabela = localizarTabelaItens(ws)
 
   let textoCompleto = ''
-  for (let r = 1; r <= tabela.maxRow; r++) {
-    for (let c = 1; c <= tabela.maxCol; c++) {
-      const v = cellValue(ws, r, c)
-      if (!vazio(v)) textoCompleto += ` ${String(v)}`
+  const encontrados = new Map<string, ItemDetectadoFornecedor>()
+
+  for (const nomeAba of workbook.SheetNames) {
+    const ws = workbook.Sheets[nomeAba]
+    if (!ws) continue
+    const { maxRow, maxCol } = sheetDims(ws)
+    for (let r = 1; r <= maxRow; r++) {
+      for (let c = 1; c <= maxCol; c++) {
+        const v = cellValue(ws, r, c)
+        if (!vazio(v)) textoCompleto += ` ${String(v)}`
+      }
+    }
+
+    const tabela = procurarTabelaItens(ws)
+    if (tabela && tabela.colReferencia > 0) {
+      // planilha com cabeçalho reconhecido: lê cada coluna pelo nome dela
+      for (let r = tabela.linhaCabecalho + 1; r <= tabela.maxRow; r++) {
+        const referenciaCel = cellTexto(ws, r, tabela.colReferencia)
+        if (!referenciaCel) continue
+        const item = items.find((i) => i.product.referencia.trim() && mesmaReferencia(i.product.referencia, referenciaCel))
+        if (!item || encontrados.has(item.id)) continue
+        const unitarioCel = tabela.colVlrUnt > 0 ? cellNumero(ws, r, tabela.colVlrUnt) : undefined
+        const totalCel = tabela.colVlrTotal > 0 ? cellNumero(ws, r, tabela.colVlrTotal) : undefined
+        const qtd = item.product.qtd || 0
+        const conferido =
+          unitarioCel !== undefined && totalCel !== undefined && qtd > 0 && Math.abs(unitarioCel * qtd - totalCel) <= Math.max(0.02, totalCel * 0.005)
+        const marca = tabela.colMarca > 0 ? cellTexto(ws, r, tabela.colMarca) : ''
+        const prazo = tabela.colEntrega > 0 ? cellTexto(ws, r, tabela.colEntrega) : ''
+        encontrados.set(item.id, {
+          itemId: item.id,
+          referencia: item.product.referencia,
+          descricao: item.product.descricao,
+          valorUnitarioDetectado: unitarioCel !== undefined && unitarioCel > 0 ? unitarioCel : undefined,
+          valorTotalDetectado: totalCel !== undefined && totalCel > 0 ? totalCel : undefined,
+          conferido,
+          ...(marca ? { marcaDetectada: marca.toUpperCase() } : {}),
+          ...(prazo ? { prazoDetectado: prazo.toUpperCase() } : {}),
+        })
+      }
+    }
+
+    // sem cabeçalho reconhecível (ou referência fora dele): procura cada referência em qualquer
+    // célula e pega os números da mesma linha à direita dela
+    for (const item of items) {
+      if (encontrados.has(item.id) || !item.product.referencia.trim()) continue
+      for (let r = 1; r <= maxRow && !encontrados.has(item.id); r++) {
+        for (let c = 1; c <= maxCol; c++) {
+          const texto = cellTexto(ws, r, c)
+          if (!texto || !mesmaReferencia(item.product.referencia, texto)) continue
+          const numeros: number[] = []
+          for (let c2 = c + 1; c2 <= maxCol; c2++) {
+            const bruto = cellValue(ws, r, c2)
+            if (typeof bruto === 'number') {
+              if (bruto > 0) numeros.push(bruto)
+            } else if (typeof bruto === 'string') {
+              numeros.push(...valoresMonetariosNoTexto(bruto))
+            }
+          }
+          const { unitario, total, conferido } = escolherUnitarioETotal(numeros, item.product.qtd || 0)
+          encontrados.set(item.id, {
+            itemId: item.id,
+            referencia: item.product.referencia,
+            descricao: item.product.descricao,
+            valorUnitarioDetectado: unitario,
+            valorTotalDetectado: total,
+            conferido,
+          })
+          break
+        }
+      }
     }
   }
-  const fornecedorDetectado = detectarFornecedorConhecido(textoCompleto, fornecedoresConhecidos)
 
-  const itemPorReferencia = new Map<string, QuoteItem>()
-  for (const item of items) {
-    const ref = item.product.referencia.trim().toLowerCase()
-    if (ref) itemPorReferencia.set(ref, item)
+  return {
+    fornecedorDetectado: detectarFornecedorConhecido(textoCompleto, fornecedores),
+    itens: items.filter((i) => encontrados.has(i.id)).map((i) => encontrados.get(i.id)!),
   }
-
-  const itens: ItemDetectadoFornecedor[] = []
-  for (let r = tabela.linhaCabecalho + 1; r <= tabela.maxRow; r++) {
-    const referenciaCel = cellValue(ws, r, tabela.colReferencia)
-    if (vazio(referenciaCel)) continue
-    const item = itemPorReferencia.get(String(referenciaCel).trim().toLowerCase())
-    if (!item) continue
-    const valorUntCel = tabela.colVlrUnt > -1 ? cellValue(ws, r, tabela.colVlrUnt) : undefined
-    const valorTotalCel = tabela.colVlrTotal > -1 ? cellValue(ws, r, tabela.colVlrTotal) : undefined
-    itens.push({
-      itemId: item.id,
-      referencia: item.product.referencia,
-      descricao: item.product.descricao,
-      valorUnitarioDetectado: typeof valorUntCel === 'number' && valorUntCel > 0 ? valorUntCel : undefined,
-      valorTotalDetectado: typeof valorTotalCel === 'number' && valorTotalCel > 0 ? valorTotalCel : undefined,
-    })
-  }
-
-  return { fornecedorDetectado, itens }
-}
-
-/** OCR de uma imagem (foto/print) — o worker do tesseract.js baixa o pacote de idioma da CDN na
- * primeira vez que roda, por isso precisa de internet (o app já depende disso pra falar com o
- * servidor no celular). Demora alguns segundos, mesmo numa imagem pequena. */
-async function reconhecerTextoImagem(imagem: string | HTMLCanvasElement): Promise<string> {
-  const worker = await createWorker('por')
-  try {
-    const { data } = await worker.recognize(imagem)
-    return data.text
-  } finally {
-    await worker.terminate()
-  }
-}
-
-/** Renderiza a primeira página do PDF como imagem e roda OCR nela — usado só quando o PDF não tem
- * camada de texto (documento escaneado), já que nesse caso a extração de texto normal vem vazia. */
-async function ocrPrimeiraPaginaPdf(file: File): Promise<string> {
-  const pdfjsLib = await carregarPdfjs()
-  const buffer = await file.arrayBuffer()
-  const pdf = await pdfjsLib.getDocument({ data: buffer }).promise
-  const page = await pdf.getPage(1)
-  const viewport = page.getViewport({ scale: 2 })
-  const canvas = document.createElement('canvas')
-  canvas.width = viewport.width
-  canvas.height = viewport.height
-  const ctx = canvas.getContext('2d')
-  if (!ctx) throw new Error('Não consegui preparar a imagem da página do PDF pra leitura.')
-  await page.render({ canvasContext: ctx, viewport }).promise
-  return reconhecerTextoImagem(canvas)
 }
 
 /** Lê um arquivo de cotação de fornecedor (planilha, PDF ou imagem) e casa o que encontrar com os
@@ -170,36 +233,41 @@ async function ocrPrimeiraPaginaPdf(file: File): Promise<string> {
 export async function importarCotacaoFornecedor(
   file: File,
   items: QuoteItem[],
-  fornecedoresConhecidos: string[],
+  fornecedores: FornecedorConhecido[],
 ): Promise<ResultadoImportacaoFornecedor> {
   const extensao = extensaoDoArquivo(file.name)
 
   if (EXTENSOES_PLANILHA.includes(extensao)) {
-    return importarDePlanilha(file, items, fornecedoresConhecidos)
+    const resultado = await importarDePlanilha(file, items, fornecedores)
+    if (resultado.itens.length === 0) {
+      return { ...resultado, avisoLeituraFraca: 'Li a planilha, mas não encontrei nenhuma referência dessa cotação nela.' }
+    }
+    return resultado
   }
 
-  let texto: string
-  if (extensao === 'pdf') {
-    texto = await extrairTextoPdf(file)
-    if (texto.trim().length < 40) {
-      texto = await ocrPrimeiraPaginaPdf(file)
-    }
-  } else if (EXTENSOES_IMAGEM.includes(extensao)) {
-    texto = await reconhecerTextoImagem(URL.createObjectURL(file))
+  let paginas: PaginaPosicionada[]
+  if (extensao === 'pdf' || file.type.includes('pdf')) {
+    paginas = (await lerPdf(file)).paginas
+  } else if (EXTENSOES_IMAGEM.includes(extensao) || file.type.startsWith('image/')) {
+    paginas = [await ocrDeImagem(file)]
   } else {
     throw new Error('Formato de arquivo não reconhecido — envie uma planilha (.xlsx), PDF ou imagem (.png/.jpg).')
   }
 
-  if (texto.trim().length < 10) {
+  const texto = paginas.map((p) => p.trechos.map((t) => t.texto).join(' ')).join('\n')
+  if (texto.replace(/\s/g, '').length < 10) {
     return { itens: [], avisoLeituraFraca: 'Não consegui ler nenhum texto aproveitável nesse arquivo.' }
   }
 
-  const resultado = interpretarTextoSolto(texto, items, fornecedoresConhecidos)
+  const resultado: ResultadoImportacaoFornecedor = {
+    fornecedorDetectado: detectarFornecedorConhecido(texto, fornecedores),
+    itens: interpretarPaginas(paginas, items),
+  }
   if (resultado.itens.length === 0) {
-    return {
-      ...resultado,
-      avisoLeituraFraca: 'Li o arquivo, mas não encontrei nenhuma referência dessa cotação nele.',
-    }
+    resultado.avisoLeituraFraca = 'Li o arquivo, mas não encontrei nenhuma referência dessa cotação nele.'
+  } else if (paginas.some((p) => p.ocr)) {
+    resultado.avisoLeituraFraca = 'Arquivo lido por imagem (OCR) — confira os valores antes de adicionar.'
   }
   return resultado
 }
+

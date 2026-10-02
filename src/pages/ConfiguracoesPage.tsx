@@ -17,7 +17,6 @@ import { definirTabelasCustomizadas } from '../calc/calculator'
 import { lerPlanilhaMarkup } from '../xlsxImport'
 import { baixarWorkbookMarkup } from '../planilhaMarkupDownload'
 import { corPadraoDoStatus } from '../statusColors'
-import { aplicarTema, getTema, type Tema } from '../theme'
 import { formatDate } from '../utils'
 import { gerarPreviaPlanilha, type PreviaPlanilha } from '../xlsxSheetUtil'
 import { ESTADOS } from '../data/estados'
@@ -38,13 +37,7 @@ export function ConfiguracoesPage({
   pricingGlobal: PricingGlobal
   onSavePricingGlobal: (valores: PricingGlobal) => Promise<void>
 }) {
-  // --- tema -----------------------------------------------------------------
-  const [tema, setTema] = useState<Tema>(() => getTema())
-
-  function handleTemaChange(novo: Tema) {
-    setTema(novo)
-    aplicarTema(novo)
-  }
+  // (o tema claro/escuro saiu daqui — agora é um botão fixo na barra lateral, ver Layout.tsx)
 
   // --- cores dos status -------------------------------------------------------
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
@@ -362,27 +355,6 @@ export function ConfiguracoesPage({
       <div className="card">
         <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Configurações</h2>
         <p className="text-sm text-ink-400">Ajustes gerais do site, válidos pra todos os admins.</p>
-      </div>
-
-      <div className="card">
-        <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Aparência</h3>
-        <p className="text-xs text-ink-400 mb-4">Só nesse aparelho — cada admin escolhe o seu.</p>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => handleTemaChange('claro')}
-            className={`pill-tab border ${tema === 'claro' ? 'bg-ink-950 border-ink-950 text-white' : 'border-ink-200 text-ink-600 hover:bg-ink-50'}`}
-          >
-            Claro
-          </button>
-          <button
-            type="button"
-            onClick={() => handleTemaChange('escuro')}
-            className={`pill-tab border ${tema === 'escuro' ? 'bg-ink-950 border-ink-950 text-white' : 'border-ink-200 text-ink-600 hover:bg-ink-50'}`}
-          >
-            Escuro
-          </button>
-        </div>
       </div>
 
       <div className="card">

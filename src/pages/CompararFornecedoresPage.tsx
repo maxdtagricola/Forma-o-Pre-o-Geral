@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { Button } from '../components/ui/Basics'
-import { ImportarCotacaoFornecedorModal } from '../components/ImportarCotacaoFornecedorModal'
+import { ImportarCotacaoFornecedorModal, type ItemImportadoConfirmado } from '../components/ImportarCotacaoFornecedorModal'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { formatCurrency, makeId, melhorCotacaoFornecedor, selecionarTudoAoFocar } from '../utils'
 import { avisar } from '../dialogs'
@@ -296,19 +296,17 @@ export function CompararFornecedoresPage({
   // vindo do modal de importação — um lote de itens que podem pertencer a QuoteItems diferentes,
   // cada um recebe a mesma cotação (fornecedor/marca), com o valor unitário e (se o arquivo trazia)
   // o valor total mudando por item
-  function handleImportarConfirmado(
-    fornecedorNome: string,
-    marca: string,
-    confirmados: { itemId: string; valorUnitario: number; valorTotal?: number }[],
-  ) {
+  function handleImportarConfirmado(fornecedorNome: string, marca: string, confirmados: ItemImportadoConfirmado[]) {
     for (const c of confirmados) {
       const item = items.find((i) => i.id === c.itemId)
       if (!item) continue
       handleAddCotacao(item, {
         fornecedor: fornecedorNome,
-        marca,
+        // marca lida do próprio arquivo (coluna MARCA) vale mais que a marca geral digitada
+        marca: c.marca || marca,
         valorUnitario: c.valorUnitario,
         ...(c.valorTotal !== undefined ? { valorTotal: c.valorTotal } : {}),
+        ...(c.prazoEntrega ? { prazoEntrega: c.prazoEntrega } : {}),
       })
     }
   }
@@ -517,7 +515,7 @@ export function CompararFornecedoresPage({
         <ImportarCotacaoFornecedorModal
           items={items}
           fornecedorSuggestions={fornecedorSuggestions}
-          fornecedoresNomes={fornecedores.map((f) => f.nome)}
+          fornecedores={fornecedores.map((f) => ({ nome: f.nome, cnpj: f.cnpj }))}
           onConfirmar={handleImportarConfirmado}
           onClose={() => setImportAberto(false)}
         />

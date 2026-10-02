@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { Button } from '../components/ui/Basics'
 import { SelectField } from '../components/ui/Field'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
-import { PedidoCompraFornecedorModal } from '../components/PedidoCompraFornecedorModal'
-import { listQuotes, salvarItensFechados, updateQuoteStatus } from '../db/analysesRepo'
+import { PedidoCompraFornecedorModal, type BasePedidoCompraFornecedor } from '../components/PedidoCompraFornecedorModal'
+import { chaveFornecedorFrete, freteDoFornecedor, listQuotes, salvarItensFechados, updateQuoteStatus } from '../db/analysesRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency } from '../utils'
+import { parseNumeroFlexivel } from '../numeros'
 import { avisar } from '../dialogs'
 import { QUOTE_STATUSES } from '../types'
-import type { DadosPedidoCompra } from '../planilhaPedidoCompra'
 import type { ItemFechado, PedidoCompraInfo, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
 
 function estatisticasGrupo(items: QuoteItem[], fechados: Record<string, ItemFechado>) {
@@ -198,17 +198,44 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
   const totaisGerais = useMemo(() => estatisticasGrupo(itensDoPedido, fechados), [itensDoPedido, fechados])
   const corStatus = cotacao ? corPadraoDoStatus(cotacao.status) : '#999'
 
-  // dados do pedido pro fornecedor com o modal de WhatsApp aberto no momento — usa o valor/qtd
-  // FECHADO (o que realmente saiu, ver estatisticasGrupo), não o negociado na cotação original
-  const dadosPedidoFornecedorAberto = useMemo((): DadosPedidoCompra | undefined => {
+  // dados do pedido pro fornecedor com o modal aberto no momento — usa o valor/qtd FECHADO (o que
+  // realmente saiu, ver estatisticasGrupo), não o negociado na cotação original
+  const dadosPedidoFornecedorAberto = useMemo((): BasePedidoCompraFornecedor | undefined => {
     if (!pedidoFornecedorAberto || !cotacao) return undefined
     const grupo = gruposPorFornecedor.find((g) => g.fornecedor === pedidoFornecedorAberto)
     if (!grupo) return undefined
+    const chaveFornecedor = chaveFornecedorFrete(grupo.fornecedor)
+
+    // transportadora: a da cotação de frete mais barata desse fornecedor (aba Frete / Itens da cotação)
+    let transportadoraSugerida: string | undefined
+    let menorFrete = Number.POSITIVE_INFINITY
+    for (const [transportadora, frete] of Object.entries(freteDoFornecedor(cotacao, grupo.fornecedor))) {
+      const valor = parseNumeroFlexivel(frete.valorCotacao)
+      if (valor !== undefined && valor > 0 && valor < menorFrete) {
+        menorFrete = valor
+        transportadoraSugerida = transportadora
+      }
+    }
+
+    // prazo: o que esse fornecedor informou na cotação dele, se for o mesmo pra todos os itens
+    const prazos = new Set(
+      grupo.items.map(
+        (item) =>
+          item.product.cotacoesFornecedores
+            ?.find((c) => chaveFornecedorFrete(c.fornecedor) === chaveFornecedor)
+            ?.prazoEntrega?.trim()
+            .toUpperCase() ?? '',
+      ),
+    )
+    const prazoSugerido = prazos.size === 1 ? Array.from(prazos)[0] || undefined : undefined
+
     return {
+      chave: `${cotacao.id}|${chaveFornecedor}`,
       fornecedor: grupo.fornecedor,
-      vendedor: cotacao.vendedor || '',
       codigoCotacao: cotacao.codigo || '',
       comprador: currentAdmin,
+      transportadoraSugerida,
+      prazoSugerido,
       itens: grupo.items.map((item) => {
         const f = fechados[item.id] ?? {
           qtd: item.product.qtd,
@@ -346,7 +373,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                   <h3 className="font-display text-base font-semibold text-ink-900">Fornecedor: {grupo.fornecedor}</h3>
                   <Button variant="secondary" onClick={() => setPedidoFornecedorAberto(grupo.fornecedor)}>
-                    Enviar pedido por WhatsApp
+                    Gerar pedido de compra
                   </Button>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
@@ -457,7 +484,11 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
       )}
 
       {dadosPedidoFornecedorAberto && (
-        <PedidoCompraFornecedorModal dados={dadosPedidoFornecedorAberto} onClose={() => setPedidoFornecedorAberto(undefined)} />
+        <PedidoCompraFornecedorModal
+          key={dadosPedidoFornecedorAberto.chave}
+          base={dadosPedidoFornecedorAberto}
+          onClose={() => setPedidoFornecedorAberto(undefined)}
+        />
       )}
     </div>
   )

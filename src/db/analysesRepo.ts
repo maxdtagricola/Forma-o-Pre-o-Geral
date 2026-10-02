@@ -5,6 +5,7 @@ import { makeId } from '../utils'
 import type {
   DadosFreteTransportadora,
   ItemFechado,
+  MedidasCargaFrete,
   PedidoCompraInfo,
   PreRegistroItem,
   PricingConfig,
@@ -70,6 +71,8 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
     })),
     itensPreRegistro: record.itensPreRegistro ?? [],
     freteTransportadoras: record.freteTransportadoras ?? {},
+    fretePorFornecedor: record.fretePorFornecedor ?? {},
+    cargaFretePorFornecedor: record.cargaFretePorFornecedor ?? {},
     itensFechados: record.itensFechados ?? {},
     status: record.status ?? 'PENDENTE',
     responsavelStatus: record.responsavelStatus ?? '',
@@ -116,6 +119,10 @@ export async function saveQuote(
   const codigo = base?.codigo || (await proximoCodigoCotacao())
 
   const record: QuoteRecord = {
+    // tudo que essa função não gerencia (frete por transportadora/fornecedor salvo na aba Frete,
+    // valores fechados do Pedido de Compra e qualquer campo que vier a existir) passa adiante
+    // intacto — antes o registro era montado do zero e cada "Salvar cotação" apagava esses dados
+    ...base,
     id: existingId ?? makeId(),
     codigo,
     criadoPor: base?.criadoPor || atorAdmin,
@@ -225,23 +232,103 @@ export async function setPlanilhaOriginal(
   return atualizado
 }
 
-/** Salva os dados de pedido de frete (campos do formulário + valor/número da cotação recebida)
- * de uma transportadora específica, sem mexer nos dados das outras. */
+/** Chave do fornecedor nos dados de frete — o nome como aparece nos itens da cotação, sem
+ * diferença de maiúscula/espaço (o mesmo critério usado pra agrupar os itens por fornecedor). */
+export function chaveFornecedorFrete(nomeFornecedor: string): string {
+  return nomeFornecedor.trim().toUpperCase()
+}
+
+/** Fornecedores distintos (pela chave de frete) que aparecem nos itens da cotação. */
+function chavesFornecedoresDaCotacao(quote: Pick<QuoteRecord, 'items'>): string[] {
+  return Array.from(new Set(quote.items.map((it) => chaveFornecedorFrete(it.product.fornecedor)).filter(Boolean)))
+}
+
+/** Todos os dados de frete salvos de um fornecedor da cotação, por transportadora. Cotações salvas
+ * antes do frete ser separado por fornecedor guardavam tudo direto em `freteTransportadoras` (um
+ * conjunto só pra cotação inteira) — esses dados continuam valendo quando a cotação tem um
+ * fornecedor só (aí não tem dúvida de quem era). */
+export function freteDoFornecedor(
+  quote: Pick<QuoteRecord, 'items' | 'fretePorFornecedor' | 'freteTransportadoras'>,
+  nomeFornecedor: string,
+): Record<string, DadosFreteTransportadora> {
+  const chave = chaveFornecedorFrete(nomeFornecedor)
+  const proprio = chave ? quote.fretePorFornecedor?.[chave] : undefined
+  const fornecedores = chavesFornecedoresDaCotacao(quote)
+  const legado = fornecedores.length <= 1 ? (quote.freteTransportadoras ?? {}) : {}
+  return { ...legado, ...(proprio ?? {}) }
+}
+
+/** Salva os dados de pedido de frete (campos do formulário + valor/número da cotação recebida) de
+ * uma transportadora pra um fornecedor específico da cotação, sem mexer nos das outras
+ * transportadoras nem nos dos outros fornecedores — cada fornecedor despacha de um lugar diferente,
+ * então cada um tem a sua própria cotação de frete. Lê a versão atual do servidor antes de gravar
+ * (não usa a cópia da tela), pra não desfazer o que outra aba salvou nesse meio-tempo. */
 export async function salvarFreteTransportadora(
   id: string,
+  nomeFornecedor: string,
   transportadora: string,
   dados: DadosFreteTransportadora,
 ): Promise<QuoteRecord> {
   const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
   if (!atual) throw new Error('Cotação não encontrada no servidor.')
   const normalizado = normalizeRecord(atual)
+  const chave = chaveFornecedorFrete(nomeFornecedor)
+  const dadosComData: DadosFreteTransportadora = { ...dados, salvoEm: Date.now() }
+  const atualizado: QuoteRecord = chave
+    ? {
+        ...normalizado,
+        fretePorFornecedor: {
+          ...normalizado.fretePorFornecedor,
+          [chave]: { ...freteDoFornecedor(normalizado, nomeFornecedor), [transportadora]: dadosComData },
+        },
+        updatedAt: Date.now(),
+      }
+    : {
+        // sem fornecedor definido nos itens ainda — guarda no conjunto geral da cotação
+        ...normalizado,
+        freteTransportadoras: { ...normalizado.freteTransportadoras, [transportadora]: dadosComData },
+        updatedAt: Date.now(),
+      }
+  await dbPut(STORE_ANALISES, atualizado)
+  return atualizado
+}
+
+/** Tira o valor/número da cotação de frete de uma transportadora (pra um fornecedor), mantendo os
+ * campos do pedido de frete que já tinham sido preenchidos pra ela. */
+export async function limparCotacaoFreteTransportadora(
+  id: string,
+  nomeFornecedor: string,
+  transportadora: string,
+): Promise<QuoteRecord> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  if (!atual) throw new Error('Cotação não encontrada no servidor.')
+  const existente = freteDoFornecedor(normalizeRecord(atual), nomeFornecedor)[transportadora]
+  return salvarFreteTransportadora(id, nomeFornecedor, transportadora, {
+    camposPedido: existente?.camposPedido ?? {},
+    valorCotacao: '',
+    numeroCotacao: '',
+  })
+}
+
+/** Medidas da carga (cm/kg) informadas na aba Frete pra um fornecedor da cotação — preenchem
+ * sozinhas os campos de medida/peso do pedido de frete de todas as transportadoras. */
+export async function salvarCargaFrete(id: string, nomeFornecedor: string, carga: MedidasCargaFrete): Promise<QuoteRecord> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  if (!atual) throw new Error('Cotação não encontrada no servidor.')
+  const normalizado = normalizeRecord(atual)
   const atualizado: QuoteRecord = {
     ...normalizado,
-    freteTransportadoras: { ...normalizado.freteTransportadoras, [transportadora]: dados },
+    cargaFretePorFornecedor: { ...normalizado.cargaFretePorFornecedor, [chaveFornecedorFrete(nomeFornecedor)]: carga },
     updatedAt: Date.now(),
   }
   await dbPut(STORE_ANALISES, atualizado)
   return atualizado
+}
+
+/** Busca a versão atual de uma cotação direto do servidor (sem a lista inteira). */
+export async function buscarQuote(id: string): Promise<QuoteRecord | undefined> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  return atual ? normalizeRecord(atual) : undefined
 }
 
 /** Salva os valores "fechados" (Pedido de Compra) de todos os itens de uma vez — vem sempre do

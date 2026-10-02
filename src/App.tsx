@@ -580,6 +580,7 @@ export default function App() {
           numeroCotacaoTransportadora={numeroCotacaoTransportadora}
           onChangeNumeroCotacaoTransportadora={protegido(setNumeroCotacaoTransportadora)}
           cotacaoSalva={cotacaoRecemSalva}
+          cotacaoId={editingQuoteId}
         />
       )}
       {tab === 'margins' && <MarginAnalysisPage product={activeItem.product} pricing={activeItem.pricing} />}

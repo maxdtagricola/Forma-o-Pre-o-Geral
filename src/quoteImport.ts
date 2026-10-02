@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import { cellValue, localizarTabelaItens, normalizar, sheetDims, vazio } from './xlsxSheetUtil'
+import { abaComTabelaItens, cellNumero, cellTexto, cellValue, normalizar, sheetDims, vazio } from './xlsxSheetUtil'
 import { VENDEDORES } from './types'
 
 export interface ItemCotacaoImportado {
@@ -16,12 +16,29 @@ export interface ResultadoImportacaoCotacao {
   itens: ItemCotacaoImportado[]
 }
 
-/** Procura um rótulo (ex.: "Cliente:") em qualquer célula e retorna a primeira célula não vazia à direita, na mesma linha. */
-function buscarValorAoLadoDoRotulo(ws: XLSX.WorkSheet, maxRow: number, maxCol: number, rotulo: string): string {
-  for (let r = 1; r <= maxRow; r++) {
+/** Rótulo comparável: sem acento, minúsculo, sem dois-pontos/pontuação no fim. */
+function rotuloDe(valor: unknown): string {
+  return normalizar(valor).replace(/[\s:.\-–]+$/, '').trim()
+}
+
+/** Procura um rótulo (ex.: "Cliente:") em qualquer célula e retorna o valor: o que vier depois dos
+ * dois-pontos na própria célula ("CLIENTE: FULANO"), ou a primeira célula não vazia à direita. */
+function buscarValorAoLadoDoRotulo(
+  ws: XLSX.WorkSheet,
+  maxRow: number,
+  maxCol: number,
+  rotulos: string[],
+  linhaInicial = 1,
+): string {
+  for (let r = linhaInicial; r <= maxRow; r++) {
     for (let c = 1; c <= maxCol; c++) {
-      const texto = normalizar(cellValue(ws, r, c)).replace(/:$/, '')
-      if (texto !== rotulo) continue
+      const bruto = cellValue(ws, r, c)
+      if (vazio(bruto)) continue
+      const texto = String(bruto)
+      const rotulo = rotuloDe(texto)
+      const naPropriaCelula = texto.match(/^([^:]{2,30}):\s*(.+)$/)
+      if (naPropriaCelula && rotulos.includes(rotuloDe(naPropriaCelula[1]))) return naPropriaCelula[2].trim()
+      if (!rotulos.includes(rotulo)) continue
       for (let c2 = c + 1; c2 <= maxCol; c2++) {
         const valor = cellValue(ws, r, c2)
         if (!vazio(valor)) return String(valor).trim()
@@ -37,15 +54,12 @@ function buscarValorAoLadoDoRotulo(ws: XLSX.WorkSheet, maxRow: number, maxCol: n
  * vir no rodapé desse tipo de planilha, às vezes com o rótulo abaixo do
  * nome (célula do nome _acima_ da célula "Vendedor").
  */
-function buscarValorPertoDoRotulo(ws: XLSX.WorkSheet, maxRow: number, maxCol: number, rotulo: string): string {
+function buscarValorPertoDoRotulo(ws: XLSX.WorkSheet, maxRow: number, maxCol: number, rotulos: string[]): string {
+  const aoLado = buscarValorAoLadoDoRotulo(ws, maxRow, maxCol, rotulos)
+  if (aoLado) return aoLado
   for (let r = 1; r <= maxRow; r++) {
     for (let c = 1; c <= maxCol; c++) {
-      const texto = normalizar(cellValue(ws, r, c)).replace(/:$/, '')
-      if (texto !== rotulo) continue
-      for (let c2 = c + 1; c2 <= maxCol; c2++) {
-        const valor = cellValue(ws, r, c2)
-        if (!vazio(valor)) return String(valor).trim()
-      }
+      if (!rotulos.includes(rotuloDe(cellValue(ws, r, c)))) continue
       for (let r2 = r - 1; r2 >= Math.max(1, r - 4); r2--) {
         const valor = cellValue(ws, r2, c)
         if (!vazio(valor)) return String(valor).trim()
@@ -63,38 +77,49 @@ function buscarValorPertoDoRotulo(ws: XLSX.WorkSheet, maxRow: number, maxCol: nu
 function resolverVendedor(textoBruto: string): string {
   const alvo = normalizar(textoBruto)
   if (!alvo) return ''
-  return VENDEDORES.find((v) => alvo.includes(normalizar(v))) ?? ''
+  return VENDEDORES.find((v) => new RegExp(`(^|[^a-z])${normalizar(v)}([^a-z]|$)`).test(alvo)) ?? ''
+}
+
+/** Marcação de "item a cotar" na linha: "COTAR", "cotar", "A COTAR", "Cotar!"… */
+function ehMarcacaoCotar(valor: unknown): boolean {
+  return /^(a\s+)?cotar[\s!.]*$/.test(normalizar(valor))
 }
 
 /**
  * Lê uma planilha de cotação (modelo "orçamento cliente"): pega o Cliente e o
  * Equipamento do cabeçalho, ignora o resto do topo, e na tabela de itens
- * (colunas MARCA/ENTREGA/REFERENCIA/DESCRIÇÃO/QUANT/VLR UNT/VLR TOTAL) separa
- * só os itens que ainda precisam ser cotados: entrega em branco e, em algum
- * lugar da linha, a marcação "cotar" (maiúscula ou minúscula).
+ * (colunas MARCA/ENTREGA/REFERENCIA/DESCRIÇÃO/QUANT/VLR UNT/VLR TOTAL, e
+ * variações desses nomes) separa só os itens que ainda precisam ser
+ * cotados: entrega em branco e, em algum lugar da linha, a marcação "cotar"
+ * (maiúscula ou minúscula). Procura a tabela em todas as abas.
  */
 export async function lerPlanilhaCotacao(arquivo: File): Promise<ResultadoImportacaoCotacao> {
   const buffer = await arquivo.arrayBuffer()
   const workbook = XLSX.read(buffer, { type: 'array' })
-  const ws = workbook.Sheets[workbook.SheetNames[0]]
+  const { ws, tabela } = abaComTabelaItens(workbook)
   if (!ws) throw new Error('Não consegui ler nenhuma aba nesse arquivo.')
+  if (!tabela) throw new Error('Não encontrei a tabela de itens (coluna "REFERENCIA", "REF" ou "CÓDIGO") nessa planilha.')
+  if (tabela.colDescricao === -1 || tabela.colQuant === -1) {
+    throw new Error('Não encontrei as colunas de descrição e quantidade na tabela de itens.')
+  }
 
   const { maxRow, maxCol } = sheetDims(ws)
-
-  const cliente = buscarValorAoLadoDoRotulo(ws, maxRow, maxCol, 'cliente')
-  const equipamento = buscarValorAoLadoDoRotulo(ws, maxRow, maxCol, 'equipamento')
-  const vendedor = resolverVendedor(buscarValorPertoDoRotulo(ws, maxRow, maxCol, 'vendedor'))
-
-  const tabela = localizarTabelaItens(ws)
+  // cliente/equipamento costumam ficar acima da tabela; se não estiverem lá, procura no rodapé
+  // (abaixo do cabeçalho da tabela — nunca na própria linha de títulos das colunas)
+  const buscarCabecalhoOuRodape = (rotulos: string[]) =>
+    buscarValorAoLadoDoRotulo(ws, tabela.linhaCabecalho - 1, maxCol, rotulos) ||
+    buscarValorAoLadoDoRotulo(ws, maxRow, maxCol, rotulos, tabela.linhaCabecalho + 1)
+  const cliente = buscarCabecalhoOuRodape(['cliente', 'nome do cliente', 'razao social'])
+  const equipamento = buscarCabecalhoOuRodape(['equipamento', 'maquina', 'modelo da maquina'])
+  const vendedor = resolverVendedor(buscarValorPertoDoRotulo(ws, maxRow, maxCol, ['vendedor', 'vendedor responsavel', 'consultor']))
 
   const itens: ItemCotacaoImportado[] = []
   let linhasVaziasSeguidas = 0
   for (let r = tabela.linhaCabecalho + 1; r <= tabela.maxRow; r++) {
-    const referencia = cellValue(ws, r, tabela.colReferencia)
-    const descricao = cellValue(ws, r, tabela.colDescricao)
-    const quant = cellValue(ws, r, tabela.colQuant)
+    const referencia = cellTexto(ws, r, tabela.colReferencia)
+    const descricao = cellTexto(ws, r, tabela.colDescricao)
 
-    if (vazio(referencia) && vazio(descricao)) {
+    if (!referencia && !descricao) {
       linhasVaziasSeguidas += 1
       if (linhasVaziasSeguidas >= 3 && itens.length > 0) break
       continue
@@ -106,7 +131,7 @@ export async function lerPlanilhaCotacao(arquivo: File): Promise<ResultadoImport
 
     let temMarcacaoCotar = false
     for (let c = 1; c <= tabela.maxCol; c++) {
-      if (normalizar(cellValue(ws, r, c)) === 'cotar') {
+      if (ehMarcacaoCotar(cellValue(ws, r, c))) {
         temMarcacaoCotar = true
         break
       }
@@ -114,9 +139,9 @@ export async function lerPlanilhaCotacao(arquivo: File): Promise<ResultadoImport
     if (!temMarcacaoCotar) continue
 
     itens.push({
-      referencia: vazio(referencia) ? '' : String(referencia).trim(),
-      descricao: vazio(descricao) ? '' : String(descricao).trim(),
-      quantidade: typeof quant === 'number' ? quant : Number(quant) || 0,
+      referencia,
+      descricao,
+      quantidade: cellNumero(ws, r, tabela.colQuant) ?? 0,
     })
   }
 
@@ -139,7 +164,7 @@ function sintetizarPorReferencia(itens: ItemCotacaoImportado[]): ItemCotacaoImpo
   const indicePorReferencia = new Map<string, number>()
 
   for (const item of itens) {
-    const chave = item.referencia.trim().toLowerCase()
+    const chave = item.referencia.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
     const indiceExistente = chave ? indicePorReferencia.get(chave) : undefined
     if (indiceExistente !== undefined) {
       resultado[indiceExistente].quantidade += item.quantidade

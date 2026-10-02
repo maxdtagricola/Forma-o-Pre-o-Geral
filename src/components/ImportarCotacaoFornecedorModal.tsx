@@ -1,38 +1,53 @@
 import { useState } from 'react'
 import { Button } from './ui/Basics'
 import { AutocompleteField, TextField } from './ui/Field'
-import { importarCotacaoFornecedor, type ItemDetectadoFornecedor } from '../cotacaoFornecedorImport'
+import {
+  importarCotacaoFornecedor,
+  type FornecedorConhecido,
+  type ItemDetectadoFornecedor,
+} from '../cotacaoFornecedorImport'
+import { formatarNumeroBR, parseNumeroFlexivel } from '../numeros'
 import type { QuoteItem } from '../types'
 
 interface LinhaEditavel extends ItemDetectadoFornecedor {
   incluir: boolean
   valorUnitarioTexto: string
   valorTotalTexto: string
+  marcaTexto: string
+  prazoTexto: string
 }
 
-/** "123,45" -> 123.45; string vazia/inválida -> undefined. */
+/** "1.234,56" / "123,45" / "R$ 9,90" -> number; vazio/inválido/zero -> undefined. */
 function textoParaValor(texto: string): number | undefined {
-  const valor = Number(texto.replace(',', '.'))
-  return texto.trim() && Number.isFinite(valor) && valor > 0 ? valor : undefined
+  const valor = parseNumeroFlexivel(texto)
+  return valor !== undefined && valor > 0 ? valor : undefined
 }
 
-const ACEITA_ARQUIVOS = '.xlsx,.xls,.csv,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.gif'
+function valorParaTexto(valor: number | undefined): string {
+  return valor !== undefined ? formatarNumeroBR(valor, 2) : ''
+}
+
+const ACEITA_ARQUIVOS = '.xlsx,.xlsm,.xls,.csv,.ods,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.gif,image/*'
+
+export interface ItemImportadoConfirmado {
+  itemId: string
+  valorUnitario: number
+  valorTotal?: number
+  marca?: string
+  prazoEntrega?: string
+}
 
 export function ImportarCotacaoFornecedorModal({
   items,
   fornecedorSuggestions,
-  fornecedoresNomes,
+  fornecedores,
   onConfirmar,
   onClose,
 }: {
   items: QuoteItem[]
   fornecedorSuggestions: { value: string; label: string }[]
-  fornecedoresNomes: string[]
-  onConfirmar: (
-    fornecedor: string,
-    marca: string,
-    itens: { itemId: string; valorUnitario: number; valorTotal?: number }[],
-  ) => void
+  fornecedores: FornecedorConhecido[]
+  onConfirmar: (fornecedor: string, marca: string, itens: ItemImportadoConfirmado[]) => void
   onClose: () => void
 }) {
   const [nomeArquivo, setNomeArquivo] = useState('')
@@ -51,7 +66,7 @@ export function ImportarCotacaoFornecedorModal({
     setLinhas(undefined)
     setNomeArquivo(file.name)
     try {
-      const resultado = await importarCotacaoFornecedor(file, items, fornecedoresNomes)
+      const resultado = await importarCotacaoFornecedor(file, items, fornecedores)
       setFornecedorDetectado(resultado.fornecedorDetectado)
       setFornecedor(resultado.fornecedorDetectado ?? '')
       setAvisoLeituraFraca(resultado.avisoLeituraFraca)
@@ -59,8 +74,10 @@ export function ImportarCotacaoFornecedorModal({
         resultado.itens.map((item) => ({
           ...item,
           incluir: item.valorUnitarioDetectado !== undefined,
-          valorUnitarioTexto: item.valorUnitarioDetectado !== undefined ? String(item.valorUnitarioDetectado).replace('.', ',') : '',
-          valorTotalTexto: item.valorTotalDetectado !== undefined ? String(item.valorTotalDetectado).replace('.', ',') : '',
+          valorUnitarioTexto: valorParaTexto(item.valorUnitarioDetectado),
+          valorTotalTexto: valorParaTexto(item.valorTotalDetectado),
+          marcaTexto: item.marcaDetectada ?? '',
+          prazoTexto: item.prazoDetectado ?? '',
         })),
       )
     } catch (err) {
@@ -76,6 +93,7 @@ export function ImportarCotacaoFornecedorModal({
 
   const linhasProntas = (linhas ?? []).filter((l) => l.incluir && textoParaValor(l.valorUnitarioTexto) !== undefined)
   const podeConfirmar = fornecedor.trim().length > 0 && linhasProntas.length > 0
+  const temMarcaOuPrazo = (linhas ?? []).some((l) => l.marcaDetectada || l.prazoDetectado)
 
   function handleConfirmar() {
     if (!podeConfirmar) return
@@ -86,18 +104,22 @@ export function ImportarCotacaoFornecedorModal({
         itemId: l.itemId,
         valorUnitario: textoParaValor(l.valorUnitarioTexto)!,
         valorTotal: textoParaValor(l.valorTotalTexto),
+        ...(l.marcaTexto.trim() ? { marca: l.marcaTexto.trim() } : {}),
+        ...(l.prazoTexto.trim() ? { prazoEntrega: l.prazoTexto.trim() } : {}),
       })),
     )
     onClose()
   }
 
+  const inputCls = 'field-input text-right tabular-nums py-1'
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="card max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
+      <div className="card max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 mb-1">
           <div>
             <h3 className="font-display text-lg font-semibold text-ink-900">Importar cotação do fornecedor</h3>
-            <p className="text-sm text-ink-400">Planilha, PDF ou foto/print da cotação — leio e casei pela Referência.</p>
+            <p className="text-sm text-ink-400">Planilha, PDF ou foto/print da cotação — leio e caso pela Referência.</p>
           </div>
           <button type="button" onClick={onClose} className="text-ink-400 hover:text-ink-700 text-xl leading-none px-1">
             ×
@@ -140,11 +162,15 @@ export function ImportarCotacaoFornecedorModal({
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <AutocompleteField label="Fornecedor" value={fornecedor} onChange={setFornecedor} suggestions={fornecedorSuggestions} />
-                <TextField label="Marca (opcional, vale pra todos os itens marcados)" value={marca} onChange={setMarca} />
+                <TextField
+                  label="Marca (opcional, vale pros itens sem marca própria)"
+                  value={marca}
+                  onChange={setMarca}
+                />
               </div>
 
               {linhas.length > 0 ? (
-                <div className="rounded-xl border border-ink-100 overflow-hidden">
+                <div className="rounded-xl border border-ink-100 overflow-x-auto">
                   <table className="w-full text-sm border-collapse">
                     <thead>
                       <tr className="bg-ink-50 text-left text-ink-400">
@@ -152,52 +178,86 @@ export function ImportarCotacaoFornecedorModal({
                         <th className="py-2 px-2 font-medium">Item da cotação</th>
                         <th className="py-2 px-2 font-medium w-28 text-right">Valor unt.</th>
                         <th className="py-2 px-2 font-medium w-28 text-right">Valor total</th>
+                        {temMarcaOuPrazo && <th className="py-2 px-2 font-medium w-28">Marca</th>}
+                        {temMarcaOuPrazo && <th className="py-2 px-2 font-medium w-24">Prazo</th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {linhas.map((l) => (
-                        <tr key={l.itemId} className="border-t border-ink-100">
-                          <td className="py-2 px-2 text-center">
-                            <input
-                              type="checkbox"
-                              checked={l.incluir}
-                              onChange={(e) => patchLinha(l.itemId, { incluir: e.target.checked })}
-                            />
-                          </td>
-                          <td className="py-2 px-2">
-                            <p className="text-ink-800">{l.descricao || l.referencia || '(sem descrição)'}</p>
-                            <p className="text-xs text-ink-400">Ref. {l.referencia}</p>
-                          </td>
-                          <td className="py-2 px-1">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              placeholder="R$"
-                              value={l.valorUnitarioTexto}
-                              onChange={(e) => patchLinha(l.itemId, { valorUnitarioTexto: e.target.value, incluir: true })}
-                              className="field-input text-right tabular-nums py-1"
-                            />
-                          </td>
-                          <td className="py-2 px-1">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              placeholder="R$ (opcional)"
-                              value={l.valorTotalTexto}
-                              onChange={(e) => patchLinha(l.itemId, { valorTotalTexto: e.target.value })}
-                              className="field-input text-right tabular-nums py-1"
-                            />
-                          </td>
-                        </tr>
-                      ))}
+                      {linhas.map((l) => {
+                        const item = items.find((i) => i.id === l.itemId)
+                        return (
+                          <tr key={l.itemId} className="border-t border-ink-100">
+                            <td className="py-2 px-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={l.incluir}
+                                onChange={(e) => patchLinha(l.itemId, { incluir: e.target.checked })}
+                              />
+                            </td>
+                            <td className="py-2 px-2">
+                              <p className="text-ink-800">{l.descricao || l.referencia || '(sem descrição)'}</p>
+                              <p className="text-xs text-ink-400">
+                                Ref. {l.referencia}
+                                {item ? ` · qtd ${item.product.qtd}` : ''}
+                                {l.conferido && (
+                                  <span
+                                    className="ml-1.5 inline-flex items-center rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800"
+                                    title="O valor unitário × a quantidade do item bate com o valor total do arquivo"
+                                  >
+                                    ✓ unit. × qtd = total
+                                  </span>
+                                )}
+                              </p>
+                            </td>
+                            <td className="py-2 px-1">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="R$"
+                                value={l.valorUnitarioTexto}
+                                onChange={(e) => patchLinha(l.itemId, { valorUnitarioTexto: e.target.value, incluir: true })}
+                                className={inputCls}
+                              />
+                            </td>
+                            <td className="py-2 px-1">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder="R$ (opcional)"
+                                value={l.valorTotalTexto}
+                                onChange={(e) => patchLinha(l.itemId, { valorTotalTexto: e.target.value })}
+                                className={inputCls}
+                              />
+                            </td>
+                            {temMarcaOuPrazo && (
+                              <td className="py-2 px-1">
+                                <input
+                                  type="text"
+                                  value={l.marcaTexto}
+                                  onChange={(e) => patchLinha(l.itemId, { marcaTexto: e.target.value.toUpperCase() })}
+                                  className="field-input py-1 text-sm"
+                                />
+                              </td>
+                            )}
+                            {temMarcaOuPrazo && (
+                              <td className="py-2 px-1">
+                                <input
+                                  type="text"
+                                  value={l.prazoTexto}
+                                  onChange={(e) => patchLinha(l.itemId, { prazoTexto: e.target.value.toUpperCase() })}
+                                  className="field-input py-1 text-sm"
+                                />
+                              </td>
+                            )}
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 </div>
               ) : (
                 !avisoLeituraFraca && (
-                  <p className="text-sm text-ink-400 text-center py-4">
-                    Não encontrei nenhuma referência dessa cotação nesse arquivo.
-                  </p>
+                  <p className="text-sm text-ink-400 text-center py-4">Não encontrei nenhuma referência dessa cotação nesse arquivo.</p>
                 )
               )}
             </>

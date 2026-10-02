@@ -28,12 +28,6 @@ export function labelCurtoDoMes(mesKey: string): string {
   return `${MESES_ABREV[mes - 1]}/${String(ano).slice(2)}`
 }
 
-/** Data em que os três meses de retenção do mês de referência se encerram. */
-export function dataLimiteDoMes(mesKey: string): number {
-  const [ano, mes] = mesKey.split('-').map(Number)
-  return new Date(ano, mes - 1 + 3, 1).getTime()
-}
-
 // cores fixas por tipo — mesma ordem da paleta categórica usada nos status, pra manter consistência visual
 export const CORES_TIPO: Record<NotaFiscalTipo, string> = { PECAS: '#2a78d6', IMPLEMENTOS: '#eb6834' }
 

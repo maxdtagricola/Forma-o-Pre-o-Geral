@@ -1,9 +1,33 @@
 import * as XLSX from 'xlsx'
+import { parseNumeroFlexivel } from './numeros'
 
 export function cellValue(ws: XLSX.WorkSheet, row: number, col: number): unknown {
   const addr = XLSX.utils.encode_cell({ r: row - 1, c: col - 1 })
   const cell = ws[addr]
   return cell ? cell.v : undefined
+}
+
+/** Texto da célula como aparece na planilha (com a formatação dela) — importante pra códigos: uma
+ * referência guardada como número com formato "000000" vale "000256", não 256. */
+export function cellTexto(ws: XLSX.WorkSheet, row: number, col: number): string {
+  const addr = XLSX.utils.encode_cell({ r: row - 1, c: col - 1 })
+  const cell = ws[addr] as XLSX.CellObject | undefined
+  if (!cell || cell.v === undefined || cell.v === null) return ''
+  if (cell.t === 'n' && typeof cell.w === 'string' && cell.w.trim()) {
+    const w = cell.w.trim()
+    // só usa o texto formatado quando ele é o próprio número com zeros/separadores (ex.: "000256");
+    // formatos de moeda/data viram o valor cru, que é mais útil
+    if (/^\d+$/.test(w)) return w
+  }
+  return String(cell.v).trim()
+}
+
+/** Número da célula — aceita número de verdade e texto ("R$ 1.234,56", "12,5"). */
+export function cellNumero(ws: XLSX.WorkSheet, row: number, col: number): number | undefined {
+  const v = cellValue(ws, row, col)
+  if (typeof v === 'number') return Number.isFinite(v) ? v : undefined
+  if (typeof v === 'string') return parseNumeroFlexivel(v)
+  return undefined
 }
 
 export function setCellValue(ws: XLSX.WorkSheet, row: number, col: number, value: string | number): void {
@@ -27,6 +51,7 @@ export function normalizar(valor: unknown): string {
   return String(valor ?? '')
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
+    .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase()
 }
@@ -34,6 +59,29 @@ export function normalizar(valor: unknown): string {
 export function vazio(valor: unknown): boolean {
   return valor === undefined || valor === null || String(valor).trim() === ''
 }
+
+/** Texto de cabeçalho comparável: sem acento, minúsculo, sem pontuação ("VLR. UNT." → "vlr unt"). */
+function textoCabecalho(valor: unknown): string {
+  return normalizar(valor)
+    .replace(/[.:;/\\()_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/** Cada coluna da tabela e os nomes de cabeçalho que ela costuma ter, do mais exato pro mais
+ * genérico — a primeira forma que bater, na ordem, ganha (assim "REFERENCIA" exata vence um
+ * "COD" genérico que também exista na planilha). */
+const CABECALHOS = {
+  referencia: [/^referencia$/, /^referencias?\b/, /^ref\b/, /^cod(igo)? (do )?fabricante$/, /^part ?number$/, /^p ?n$/, /^codigo original$/, /^cod(igo)? fornecedor$/, /^codigo$/, /^cod$/],
+  descricao: [/^descricao$/, /^descri/, /^produto$/, /^item descricao$/, /^nome do produto$/, /^material$/],
+  quantidade: [/^quant(idade)?$/, /^quant/, /^qtd[e]?$/, /^qtde?\b/, /^qt$/],
+  entrega: [/^entrega$/, /^prazo( de)? entrega$/, /^prazo$/],
+  valorUnitario: [/^vlr unt$/, /^vlr unt/, /^valor unt/, /^vlr unit/, /^valor unit/, /^v unit/, /^vl unit/, /^preco unit/, /^unitario$/, /^preco$/, /^valor$/],
+  valorTotal: [/^vlr total$/, /^vlr total/, /^valor total/, /^v total/, /^vl total/, /^total$/, /^subtotal$/],
+  marca: [/^marca$/, /^fabricante$/],
+} satisfies Record<string, RegExp[]>
+
+type ColunaCabecalho = keyof typeof CABECALHOS
 
 export interface TabelaItensLocalizada {
   linhaCabecalho: number
@@ -43,52 +91,77 @@ export interface TabelaItensLocalizada {
   colEntrega: number
   colVlrUnt: number
   colVlrTotal: number
+  colMarca: number
   maxRow: number
   maxCol: number
 }
 
-/**
- * Localiza a tabela de itens de uma planilha de orçamento (modelo
- * MARCA/ENTREGA/REFERENCIA/DESCRIÇÃO/QUANT/VLR UNT/VLR TOTAL): acha a linha
- * de cabeçalho pela célula "REFERENCIA" e mapeia as demais colunas a partir
- * dela, pra não depender de posição fixa.
- */
-export function localizarTabelaItens(ws: XLSX.WorkSheet): TabelaItensLocalizada {
+/** Procura, nas primeiras linhas, a linha de cabeçalho da tabela de itens e mapeia as colunas pelo
+ * texto (não pela posição). Aceita os nomes mais comuns de cada coluna (REF, REFERÊNCIA, CÓDIGO;
+ * QTD, QUANT, QUANTIDADE; VLR UNT, VALOR UNITÁRIO, PREÇO…). Devolve undefined se não achar uma
+ * linha com pelo menos referência + (descrição ou quantidade ou valor). */
+export function procurarTabelaItens(ws: XLSX.WorkSheet, linhasProcura = 60): TabelaItensLocalizada | undefined {
   const { maxRow, maxCol } = sheetDims(ws)
-
-  let linhaCabecalho = -1
-  let colReferencia = -1
-  for (let r = 1; r <= maxRow && linhaCabecalho === -1; r++) {
-    for (let c = 1; c <= maxCol; c++) {
-      if (normalizar(cellValue(ws, r, c)) === 'referencia') {
-        linhaCabecalho = r
-        colReferencia = c
-        break
+  let melhor: { linha: number; cols: Partial<Record<ColunaCabecalho, number>>; pontos: number } | undefined
+  for (let r = 1; r <= Math.min(maxRow, linhasProcura); r++) {
+    const textos: string[] = []
+    for (let c = 1; c <= maxCol; c++) textos.push(textoCabecalho(cellValue(ws, r, c)))
+    const cols: Partial<Record<ColunaCabecalho, number>> = {}
+    for (const chave of Object.keys(CABECALHOS) as ColunaCabecalho[]) {
+      // o padrão mais exato que aparecer em qualquer coluna dessa linha
+      for (const padrao of CABECALHOS[chave]) {
+        const c = textos.findIndex((t, i) => t && padrao.test(t) && !Object.values(cols).includes(i + 1))
+        if (c !== -1) {
+          cols[chave] = c + 1
+          break
+        }
       }
     }
+    if (!cols.referencia) continue
+    const pontos = Object.keys(cols).length
+    if (pontos >= 2 && (!melhor || pontos > melhor.pontos)) melhor = { linha: r, cols, pontos }
   }
-  if (linhaCabecalho === -1) {
-    throw new Error('Não encontrei a tabela de itens (coluna "REFERENCIA") nessa planilha.')
+  if (!melhor) return undefined
+  const c = melhor.cols
+  return {
+    linhaCabecalho: melhor.linha,
+    colReferencia: c.referencia ?? -1,
+    colDescricao: c.descricao ?? -1,
+    colQuant: c.quantidade ?? -1,
+    colEntrega: c.entrega ?? -1,
+    colVlrUnt: c.valorUnitario ?? -1,
+    colVlrTotal: c.valorTotal ?? -1,
+    colMarca: c.marca ?? -1,
+    maxRow,
+    maxCol,
   }
+}
 
-  let colDescricao = -1
-  let colQuant = -1
-  let colEntrega = -1
-  let colVlrUnt = -1
-  let colVlrTotal = -1
-  for (let c = 1; c <= maxCol; c++) {
-    const texto = normalizar(cellValue(ws, linhaCabecalho, c))
-    if (texto.startsWith('descri')) colDescricao = c
-    else if (texto.startsWith('quant')) colQuant = c
-    else if (texto === 'entrega') colEntrega = c
-    else if (texto.startsWith('vlr unt') || texto.startsWith('valor unt')) colVlrUnt = c
-    else if (texto.startsWith('vlr total') || texto.startsWith('valor total')) colVlrTotal = c
+/**
+ * Localiza a tabela de itens de uma planilha de orçamento (modelo
+ * MARCA/ENTREGA/REFERENCIA/DESCRIÇÃO/QUANT/VLR UNT/VLR TOTAL, e variações
+ * de nome dessas colunas). Exige referência, descrição e quantidade.
+ */
+export function localizarTabelaItens(ws: XLSX.WorkSheet): TabelaItensLocalizada {
+  const tabela = procurarTabelaItens(ws)
+  if (!tabela) {
+    throw new Error('Não encontrei a tabela de itens (coluna "REFERENCIA", "REF" ou "CÓDIGO") nessa planilha.')
   }
-  if (colDescricao === -1 || colQuant === -1) {
+  if (tabela.colDescricao === -1 || tabela.colQuant === -1) {
     throw new Error('Não encontrei as colunas de descrição e quantidade na tabela de itens.')
   }
+  return tabela
+}
 
-  return { linhaCabecalho, colReferencia, colDescricao, colQuant, colEntrega, colVlrUnt, colVlrTotal, maxRow, maxCol }
+/** Primeira aba que tem a tabela de itens (muita planilha traz capa/resumo na primeira aba). */
+export function abaComTabelaItens(workbook: XLSX.WorkBook): { ws: XLSX.WorkSheet; nome: string; tabela?: TabelaItensLocalizada } {
+  for (const nome of workbook.SheetNames) {
+    const ws = workbook.Sheets[nome]
+    const tabela = ws ? procurarTabelaItens(ws) : undefined
+    if (ws && tabela) return { ws, nome, tabela }
+  }
+  const nome = workbook.SheetNames[0]
+  return { ws: workbook.Sheets[nome], nome }
 }
 
 export interface PreviaPlanilha {

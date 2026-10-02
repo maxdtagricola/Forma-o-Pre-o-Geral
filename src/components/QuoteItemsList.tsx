@@ -1,14 +1,31 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent } from 'react'
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { formatCurrency, formatDate, selecionarTudoAoFocar } from '../utils'
 import { calculateItem } from '../calc/calculator'
 import { ESTADOS } from '../data/estados'
 import { listFornecedores } from '../db/fornecedoresRepo'
-import { buscarUltimoUsoDoProduto, type UltimoUsoDoProduto } from '../db/analysesRepo'
+import {
+  buscarQuote,
+  buscarUltimoUsoDoProduto,
+  freteDoFornecedor,
+  limparCotacaoFreteTransportadora,
+  salvarFreteTransportadora,
+  type UltimoUsoDoProduto,
+} from '../db/analysesRepo'
 import { findProdutoPorInternoOuReferencia } from '../db/produtosRepo'
 import { PlanilhaFornecedorModal } from './PlanilhaFornecedorModal'
+import { FreteFornecedorSlots } from './FreteFornecedorSlots'
 import { Button } from './ui/Basics'
 import { avisar } from '../dialogs'
-import type { Fornecedor, ProductInput, ProdutoCotacaoHistorico, QuoteItem } from '../types'
+import type { Fornecedor, ProductInput, ProdutoCotacaoHistorico, QuoteItem, QuoteRecord } from '../types'
 
 type ModoFrete = 'pct' | 'valor'
 
@@ -79,9 +96,59 @@ const CLASSE_COLUNA: Record<ColunaKey, string> = {
   total: 'w-32 text-right',
 }
 
-// preferência só de exibição (não é dado da cotação) — guardada no navegador de quem está usando,
-// pra continuar do jeito que a pessoa deixou da última vez
+/** Largura inicial de cada coluna (px) — dá pra arrastar a borda do título pra mudar (e duplo clique
+ * na borda volta pra essa). */
+const LARGURA_PADRAO: Record<ColunaKey, number> = {
+  interno: 112,
+  referencia: 128,
+  descricao: 220,
+  ncm: 104,
+  fornecedor: 160,
+  marca: 120,
+  uf: 84,
+  qtd: 76,
+  peso: 84,
+  valorUnt: 104,
+  precoVenda: 116,
+  frete: 132,
+  prazo: 112,
+  total: 120,
+}
+const LARGURA_MINIMA = 48
+const LARGURA_CHECKBOX = 34
+const LARGURA_NUMERO = 34
+const LARGURA_ACOES = 34
+
+// preferências só de exibição (não são dados da cotação) — guardadas no navegador de quem está
+// usando, pra continuar do jeito que a pessoa deixou da última vez
 const CHAVE_ORDEM_COLUNAS = 'itensCotacao:ordemColunas'
+const CHAVE_LARGURAS_COLUNAS = 'itensCotacao:largurasColunas'
+const CHAVE_COLUNAS_OCULTAS = 'itensCotacao:colunasOcultas'
+
+function carregarLarguras(): Partial<Record<ColunaKey, number>> {
+  try {
+    const salvo: unknown = JSON.parse(localStorage.getItem(CHAVE_LARGURAS_COLUNAS) ?? '{}')
+    if (!salvo || typeof salvo !== 'object') return {}
+    const resultado: Partial<Record<ColunaKey, number>> = {}
+    for (const [chave, valor] of Object.entries(salvo as Record<string, unknown>)) {
+      if (COLUNAS_PADRAO.includes(chave as ColunaKey) && typeof valor === 'number' && valor >= LARGURA_MINIMA) {
+        resultado[chave as ColunaKey] = Math.round(valor)
+      }
+    }
+    return resultado
+  } catch {
+    return {}
+  }
+}
+
+function carregarOcultas(): ColunaKey[] {
+  try {
+    const salvo: unknown = JSON.parse(localStorage.getItem(CHAVE_COLUNAS_OCULTAS) ?? '[]')
+    return Array.isArray(salvo) ? salvo.filter((c): c is ColunaKey => COLUNAS_PADRAO.includes(c as ColunaKey)) : []
+  } catch {
+    return []
+  }
+}
 
 function carregarOrdemColunas(): ColunaKey[] {
   try {
@@ -113,6 +180,7 @@ interface HistoricoPreco {
 // valores especiais dos filtros (não colidem com nenhum valor real de célula)
 const FILTRO_TODOS = '__todos__'
 const FILTRO_VAZIO = '__vazio__'
+const OPCAO_OCULTAR = '__ocultar__'
 
 /** O texto de uma célula como aparece na tela — usado pros filtros: cada coluna lista os valores
  * distintos que aparecem nela, e escolher um mostra só os itens com aquele valor. */
@@ -167,6 +235,8 @@ export function QuoteItemsList({
   onSave,
   podeSalvar,
   salvoRecentemente,
+  cotacaoId,
+  onRecorteChange,
 }: {
   items: QuoteItem[]
   activeItemId: string
@@ -184,13 +254,27 @@ export function QuoteItemsList({
   podeSalvar: boolean
   /** true por alguns segundos logo depois de salvar — mostra "Cotação salva!" ao lado do botão. */
   salvoRecentemente: boolean
+  /** Id da cotação no servidor — sem ele (cotação ainda não salva) o frete por fornecedor fica só leitura. */
+  cotacaoId?: string
+  /** Avisa quais itens estão "em foco" (marcados no seletor, ou o que sobrou do filtro) — usado pra
+   * "Valores dos produtos" mostrar só esses. undefined = todos. */
+  onRecorteChange?: (recorte: { ids: string[]; motivo: string } | undefined) => void
 }) {
   const [margemUnica, setMargemUnica] = useState('')
+  // frete de cada fornecedor (o mesmo da aba Frete) — lido direto da cotação salva no servidor e
+  // gravado direto lá a cada alteração, sem passar pelo "Salvar cotação"
+  const [freteSalvo, setFreteSalvo] = useState<Pick<QuoteRecord, 'fretePorFornecedor' | 'freteTransportadoras'>>({})
   const [modoFrete, setModoFrete] = useState<ModoFrete>('pct')
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [fornecedorAbertoId, setFornecedorAbertoId] = useState<string | null>(null)
   const [ordemColunas, setOrdemColunas] = useState<ColunaKey[]>(carregarOrdemColunas)
   const [colunaArrastada, setColunaArrastada] = useState<ColunaKey | null>(null)
+  const [larguras, setLarguras] = useState<Partial<Record<ColunaKey, number>>>(carregarLarguras)
+  const [colunasOcultas, setColunasOcultas] = useState<ColunaKey[]>(carregarOcultas)
+  const [menuColunasAberto, setMenuColunasAberto] = useState(false)
+  const menuColunasRef = useRef<HTMLDivElement>(null)
+  const redimensionando = useRef<{ chave: ColunaKey; inicioX: number; larguraInicial: number } | null>(null)
+  const [colunaRedimensionando, setColunaRedimensionando] = useState<ColunaKey | null>(null)
   // marcação por checkbox pra aplicar o mesmo fornecedor (ou NCM) em vários itens de uma vez —
   // independente do "item ativo" (activeItemId) de baixo, que é outra coisa (qual item tá aberto
   // no painel de edição)
@@ -216,6 +300,67 @@ export function QuoteItemsList({
   }, [])
 
   useEffect(() => {
+    if (!cotacaoId) {
+      setFreteSalvo({})
+      return
+    }
+    let cancelado = false
+    buscarQuote(cotacaoId)
+      .then((registro) => {
+        if (!cancelado && registro) {
+          setFreteSalvo({ fretePorFornecedor: registro.fretePorFornecedor, freteTransportadoras: registro.freteTransportadoras })
+        }
+      })
+      .catch(() => {
+        // sem servidor os espaços de frete só ficam vazios — o resto da tela segue normal
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [cotacaoId])
+
+  function fretesDoFornecedor(nomeFornecedor: string) {
+    return freteDoFornecedor({ items, ...freteSalvo }, nomeFornecedor)
+  }
+
+  async function handleSalvarFrete(nomeFornecedor: string, transportadora: string, numero: string, valor: string) {
+    if (!cotacaoId) return
+    try {
+      const existente = fretesDoFornecedor(nomeFornecedor)[transportadora]
+      const atualizado = await salvarFreteTransportadora(cotacaoId, nomeFornecedor, transportadora, {
+        camposPedido: existente?.camposPedido ?? {},
+        valorCotacao: valor,
+        numeroCotacao: numero,
+      })
+      setFreteSalvo({ fretePorFornecedor: atualizado.fretePorFornecedor, freteTransportadoras: atualizado.freteTransportadoras })
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar o frete no servidor.')
+    }
+  }
+
+  async function handleLimparFrete(nomeFornecedor: string, transportadora: string) {
+    if (!cotacaoId) return
+    try {
+      const atualizado = await limparCotacaoFreteTransportadora(cotacaoId, nomeFornecedor, transportadora)
+      setFreteSalvo({ fretePorFornecedor: atualizado.fretePorFornecedor, freteTransportadoras: atualizado.freteTransportadoras })
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar o frete no servidor.')
+    }
+  }
+
+  function renderFrete(nomeFornecedor: string) {
+    return (
+      <FreteFornecedorSlots
+        fretes={fretesDoFornecedor(nomeFornecedor)}
+        habilitado={!!cotacaoId}
+        motivoDesabilitado="Salve a cotação pra registrar o frete."
+        onSalvar={(transportadora, numero, valor) => handleSalvarFrete(nomeFornecedor, transportadora, numero, valor)}
+        onLimpar={(transportadora) => handleLimparFrete(nomeFornecedor, transportadora)}
+      />
+    )
+  }
+
+  useEffect(() => {
     function fecharAoClicarFora() {
       setFornecedorAbertoId(null)
     }
@@ -231,7 +376,80 @@ export function QuoteItemsList({
     }
   }, [ordemColunas])
 
-  const cellCls = 'px-1 py-1 border-t border-ink-100'
+  useEffect(() => {
+    try {
+      localStorage.setItem(CHAVE_LARGURAS_COLUNAS, JSON.stringify(larguras))
+      localStorage.setItem(CHAVE_COLUNAS_OCULTAS, JSON.stringify(colunasOcultas))
+    } catch {
+      // idem — só não lembra na próxima vez
+    }
+  }, [larguras, colunasOcultas])
+
+  useEffect(() => {
+    if (!menuColunasAberto) return
+    function fecharAoClicarFora(e: Event) {
+      if (menuColunasRef.current && !menuColunasRef.current.contains(e.target as Node)) setMenuColunasAberto(false)
+    }
+    document.addEventListener('mousedown', fecharAoClicarFora)
+    return () => document.removeEventListener('mousedown', fecharAoClicarFora)
+  }, [menuColunasAberto])
+
+  const colunasVisiveis = useMemo(() => ordemColunas.filter((c) => !colunasOcultas.includes(c)), [ordemColunas, colunasOcultas])
+  const larguraDe = (chave: ColunaKey) => larguras[chave] ?? LARGURA_PADRAO[chave]
+  const larguraTabela =
+    LARGURA_CHECKBOX + LARGURA_NUMERO + LARGURA_ACOES + colunasVisiveis.reduce((s, c) => s + larguraDe(c), 0)
+
+  function ocultarColuna(chave: ColunaKey) {
+    setColunasOcultas((prev) => (prev.includes(chave) ? prev : [...prev, chave]))
+    // filtro numa coluna escondida continuaria filtrando sem ninguém ver — sai junto
+    setFiltros((prev) => {
+      if (!(chave in prev)) return prev
+      const proximo = { ...prev }
+      delete proximo[chave]
+      return proximo
+    })
+  }
+
+  function alternarColuna(chave: ColunaKey) {
+    if (colunasOcultas.includes(chave)) setColunasOcultas((prev) => prev.filter((c) => c !== chave))
+    else if (colunasVisiveis.length > 1) ocultarColuna(chave)
+  }
+
+  /** Arrastar a borda direita do título muda a largura da coluna (o mouse/dedo segue livre pela tela
+   * até soltar). */
+  function iniciarRedimensionar(e: ReactPointerEvent<HTMLSpanElement>, chave: ColunaKey) {
+    e.preventDefault()
+    e.stopPropagation()
+    redimensionando.current = { chave, inicioX: e.clientX, larguraInicial: larguraDe(chave) }
+    setColunaRedimensionando(chave)
+    const mover = (ev: PointerEvent) => {
+      const atual = redimensionando.current
+      if (!atual) return
+      const nova = Math.max(LARGURA_MINIMA, Math.round(atual.larguraInicial + ev.clientX - atual.inicioX))
+      setLarguras((prev) => (prev[atual.chave] === nova ? prev : { ...prev, [atual.chave]: nova }))
+    }
+    const soltar = () => {
+      redimensionando.current = null
+      setColunaRedimensionando(null)
+      window.removeEventListener('pointermove', mover)
+      window.removeEventListener('pointerup', soltar)
+      window.removeEventListener('pointercancel', soltar)
+    }
+    window.addEventListener('pointermove', mover)
+    window.addEventListener('pointerup', soltar)
+    window.addEventListener('pointercancel', soltar)
+  }
+
+  function larguraPadraoDaColuna(chave: ColunaKey) {
+    setLarguras((prev) => {
+      const proximo = { ...prev }
+      delete proximo[chave]
+      return proximo
+    })
+  }
+
+  // divisória vertical em toda célula — dá pra ver onde uma coluna termina e a outra começa
+  const cellCls = 'px-1 py-1 border-t border-r border-ink-100'
   const inputCls =
     'w-full bg-transparent border-0 rounded px-1.5 py-1.5 text-ink-800 focus:outline-none focus:ring-1 focus:ring-brand-400'
 
@@ -293,6 +511,36 @@ export function QuoteItemsList({
   const idsMarcados = useMemo(() => items.map((i) => i.id).filter((id) => marcados.has(id)), [items, marcados])
   const idsVisiveis = useMemo(() => itensFiltrados.map((i) => i.id), [itensFiltrados])
   const todosVisiveisMarcados = idsVisiveis.length > 0 && idsVisiveis.every((id) => marcados.has(id))
+
+  // "Valores dos produtos" acompanha o que está em foco aqui: os itens marcados no seletor (um a um
+  // ou o fornecedor inteiro pelo seletor do tópico dele); sem marcação, o que sobrou dos filtros;
+  // sem nenhum dos dois, todos os itens
+  const recorte = useMemo((): { ids: string[]; motivo: string } | undefined => {
+    if (idsMarcados.length > 0) {
+      const fornecedoresMarcados = new Set(
+        items.filter((i) => marcados.has(i.id)).map((i) => i.product.fornecedor.trim().toUpperCase()),
+      )
+      if (fornecedoresMarcados.size === 1) {
+        const [chave] = Array.from(fornecedoresMarcados)
+        const doFornecedor = items.filter((i) => i.product.fornecedor.trim().toUpperCase() === chave)
+        const nome = doFornecedor[0]?.product.fornecedor.trim()
+        if (nome && doFornecedor.every((i) => marcados.has(i.id))) return { ids: idsMarcados, motivo: `fornecedor ${nome} marcado` }
+      }
+      return { ids: idsMarcados, motivo: idsMarcados.length === 1 ? 'o item marcado' : 'os itens marcados' }
+    }
+    if (filtrosAtivos) {
+      return {
+        ids: itensFiltrados.map((i) => i.id),
+        motivo: `filtrado por ${(Object.keys(filtros) as ColunaKey[]).map((c) => LABEL_COLUNA[c]).join(', ')}`,
+      }
+    }
+    return undefined
+  }, [idsMarcados, items, marcados, filtrosAtivos, itensFiltrados, filtros])
+  const chaveRecorte = recorte ? `${recorte.motivo}|${recorte.ids.join(',')}` : ''
+  useEffect(() => {
+    onRecorteChange?.(recorte)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chaveRecorte])
 
   function toggleMarcado(id: string) {
     setMarcados((prev) => {
@@ -406,11 +654,59 @@ export function QuoteItemsList({
     })
   }
 
+  /** O filtro mora no próprio título da coluna: uma setinha ao lado do nome abre a lista de valores
+   * (um <select> nativo invisível por cima da setinha — no celular abre o seletor do sistema). Com
+   * filtro ativo, a setinha fica preenchida e o valor escolhido aparece logo abaixo do nome. */
+  function renderFiltroNoTitulo(chave: ColunaKey) {
+    const ativo = chave in filtros
+    const valorAtual = filtros[chave]
+    const valorSelect = !ativo ? FILTRO_TODOS : valorAtual === '' ? FILTRO_VAZIO : (valorAtual as string)
+    return (
+      <span className="relative inline-flex shrink-0" onMouseDown={(e) => e.stopPropagation()}>
+        <span
+          aria-hidden
+          className={`inline-flex h-4 w-4 items-center justify-center rounded text-[10px] leading-none transition ${
+            ativo ? 'bg-brand-600 text-white' : 'text-ink-300 group-hover:text-ink-500'
+          }`}
+        >
+          ▾
+        </span>
+        <select
+          value={valorSelect}
+          onChange={(e) => {
+            if (e.target.value === OPCAO_OCULTAR) ocultarColuna(chave)
+            else setFiltro(chave, e.target.value)
+          }}
+          title={`Filtrar por ${LABEL_COLUNA[chave]}`}
+          aria-label={`Filtrar por ${LABEL_COLUNA[chave]}`}
+          className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+        >
+          <option value={FILTRO_TODOS}>Todos</option>
+          {valoresPorColuna[chave].map((v) => (
+            <option key={v || FILTRO_VAZIO} value={v || FILTRO_VAZIO}>
+              {v || '(vazio)'}
+            </option>
+          ))}
+          {colunasVisiveis.length > 1 && (
+            <>
+              <option disabled>──────────</option>
+              <option value={OPCAO_OCULTAR}>Ocultar esta coluna</option>
+            </>
+          )}
+        </select>
+      </span>
+    )
+  }
+
   function renderCabecalho(chave: ColunaKey) {
+    const ativo = chave in filtros
+    const valorFiltro = filtros[chave]
+    const alinhadoDireita = CLASSE_COLUNA[chave].includes('text-right') || chave === 'frete'
     const conteudo =
       chave === 'frete' ? (
         <div className="flex items-center justify-end gap-1">
-          <span>Frete</span>
+          <span className={ativo ? 'font-semibold text-brand-700' : ''}>Frete</span>
+          {renderFiltroNoTitulo(chave)}
           <span className="inline-flex rounded-md border border-ink-200 overflow-hidden shrink-0">
             <button
               type="button"
@@ -433,7 +729,10 @@ export function QuoteItemsList({
           </span>
         </div>
       ) : (
-        LABEL_COLUNA[chave]
+        <div className={`flex items-center gap-1 ${alinhadoDireita ? 'justify-end' : ''}`}>
+          <span className={ativo ? 'font-semibold text-brand-700' : ''}>{LABEL_COLUNA[chave]}</span>
+          {renderFiltroNoTitulo(chave)}
+        </div>
       )
 
     return (
@@ -448,42 +747,49 @@ export function QuoteItemsList({
           setColunaArrastada(null)
         }}
         onDragEnd={() => setColunaArrastada(null)}
-        title="Arraste pra reordenar as colunas"
-        className={`py-2 px-2 font-medium cursor-move select-none transition ${CLASSE_COLUNA[chave]} ${
-          colunaArrastada === chave ? 'opacity-40' : ''
-        }`}
+        title="Arraste pra reordenar as colunas — a setinha ao lado do nome filtra (ou oculta a coluna) e a borda da direita muda a largura"
+        className={`group relative py-2 pl-2 pr-3 font-medium cursor-move select-none border-r border-ink-200 transition ${
+          CLASSE_COLUNA[chave].includes('text-right') ? 'text-right' : ''
+        } ${colunaArrastada === chave ? 'opacity-40' : ''}`}
       >
         {conteudo}
-      </th>
-    )
-  }
-
-  function renderFiltro(chave: ColunaKey) {
-    const ativo = chave in filtros
-    const valorAtual = filtros[chave]
-    const valorSelect = !ativo ? FILTRO_TODOS : valorAtual === '' ? FILTRO_VAZIO : (valorAtual as string)
-    return (
-      <th key={chave} className="px-1 pb-1.5 font-normal">
-        <select
-          value={valorSelect}
-          onChange={(e) => setFiltro(chave, e.target.value)}
-          title={`Filtrar por ${LABEL_COLUNA[chave]}`}
-          className={`w-full min-w-[4.5rem] rounded-md border px-1 py-0.5 text-[11px] focus:outline-none focus:ring-1 focus:ring-brand-400 ${
-            ativo ? 'border-brand-400 bg-brand-50 text-ink-900 font-semibold' : 'border-ink-200 bg-surface text-ink-500'
-          }`}
+        {ativo && (
+          <div
+            className={`mt-0.5 truncate text-[10px] font-semibold normal-case text-brand-700 ${alinhadoDireita ? 'text-right' : ''}`}
+            title={valorFiltro || '(vazio)'}
+          >
+            = {valorFiltro || '(vazio)'}
+          </div>
+        )}
+        {/* alça de largura: borda direita do título (arrastar muda, duplo clique volta ao padrão) */}
+        <span
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={`Largura da coluna ${LABEL_COLUNA[chave]}`}
+          title="Arraste pra mudar a largura (duplo clique volta ao tamanho padrão)"
+          draggable={false}
+          onDragStart={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+          }}
+          onPointerDown={(e) => iniciarRedimensionar(e, chave)}
+          onDoubleClick={(e) => {
+            e.stopPropagation()
+            larguraPadraoDaColuna(chave)
+          }}
+          className="absolute -right-1 top-0 z-10 flex h-full w-2.5 cursor-col-resize touch-none justify-center"
         >
-          <option value={FILTRO_TODOS}>Todos</option>
-          {valoresPorColuna[chave].map((v) => (
-            <option key={v || FILTRO_VAZIO} value={v || FILTRO_VAZIO}>
-              {v || '(vazio)'}
-            </option>
-          ))}
-        </select>
+          <span
+            className={`h-full w-0.5 transition ${
+              colunaRedimensionando === chave ? 'bg-brand-600' : 'bg-transparent group-hover:bg-ink-300 hover:!bg-brand-600'
+            }`}
+          />
+        </span>
       </th>
     )
   }
 
-  const totalColunas = ordemColunas.length + 3
+  const totalColunas = colunasVisiveis.length + 3
 
   function renderLinha(item: QuoteItem) {
     const totalItens = (item.product.qtd || 0) * (item.product.valorUnt || 0)
@@ -508,7 +814,7 @@ export function QuoteItemsList({
         cellCls={cellCls}
         inputCls={inputCls}
         stop={stop}
-        ordemColunas={ordemColunas}
+        ordemColunas={colunasVisiveis}
         totalColunas={totalColunas}
         historico={historicos[item.id]}
         onHistorico={(h) =>
@@ -529,8 +835,8 @@ export function QuoteItemsList({
         <div>
           <h2 className="font-display text-lg font-semibold text-ink-900">Itens da cotação</h2>
           <p className="text-sm text-ink-400">
-            Edite direto na planilha — arraste o cabeçalho pra reordenar as colunas, e use a linha de filtros logo
-            abaixo dele pra ver só o que interessa.
+            Edite direto na planilha — arraste o título de uma coluna pra reordenar, e use a setinha ▾ ao lado do
+            nome dela pra filtrar.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 shrink-0">
@@ -714,11 +1020,93 @@ export function QuoteItemsList({
         </div>
       )}
 
+      {/* com um fornecedor só não há cabeçalho de grupo — o frete dele fica aqui em cima */}
+      {!agrupar && grupos.length === 1 && (
+        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-l-4 border-ink-900 bg-ink-50 py-1.5 pl-2.5 pr-3">
+          {grupos[0].fornecedor && (
+            <span className="font-display text-[13px] font-bold uppercase tracking-wide text-ink-900">{grupos[0].fornecedor}</span>
+          )}
+          <span className={`flex flex-wrap items-center gap-1.5 ${grupos[0].fornecedor ? 'border-l border-ink-200 pl-3' : ''}`}>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Frete</span>
+            {renderFrete(grupos[0].fornecedor)}
+          </span>
+        </div>
+      )}
+
+      <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
+        <div className="relative" ref={menuColunasRef}>
+          <button
+            type="button"
+            onClick={() => setMenuColunasAberto((v) => !v)}
+            aria-expanded={menuColunasAberto}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+              colunasOcultas.length > 0 ? 'border-brand-400 bg-brand-50 text-ink-900' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+            }`}
+          >
+            Colunas{colunasOcultas.length > 0 ? ` (${colunasOcultas.length} oculta${colunasOcultas.length > 1 ? 's' : ''})` : ''}
+            <span aria-hidden>▾</span>
+          </button>
+          {menuColunasAberto && (
+            <div className="absolute right-0 top-full z-30 mt-1 w-60 rounded-xl border border-ink-200 bg-surface p-2 shadow-lg">
+              <p className="px-1.5 pb-1 text-[11px] text-ink-400">Marque as colunas que aparecem na tabela:</p>
+              <div className="max-h-72 overflow-y-auto">
+                {ordemColunas.map((chave) => {
+                  const visivel = !colunasOcultas.includes(chave)
+                  return (
+                    <label
+                      key={chave}
+                      className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm text-ink-800 hover:bg-ink-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={visivel}
+                        disabled={visivel && colunasVisiveis.length === 1}
+                        onChange={() => alternarColuna(chave)}
+                      />
+                      {LABEL_COLUNA[chave]}
+                    </label>
+                  )
+                })}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-1.5 border-t border-ink-100 px-1.5 pt-2">
+                <button
+                  type="button"
+                  disabled={colunasOcultas.length === 0}
+                  onClick={() => setColunasOcultas([])}
+                  className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50 disabled:opacity-40"
+                >
+                  Mostrar todas
+                </button>
+                <button
+                  type="button"
+                  disabled={Object.keys(larguras).length === 0}
+                  onClick={() => setLarguras({})}
+                  className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50 disabled:opacity-40"
+                >
+                  Larguras padrão
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="overflow-x-auto rounded-xl border border-ink-100">
-        <table className="w-full text-sm border-collapse">
+        {/* larguras fixas por coluna (table-layout: fixed + colgroup) — é o que deixa arrastar a borda
+         * e a coluna ficar exatamente do tamanho escolhido; a última coluna (×) absorve a sobra quando
+         * a tabela é mais estreita que a tela */}
+        <table className="text-sm border-collapse" style={{ tableLayout: 'fixed', width: `max(${larguraTabela}px, 100%)` }}>
+          <colgroup>
+            <col style={{ width: LARGURA_CHECKBOX }} />
+            <col style={{ width: LARGURA_NUMERO }} />
+            {colunasVisiveis.map((chave) => (
+              <col key={chave} style={{ width: larguraDe(chave) }} />
+            ))}
+            <col />
+          </colgroup>
           <thead>
             <tr className="bg-ink-50 text-left text-ink-400">
-              <th className="py-2 px-2 w-8">
+              <th className="py-2 px-2 border-r border-ink-200">
                 <input
                   type="checkbox"
                   checked={todosVisiveisMarcados}
@@ -726,15 +1114,9 @@ export function QuoteItemsList({
                   title="Marcar/desmarcar todos os itens visíveis"
                 />
               </th>
-              <th className="py-2 px-2 font-medium w-8">#</th>
-              {ordemColunas.map((chave) => renderCabecalho(chave))}
-              <th className="w-8"></th>
-            </tr>
-            <tr className="bg-ink-50 text-left">
-              <th />
-              <th />
-              {ordemColunas.map((chave) => renderFiltro(chave))}
-              <th />
+              <th className="py-2 px-2 font-medium border-r border-ink-200">#</th>
+              {colunasVisiveis.map((chave) => renderCabecalho(chave))}
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -755,25 +1137,34 @@ export function QuoteItemsList({
                   )
                   return (
                     <Fragment key={grupo.fornecedor.toUpperCase() || '__sem_fornecedor__'}>
-                      <tr className="bg-ink-100/70">
-                        <td className="px-2 py-2 border-t-2 border-ink-200 text-center">
-                          <input
-                            type="checkbox"
-                            checked={grupoMarcado}
-                            onChange={() => toggleConjunto(idsGrupo)}
-                            title="Marcar/desmarcar todos os itens desse fornecedor"
-                          />
-                        </td>
-                        {/* tudo alinhado à esquerda de propósito: a tabela costuma ser mais larga que
-                         * a tela (rola de lado), e o que ficasse na ponta direita sumia de vista */}
-                        <td colSpan={totalColunas - 1} className="px-2 py-2 border-t-2 border-ink-200">
-                          <span className="font-display font-semibold text-ink-900">
-                            {grupo.fornecedor || 'Sem fornecedor definido'}
-                          </span>
-                          <span className="ml-2 text-xs text-ink-500">
-                            {grupo.itens.length} item{grupo.itens.length > 1 ? 's' : ''} · Subtotal{' '}
-                            <span className="font-mono font-semibold tabular-nums text-ink-900">{formatCurrency(subtotal)}</span>
-                          </span>
+                      {/* cabeçalho do grupo como um "tópico" dos itens logo abaixo: barra lateral,
+                       * nome do fornecedor em destaque e, na mesma linha, o frete dele (até 3
+                       * cotações de transportadora) — tudo alinhado à esquerda de propósito: a
+                       * tabela costuma ser mais larga que a tela, e o que ficasse na ponta direita
+                       * sumia de vista */}
+                      <tr>
+                        <td colSpan={totalColunas} className="px-0 pt-3 pb-0 border-t border-ink-100">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-l-4 border-ink-900 bg-ink-50 py-1.5 pl-2 pr-3">
+                            <input
+                              type="checkbox"
+                              checked={grupoMarcado}
+                              onChange={() => toggleConjunto(idsGrupo)}
+                              title="Marcar/desmarcar todos os itens desse fornecedor"
+                            />
+                            <span className="font-display text-[13px] font-bold uppercase tracking-wide text-ink-900">
+                              {grupo.fornecedor || 'Sem fornecedor definido'}
+                            </span>
+                            <span className="text-[11px] text-ink-500">
+                              {grupo.itens.length} item{grupo.itens.length > 1 ? 's' : ''} ·{' '}
+                              <span className="font-mono font-semibold tabular-nums text-ink-900">{formatCurrency(subtotal)}</span>
+                            </span>
+                            {grupo.fornecedor && (
+                              <span className="flex flex-wrap items-center gap-1.5 border-l border-ink-200 pl-3">
+                                <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Frete</span>
+                                {renderFrete(grupo.fornecedor)}
+                              </span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                       {grupo.itens.map(renderLinha)}
@@ -1062,7 +1453,7 @@ function LinhaItem({
       </td>
     ),
     precoVenda: (
-      <td key="precoVenda" className={`${cellCls} text-right font-mono tabular-nums text-ink-800`}>
+      <td key="precoVenda" className={`${cellCls} truncate text-right font-mono tabular-nums text-ink-800`}>
         {formatCurrency(precoVendaUnitario)}
       </td>
     ),
@@ -1108,7 +1499,7 @@ function LinhaItem({
       </td>
     ),
     total: (
-      <td key="total" className={`${cellCls} text-right font-mono tabular-nums text-ink-800 pr-3`}>
+      <td key="total" className={`${cellCls} truncate text-right font-mono tabular-nums text-ink-800 pr-3`}>
         {formatCurrency(totalItens)}
       </td>
     ),
