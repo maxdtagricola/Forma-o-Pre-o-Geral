@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useSyncExternalStore } from 'react'
 
 // -----------------------------------------------------------------------
 // Substitui window.confirm()/alert() por uma caixa própria, sempre centrada
@@ -73,17 +73,19 @@ export function avisar(mensagem: string, opcoes?: { titulo?: string; okText?: st
   })
 }
 
-/** Só o <DialogHost/> usa isso, pra saber o que desenhar (ou nada, se não houver pedido pendente). */
+function assinar(ouvinte: () => void): () => void {
+  ouvintes.push(ouvinte)
+  return () => {
+    ouvintes = ouvintes.filter((o) => o !== ouvinte)
+  }
+}
+
+/** Só o <DialogHost/> usa isso, pra saber o que desenhar (ou nada, se não houver pedido pendente).
+ * useSyncExternalStore (e não useState + useEffect pra assinar): com o useEffect, um aviso disparado
+ * no intervalo entre o DialogHost desenhar e o efeito começar a escutar se perdia — ninguém estava
+ * ouvindo ainda, e a caixa nunca aparecia. Aqui o React confere o valor de novo depois de assinar. */
 export function usePedidoDialog(): PedidoDialog | null {
-  const [, forcarAtualizacao] = useState(0)
-  useEffect(() => {
-    const ouvinte = () => forcarAtualizacao((n) => n + 1)
-    ouvintes.push(ouvinte)
-    return () => {
-      ouvintes = ouvintes.filter((o) => o !== ouvinte)
-    }
-  }, [])
-  return pedidoAtual
+  return useSyncExternalStore(assinar, () => pedidoAtual)
 }
 
 /** Só o <DialogHost/> chama isso, ao clicar num botão (ou fechar) da caixa atual. */
