@@ -8,7 +8,16 @@ import { SelectField, TextField } from '../components/ui/Field'
 import { calculateItem } from '../calc/calculator'
 import { dateToInputValue, formatCurrency, formatDate, inputValueToDate } from '../utils'
 import { ESTADOS_DESTINO, VENDEDORES } from '../types'
-import type { CalculationResult, Empresa, EstadoDestino, PricingConfig, ProductInput, QuoteItem, QuoteStatus } from '../types'
+import type {
+  CalculationResult,
+  Empresa,
+  EstadoDestino,
+  ItemExcluidoCotacao,
+  PricingConfig,
+  ProductInput,
+  QuoteItem,
+  QuoteStatus,
+} from '../types'
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
 const perfilOptions = ESTADOS_DESTINO.map((e) => ({ value: e.value, label: e.label }))
@@ -35,7 +44,9 @@ export function Dashboard({
   isEditing,
   onSelectItem,
   onAddItem,
-  onRemoveItem,
+  onRemoveItems,
+  itensExcluidos,
+  onRestaurarItem,
   onPatchItem,
   onApplyMarginToAll,
   onApplyPerfilToAll,
@@ -51,8 +62,6 @@ export function Dashboard({
   createdAt,
   dataSolicitacao,
   onChangeDataSolicitacao,
-  numeroCotacaoTransportadora,
-  onChangeNumeroCotacaoTransportadora,
   cotacaoSalva,
   cotacaoId,
 }: {
@@ -77,7 +86,11 @@ export function Dashboard({
   isEditing: boolean
   onSelectItem: (id: string) => void
   onAddItem: () => void
-  onRemoveItem: (id: string) => void
+  /** Tira os itens da cotação (já confirmado por quem chamou) — eles vão pro arquivo de excluídos. */
+  onRemoveItems: (ids: string[]) => void
+  /** Itens que saíram da cotação (os tirados agora, ainda não salvos, e os já arquivados no servidor). */
+  itensExcluidos: Array<ItemExcluidoCotacao & { pendente: boolean }>
+  onRestaurarItem: (itemId: string) => void
   onPatchItem: (id: string, patch: Partial<ProductInput>) => void
   onApplyMarginToAll: (lucroPct: number) => void
   onApplyPerfilToAll: (perfil: EstadoDestino) => void
@@ -93,8 +106,6 @@ export function Dashboard({
   createdAt?: number
   dataSolicitacao?: number
   onChangeDataSolicitacao: (ts: number | undefined) => void
-  numeroCotacaoTransportadora: string
-  onChangeNumeroCotacaoTransportadora: (v: string) => void
   /** true por alguns segundos logo depois de salvar — mostra a confirmação ao lado do botão, agora em Itens da cotação. */
   cotacaoSalva: boolean
   /** Id da cotação no servidor — o frete de cada fornecedor (Itens da cotação) é salvo direto nela. */
@@ -198,17 +209,6 @@ export function Dashboard({
               onChange={(e) => onChangeDataSolicitacao(inputValueToDate(e.target.value))}
             />
           </label>
-          <label className="block">
-            <span className="field-label">Nº cotação transportadora</span>
-            <input
-              type="text"
-              className="field-input"
-              placeholder="informado pela transportadora"
-              value={numeroCotacaoTransportadora}
-              disabled={travadaPorOutro}
-              onChange={(e) => onChangeNumeroCotacaoTransportadora(e.target.value)}
-            />
-          </label>
         </div>
       </div>
 
@@ -236,7 +236,9 @@ export function Dashboard({
         cliente={cliente}
         onSelect={onSelectItem}
         onAdd={onAddItem}
-        onRemove={onRemoveItem}
+        onRemoveItems={onRemoveItems}
+        itensExcluidos={itensExcluidos}
+        onRestaurarItem={onRestaurarItem}
         onPatchItem={onPatchItem}
         onApplyMarginToAll={onApplyMarginToAll}
         onGoToComparar={onGoToComparar}
@@ -245,9 +247,10 @@ export function Dashboard({
         salvoRecentemente={cotacaoSalva}
         cotacaoId={cotacaoId}
         onRecorteChange={setRecorteItens}
-      />
-
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      >
+      {/* dentro do bloco de Itens da cotação de propósito: a barra de cima (Salvar cotação, ações
+       * dos marcados) continua presa no topo enquanto se rola por aqui */}
+      <div className="mt-6 grid grid-cols-1 lg:grid-cols-5 gap-6">
         <div className="lg:col-span-3 space-y-6">
           <ProductValuesTable
             items={itensValores}
@@ -256,7 +259,8 @@ export function Dashboard({
         </div>
 
         <div className="lg:col-span-2 space-y-4">
-          <div className="sticky top-6 space-y-4">
+          {/* gruda logo abaixo da barra de Itens da cotação (a altura dela vem em --altura-barra-itens) */}
+          <div className="sticky space-y-4" style={{ top: 'calc(var(--altura-topo) + var(--altura-barra-itens, 0px) + 1rem)' }}>
             <ResultPanel
               result={result}
               qtd={activeProduct.qtd || 1}
@@ -279,6 +283,7 @@ export function Dashboard({
           </div>
         </div>
       </div>
+      </QuoteItemsList>
 
       {mostrarEnvioCotacao && (
         <EnvioCotacaoModal

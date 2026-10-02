@@ -26,6 +26,14 @@
     --amber-700: 127 68 23;
     --amber-800: 103 55 24;
     --amber-900: 86 47 23;
+    /* altura da barra fixa do topo no celular (h-14 no Layout) — no computador não tem barra */
+    --altura-topo: 3.5rem;
+  }
+
+  @media (min-width: 640px) {
+    :root {
+      --altura-topo: 0px;
+    }
   }
 
   .dark {
@@ -107,6 +115,14 @@
   }
   .pill-tab {
     @apply inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-medium transition whitespace-nowrap;
+  }
+  /* some com a barra de rolagem própria do elemento (continua rolando) — usado quando há outra barra
+   * sincronizada no lugar, como a barra horizontal flutuante de Itens da cotação */
+  .sem-barra-rolagem {
+    scrollbar-width: none;
+  }
+  .sem-barra-rolagem::-webkit-scrollbar {
+    display: none;
   }
   .planilha-preview table {
     @apply w-full border-collapse text-xs text-ink-800;

@@ -1,12 +1,14 @@
 import {
   Fragment,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type DragEvent,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from 'react'
 import { formatCurrency, formatDate, selecionarTudoAoFocar } from '../utils'
 import { calculateItem } from '../calc/calculator'
@@ -15,17 +17,27 @@ import { listFornecedores } from '../db/fornecedoresRepo'
 import {
   buscarQuote,
   buscarUltimoUsoDoProduto,
+  chaveFornecedorFrete,
   freteDoFornecedor,
   limparCotacaoFreteTransportadora,
+  rotuloRemetente,
   salvarFreteTransportadora,
+  type RemetenteFrete,
   type UltimoUsoDoProduto,
 } from '../db/analysesRepo'
 import { findProdutoPorInternoOuReferencia } from '../db/produtosRepo'
 import { PlanilhaFornecedorModal } from './PlanilhaFornecedorModal'
 import { FreteFornecedorSlots } from './FreteFornecedorSlots'
 import { Button } from './ui/Basics'
-import { avisar } from '../dialogs'
-import type { Fornecedor, ProductInput, ProdutoCotacaoHistorico, QuoteItem, QuoteRecord } from '../types'
+import { avisar, confirmar } from '../dialogs'
+import type {
+  Fornecedor,
+  ItemExcluidoCotacao,
+  ProductInput,
+  ProdutoCotacaoHistorico,
+  QuoteItem,
+  QuoteRecord,
+} from '../types'
 
 type ModoFrete = 'pct' | 'valor'
 
@@ -79,25 +91,11 @@ const LABEL_COLUNA: Record<ColunaKey, string> = {
   total: 'Total',
 }
 
-const CLASSE_COLUNA: Record<ColunaKey, string> = {
-  interno: 'min-w-[7rem]',
-  referencia: 'min-w-[8rem]',
-  descricao: 'min-w-[12rem]',
-  ncm: 'min-w-[7rem]',
-  fornecedor: 'min-w-[10rem]',
-  marca: 'min-w-[8rem]',
-  uf: 'min-w-[4.5rem]',
-  qtd: 'w-20 text-right',
-  peso: 'w-24 text-right',
-  valorUnt: 'w-28 text-right',
-  precoVenda: 'w-28 text-right',
-  frete: 'w-32',
-  prazo: 'min-w-[7rem]',
-  total: 'w-32 text-right',
-}
+const ALINHADA_DIREITA = new Set<ColunaKey>(['qtd', 'peso', 'valorUnt', 'precoVenda', 'frete', 'total'])
 
-/** Largura inicial de cada coluna (px) — dá pra arrastar a borda do título pra mudar (e duplo clique
- * na borda volta pra essa). */
+/** Largura padrão de cada coluna (px). Na tela, as colunas que ninguém ajustou à mão se adaptam à
+ * largura da planilha (ver calcularLarguras); arrastar a borda do título fixa a largura daquela
+ * coluna (duplo clique na borda volta ela pro ajuste automático). */
 const LARGURA_PADRAO: Record<ColunaKey, number> = {
   interno: 112,
   referencia: 128,
@@ -117,7 +115,25 @@ const LARGURA_PADRAO: Record<ColunaKey, number> = {
 const LARGURA_MINIMA = 48
 const LARGURA_CHECKBOX = 34
 const LARGURA_NUMERO = 34
-const LARGURA_ACOES = 34
+/** Até quanto da largura padrão cada coluna pode encolher pra planilha caber na tela: as de texto
+ * (descrição, fornecedor, marca…) encolhem bem; códigos e valores quase nada — cortados, deixariam
+ * de servir pra conferir. Passando disso, a planilha rola de lado. */
+const MINIMO_RELATIVO: Record<ColunaKey, number> = {
+  interno: 0.85,
+  referencia: 0.85,
+  descricao: 0.55,
+  ncm: 1,
+  fornecedor: 0.75,
+  marca: 0.7,
+  uf: 0.8,
+  qtd: 0.9,
+  peso: 0.9,
+  valorUnt: 0.9,
+  precoVenda: 0.95,
+  frete: 1,
+  prazo: 0.7,
+  total: 0.95,
+}
 
 // preferências só de exibição (não são dados da cotação) — guardadas no navegador de quem está
 // usando, pra continuar do jeito que a pessoa deixou da última vez
@@ -169,6 +185,69 @@ function carregarOrdemColunas(): ColunaKey[] {
   } catch {
     return COLUNAS_PADRAO
   }
+}
+
+/** Largura na tela de cada coluna visível. As ajustadas à mão ficam exatamente como foram deixadas;
+ * as outras ocupam o espaço que sobra: sobrando (ex.: depois de ocultar colunas), crescem na mesma
+ * proporção; faltando (ex.: barra lateral aberta), as de texto encolhem primeiro, até o mínimo de
+ * cada uma (MINIMO_RELATIVO) — daí pra frente a planilha rola de lado. */
+function calcularLarguras(
+  visiveis: ColunaKey[],
+  ajustadas: Partial<Record<ColunaKey, number>>,
+  espaco: number,
+): Record<ColunaKey, number> {
+  const resultado = {} as Record<ColunaKey, number>
+  const automaticas = visiveis.filter((c) => ajustadas[c] === undefined)
+  let somaAjustadas = 0
+  for (const c of visiveis) {
+    const ajustada = ajustadas[c]
+    if (ajustada !== undefined) {
+      resultado[c] = ajustada
+      somaAjustadas += ajustada
+    }
+  }
+  if (espaco <= 0) {
+    for (const c of automaticas) resultado[c] = LARGURA_PADRAO[c]
+    return resultado
+  }
+  if (automaticas.length === 0) {
+    // todas ajustadas à mão: só crescem juntas (na mesma proporção) se sobrar espaço na tela
+    if (somaAjustadas > 0 && somaAjustadas < espaco) {
+      for (const c of visiveis) resultado[c] = resultado[c] * (espaco / somaAjustadas)
+    }
+    return resultado
+  }
+  const espacoLivre = espaco - somaAjustadas
+  const somaPadrao = automaticas.reduce((s, c) => s + LARGURA_PADRAO[c], 0)
+  if (espacoLivre >= somaPadrao) {
+    const fator = espacoLivre / somaPadrao
+    for (const c of automaticas) resultado[c] = LARGURA_PADRAO[c] * fator
+    return resultado
+  }
+  const podeEncolher = automaticas.reduce((s, c) => s + LARGURA_PADRAO[c] * (1 - MINIMO_RELATIVO[c]), 0)
+  const quanto = podeEncolher > 0 ? Math.min(1, (somaPadrao - espacoLivre) / podeEncolher) : 0
+  for (const c of automaticas) resultado[c] = LARGURA_PADRAO[c] * (1 - (1 - MINIMO_RELATIVO[c]) * quanto)
+  return resultado
+}
+
+/** Grupo de fornecedor dos itens: o nome e a UF de origem (o mesmo fornecedor em outro estado é
+ * outro grupo, com outro frete). Itens sem fornecedor ficam todos num grupo só, sem UF. */
+function remetenteDoItem(item: QuoteItem): RemetenteFrete {
+  const nome = item.product.fornecedor.trim()
+  return nome ? { nome, uf: item.product.estadoOrigem } : { nome: '' }
+}
+
+function chaveDoGrupo(item: QuoteItem): string {
+  const r = remetenteDoItem(item)
+  return chaveFornecedorFrete(r.nome, r.uf)
+}
+
+/** Como o item aparece nas confirmações e na lista de excluídos. */
+function descricaoDoItem(item: QuoteItem): string {
+  const p = item.product
+  const codigo = [p.interno.trim(), p.referencia.trim()].filter(Boolean).join(' / ')
+  const nome = p.descricao.trim() || 'item sem descrição'
+  return `${codigo ? `${codigo} — ` : ''}${nome}${p.fornecedor.trim() ? ` (${p.fornecedor.trim()})` : ''}`
 }
 
 /** Histórico de preço achado ao digitar Interno/Referência — mostrado logo abaixo da linha. */
@@ -228,7 +307,9 @@ export function QuoteItemsList({
   cliente,
   onSelect,
   onAdd,
-  onRemove,
+  onRemoveItems,
+  itensExcluidos,
+  onRestaurarItem,
   onPatchItem,
   onApplyMarginToAll,
   onGoToComparar,
@@ -237,6 +318,7 @@ export function QuoteItemsList({
   salvoRecentemente,
   cotacaoId,
   onRecorteChange,
+  children,
 }: {
   items: QuoteItem[]
   activeItemId: string
@@ -245,7 +327,11 @@ export function QuoteItemsList({
   cliente: string
   onSelect: (id: string) => void
   onAdd: () => void
-  onRemove: (id: string) => void
+  /** Tira os itens da cotação — a confirmação acontece aqui antes de chamar. */
+  onRemoveItems: (ids: string[]) => void
+  /** Itens que saíram da cotação (mostrados no fim da tabela, com opção de trazer de volta). */
+  itensExcluidos: Array<ItemExcluidoCotacao & { pendente: boolean }>
+  onRestaurarItem: (itemId: string) => void
   onPatchItem: (id: string, patch: Partial<ProductInput>) => void
   onApplyMarginToAll: (lucroPct: number) => void
   onGoToComparar: () => void
@@ -259,6 +345,9 @@ export function QuoteItemsList({
   /** Avisa quais itens estão "em foco" (marcados no seletor, ou o que sobrou do filtro) — usado pra
    * "Valores dos produtos" mostrar só esses. undefined = todos. */
   onRecorteChange?: (recorte: { ids: string[]; motivo: string } | undefined) => void
+  /** O que vem logo depois da planilha (Valores dos produtos etc.) — fica dentro do mesmo bloco pra
+   * barra de cima (Salvar cotação e ações dos itens marcados) continuar à vista ao rolar até lá. */
+  children?: ReactNode
 }) {
   const [margemUnica, setMargemUnica] = useState('')
   // frete de cada fornecedor (o mesmo da aba Frete) — lido direto da cotação salva no servidor e
@@ -273,7 +362,6 @@ export function QuoteItemsList({
   const [colunasOcultas, setColunasOcultas] = useState<ColunaKey[]>(carregarOcultas)
   const [menuColunasAberto, setMenuColunasAberto] = useState(false)
   const menuColunasRef = useRef<HTMLDivElement>(null)
-  const redimensionando = useRef<{ chave: ColunaKey; inicioX: number; larguraInicial: number } | null>(null)
   const [colunaRedimensionando, setColunaRedimensionando] = useState<ColunaKey | null>(null)
   // marcação por checkbox pra aplicar o mesmo fornecedor (ou NCM) em vários itens de uma vez —
   // independente do "item ativo" (activeItemId) de baixo, que é outra coisa (qual item tá aberto
@@ -285,11 +373,43 @@ export function QuoteItemsList({
   const [ncmBulk, setNcmBulk] = useState('')
   const [planilhaFornecedorAberta, setPlanilhaFornecedorAberta] = useState(false)
   const [freteBulk, setFreteBulk] = useState('')
+  // no celular as ações dos marcados ficam recolhidas atrás de um botão — abertas, tomariam metade
+  // da tela presas no topo
+  const [acoesAbertasCelular, setAcoesAbertasCelular] = useState(false)
+  const [excluidosAbertos, setExcluidosAbertos] = useState(false)
   // filtro por coluna — valor exato (o texto da célula) que tem que bater; coluna ausente = todos
   const [filtros, setFiltros] = useState<Partial<Record<ColunaKey, string>>>({})
   // fica aqui (e não dentro de cada linha) porque carregar o histórico costuma trocar o fornecedor
   // do item — e aí ele muda de grupo, a linha é remontada em outro lugar e perderia o aviso
   const [historicos, setHistoricos] = useState<Record<string, HistoricoPreco>>({})
+
+  // --- medidas da tela pra barra fixa, o cabeçalho fixo e o ajuste das colunas -------------------
+  const blocoRef = useRef<HTMLDivElement>(null)
+  const barraRef = useRef<HTMLDivElement>(null)
+  const cabecalhoRef = useRef<HTMLDivElement>(null)
+  const corpoRef = useRef<HTMLDivElement>(null)
+  const rolagemLateralRef = useRef<HTMLDivElement>(null)
+  const [alturaBarra, setAlturaBarra] = useState(0)
+  const [larguraVisivel, setLarguraVisivel] = useState(0)
+
+  useLayoutEffect(() => {
+    const barra = barraRef.current
+    const corpo = corpoRef.current
+    if (!barra || !corpo) return
+    const medir = () => {
+      const altura = barra.offsetHeight
+      setAlturaBarra(altura)
+      // quem está embaixo da barra (painel de resultado ao lado de Valores dos produtos) usa essa
+      // altura pra grudar logo abaixo dela em vez de ficar escondido atrás
+      blocoRef.current?.style.setProperty('--altura-barra-itens', `${altura}px`)
+      setLarguraVisivel(corpo.clientWidth)
+    }
+    medir()
+    const observador = new ResizeObserver(medir)
+    observador.observe(barra)
+    observador.observe(corpo)
+    return () => observador.disconnect()
+  }, [])
 
   useEffect(() => {
     listFornecedores()
@@ -319,15 +439,15 @@ export function QuoteItemsList({
     }
   }, [cotacaoId])
 
-  function fretesDoFornecedor(nomeFornecedor: string) {
-    return freteDoFornecedor({ items, ...freteSalvo }, nomeFornecedor)
+  function fretesDoFornecedor(remetente: RemetenteFrete) {
+    return freteDoFornecedor({ items, ...freteSalvo }, remetente)
   }
 
-  async function handleSalvarFrete(nomeFornecedor: string, transportadora: string, numero: string, valor: string) {
+  async function handleSalvarFrete(remetente: RemetenteFrete, transportadora: string, numero: string, valor: string) {
     if (!cotacaoId) return
     try {
-      const existente = fretesDoFornecedor(nomeFornecedor)[transportadora]
-      const atualizado = await salvarFreteTransportadora(cotacaoId, nomeFornecedor, transportadora, {
+      const existente = fretesDoFornecedor(remetente)[transportadora]
+      const atualizado = await salvarFreteTransportadora(cotacaoId, remetente, transportadora, {
         camposPedido: existente?.camposPedido ?? {},
         valorCotacao: valor,
         numeroCotacao: numero,
@@ -338,24 +458,24 @@ export function QuoteItemsList({
     }
   }
 
-  async function handleLimparFrete(nomeFornecedor: string, transportadora: string) {
+  async function handleLimparFrete(remetente: RemetenteFrete, transportadora: string) {
     if (!cotacaoId) return
     try {
-      const atualizado = await limparCotacaoFreteTransportadora(cotacaoId, nomeFornecedor, transportadora)
+      const atualizado = await limparCotacaoFreteTransportadora(cotacaoId, remetente, transportadora)
       setFreteSalvo({ fretePorFornecedor: atualizado.fretePorFornecedor, freteTransportadoras: atualizado.freteTransportadoras })
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao salvar o frete no servidor.')
     }
   }
 
-  function renderFrete(nomeFornecedor: string) {
+  function renderFrete(remetente: RemetenteFrete) {
     return (
       <FreteFornecedorSlots
-        fretes={fretesDoFornecedor(nomeFornecedor)}
+        fretes={fretesDoFornecedor(remetente)}
         habilitado={!!cotacaoId}
         motivoDesabilitado="Salve a cotação pra registrar o frete."
-        onSalvar={(transportadora, numero, valor) => handleSalvarFrete(nomeFornecedor, transportadora, numero, valor)}
-        onLimpar={(transportadora) => handleLimparFrete(nomeFornecedor, transportadora)}
+        onSalvar={(transportadora, numero, valor) => handleSalvarFrete(remetente, transportadora, numero, valor)}
+        onLimpar={(transportadora) => handleLimparFrete(remetente, transportadora)}
       />
     )
   }
@@ -394,10 +514,21 @@ export function QuoteItemsList({
     return () => document.removeEventListener('mousedown', fecharAoClicarFora)
   }, [menuColunasAberto])
 
+  // --- colunas: quais aparecem e com que largura ------------------------------------------------
   const colunasVisiveis = useMemo(() => ordemColunas.filter((c) => !colunasOcultas.includes(c)), [ordemColunas, colunasOcultas])
-  const larguraDe = (chave: ColunaKey) => larguras[chave] ?? LARGURA_PADRAO[chave]
-  const larguraTabela =
-    LARGURA_CHECKBOX + LARGURA_NUMERO + LARGURA_ACOES + colunasVisiveis.reduce((s, c) => s + larguraDe(c), 0)
+  const larguraFixa = LARGURA_CHECKBOX + LARGURA_NUMERO
+  // 1px de folga: com as frações de pixel das larguras, a tabela às vezes passava 1px da tela e
+  // ganhava uma rolagem de lado à toa
+  const espacoDasColunas = Math.max(0, larguraVisivel - larguraFixa - 1)
+  const largurasNaTela = useMemo(
+    () => calcularLarguras(colunasVisiveis, larguras, larguraVisivel > 0 ? espacoDasColunas : 0),
+    [colunasVisiveis, larguras, larguraVisivel, espacoDasColunas],
+  )
+  const larguraNaTela = (chave: ColunaKey) => largurasNaTela[chave] ?? LARGURA_PADRAO[chave]
+  const larguraTabela = larguraFixa + colunasVisiveis.reduce((s, c) => s + larguraNaTela(c), 0)
+  // passou da largura da tela (colunas já no mínimo): a planilha rola de lado, com uma barra de
+  // rolagem que acompanha a tela (presa embaixo) em vez de ficar lá no fim da planilha
+  const rolaDeLado = larguraVisivel > 0 && larguraTabela > larguraVisivel + 0.5
 
   function ocultarColuna(chave: ColunaKey) {
     setColunasOcultas((prev) => (prev.includes(chave) ? prev : [...prev, chave]))
@@ -415,21 +546,19 @@ export function QuoteItemsList({
     else if (colunasVisiveis.length > 1) ocultarColuna(chave)
   }
 
-  /** Arrastar a borda direita do título muda a largura da coluna (o mouse/dedo segue livre pela tela
-   * até soltar). */
+  /** Arrastar a borda direita do título fixa a largura da coluna — a borda acompanha o mouse/dedo, e
+   * as colunas que ninguém ajustou se adaptam pra planilha continuar ocupando a largura da tela. */
   function iniciarRedimensionar(e: ReactPointerEvent<HTMLSpanElement>, chave: ColunaKey) {
     e.preventDefault()
     e.stopPropagation()
-    redimensionando.current = { chave, inicioX: e.clientX, larguraInicial: larguraDe(chave) }
+    const inicioX = e.clientX
+    const naTelaInicial = larguraNaTela(chave)
     setColunaRedimensionando(chave)
     const mover = (ev: PointerEvent) => {
-      const atual = redimensionando.current
-      if (!atual) return
-      const nova = Math.max(LARGURA_MINIMA, Math.round(atual.larguraInicial + ev.clientX - atual.inicioX))
-      setLarguras((prev) => (prev[atual.chave] === nova ? prev : { ...prev, [atual.chave]: nova }))
+      const nova = Math.max(LARGURA_MINIMA, Math.round(naTelaInicial + ev.clientX - inicioX))
+      setLarguras((prev) => (prev[chave] === nova ? prev : { ...prev, [chave]: nova }))
     }
     const soltar = () => {
-      redimensionando.current = null
       setColunaRedimensionando(null)
       window.removeEventListener('pointermove', mover)
       window.removeEventListener('pointerup', soltar)
@@ -446,6 +575,19 @@ export function QuoteItemsList({
       delete proximo[chave]
       return proximo
     })
+  }
+
+  // cabeçalho (preso no topo) e corpo da planilha são duas tabelas com as mesmas colunas — a
+  // rolagem de lado de um acompanha a do outro, e a barra de rolagem presa embaixo da tela também
+  function aoRolarCorpo() {
+    const x = corpoRef.current?.scrollLeft ?? 0
+    if (cabecalhoRef.current && cabecalhoRef.current.scrollLeft !== x) cabecalhoRef.current.scrollLeft = x
+    if (rolagemLateralRef.current && rolagemLateralRef.current.scrollLeft !== x) rolagemLateralRef.current.scrollLeft = x
+  }
+  function aoRolarBarraLateral() {
+    const x = rolagemLateralRef.current?.scrollLeft ?? 0
+    if (corpoRef.current && corpoRef.current.scrollLeft !== x) corpoRef.current.scrollLeft = x
+    if (cabecalhoRef.current && cabecalhoRef.current.scrollLeft !== x) cabecalhoRef.current.scrollLeft = x
   }
 
   // divisória vertical em toda célula — dá pra ver onde uma coluna termina e a outra começa
@@ -486,19 +628,19 @@ export function QuoteItemsList({
     })
   }
 
-  // --- agrupamento por fornecedor ---------------------------------------------
+  // --- agrupamento por fornecedor + UF -----------------------------------------
   // itens de fornecedores diferentes ficam em blocos separados, cada um com cabeçalho próprio
-  // (nome, quantidade de itens, subtotal) — só quando há mais de um fornecedor na tela; com um só,
-  // a tabela fica corrida, sem um cabeçalho de grupo que não separaria nada
+  // (nome, UF, quantidade de itens, subtotal, frete) — e o mesmo fornecedor em outro estado também é
+  // outro bloco (outra origem, outro frete). Só agrupa quando há mais de um grupo na tela; com um
+  // só, a tabela fica corrida, sem um cabeçalho de grupo que não separaria nada
   const grupos = useMemo(() => {
-    const mapa = new Map<string, { fornecedor: string; itens: QuoteItem[] }>()
+    const mapa = new Map<string, { remetente: RemetenteFrete; itens: QuoteItem[] }>()
     for (const item of itensFiltrados) {
-      const nome = item.product.fornecedor.trim()
-      const chave = nome.toUpperCase()
-      if (!mapa.has(chave)) mapa.set(chave, { fornecedor: nome, itens: [] })
+      const chave = chaveDoGrupo(item)
+      if (!mapa.has(chave)) mapa.set(chave, { remetente: remetenteDoItem(item), itens: [] })
       mapa.get(chave)!.itens.push(item)
     }
-    return Array.from(mapa.values())
+    return Array.from(mapa.entries()).map(([chave, g]) => ({ chave, ...g }))
   }, [itensFiltrados])
   const agrupar = grupos.length > 1
 
@@ -517,14 +659,15 @@ export function QuoteItemsList({
   // sem nenhum dos dois, todos os itens
   const recorte = useMemo((): { ids: string[]; motivo: string } | undefined => {
     if (idsMarcados.length > 0) {
-      const fornecedoresMarcados = new Set(
-        items.filter((i) => marcados.has(i.id)).map((i) => i.product.fornecedor.trim().toUpperCase()),
-      )
-      if (fornecedoresMarcados.size === 1) {
-        const [chave] = Array.from(fornecedoresMarcados)
-        const doFornecedor = items.filter((i) => i.product.fornecedor.trim().toUpperCase() === chave)
-        const nome = doFornecedor[0]?.product.fornecedor.trim()
-        if (nome && doFornecedor.every((i) => marcados.has(i.id))) return { ids: idsMarcados, motivo: `fornecedor ${nome} marcado` }
+      const gruposMarcados = new Set(items.filter((i) => marcados.has(i.id)).map(chaveDoGrupo))
+      if (gruposMarcados.size === 1) {
+        const [chave] = Array.from(gruposMarcados)
+        const doGrupo = items.filter((i) => chaveDoGrupo(i) === chave)
+        const remetente = doGrupo[0] ? remetenteDoItem(doGrupo[0]) : undefined
+        if (remetente?.nome && doGrupo.every((i) => marcados.has(i.id))) {
+          const nome = rotuloRemetente(remetente, items.map(remetenteDoItem))
+          return { ids: idsMarcados, motivo: `fornecedor ${nome} marcado` }
+        }
       }
       return { ids: idsMarcados, motivo: idsMarcados.length === 1 ? 'o item marcado' : 'os itens marcados' }
     }
@@ -629,6 +772,30 @@ export function QuoteItemsList({
     setPlanilhaFornecedorAberta(true)
   }
 
+  // excluir só existe pros itens marcados, sempre com confirmação listando o que vai sair — e o
+  // item não some do sistema: vai pro arquivo de excluídos da cotação (no servidor), de onde dá pra
+  // trazer de volta
+  async function handleExcluirMarcados() {
+    const alvo = items.filter((item) => marcados.has(item.id))
+    if (alvo.length === 0) return
+    const lista =
+      alvo
+        .slice(0, 8)
+        .map((item) => `• ${descricaoDoItem(item)}`)
+        .join('\n') + (alvo.length > 8 ? `\n• … e mais ${alvo.length - 8}` : '')
+    const umSo = alvo.length === 1
+    const confirmado = await confirmar(
+      `${umSo ? 'Excluir este item da cotação?' : `Excluir estes ${alvo.length} itens da cotação?`}\n\n${lista}\n\n` +
+        `${umSo ? 'Ele sai' : 'Eles saem'} da cotação mas ${umSo ? 'continua guardado' : 'continuam guardados'} no sistema — ` +
+        `${umSo ? 'fica' : 'ficam'} em "Itens excluídos", no fim da planilha, e dá pra restaurar.`,
+      { titulo: umSo ? 'Excluir item' : 'Excluir itens', confirmText: 'Excluir', tone: 'danger' },
+    )
+    if (!confirmado) return
+    onRemoveItems(alvo.map((item) => item.id))
+    setMarcados(new Set())
+    setAcoesAbertasCelular(false)
+  }
+
   function handleAplicarMargemUnica() {
     const valor = Number(margemUnica.replace(',', '.'))
     if (!margemUnica.trim() || Number.isNaN(valor)) {
@@ -701,18 +868,20 @@ export function QuoteItemsList({
   function renderCabecalho(chave: ColunaKey) {
     const ativo = chave in filtros
     const valorFiltro = filtros[chave]
-    const alinhadoDireita = CLASSE_COLUNA[chave].includes('text-right') || chave === 'frete'
+    const alinhadoDireita = ALINHADA_DIREITA.has(chave)
     const conteudo =
       chave === 'frete' ? (
         <div className="flex items-center justify-end gap-1">
-          <span className={ativo ? 'font-semibold text-ink-900 underline decoration-dotted underline-offset-2' : ''}>Frete</span>
+          <span className={`min-w-0 overflow-hidden leading-tight ${ativo ? 'font-semibold text-ink-900 underline decoration-dotted underline-offset-2' : ''}`}>
+            Frete
+          </span>
           {renderFiltroNoTitulo(chave)}
           <span className="inline-flex rounded-md border border-ink-200 overflow-hidden shrink-0">
             <button
               type="button"
               onClick={() => setModoFrete('pct')}
               className={`px-1.5 py-0.5 text-[10px] font-medium transition ${
-                modoFrete === 'pct' ? 'bg-ink-950 text-white' : 'bg-white text-ink-500 hover:bg-ink-50'
+                modoFrete === 'pct' ? 'bg-ink-950 text-white' : 'bg-surface text-ink-500 hover:bg-ink-50'
               }`}
             >
               %
@@ -721,7 +890,7 @@ export function QuoteItemsList({
               type="button"
               onClick={() => setModoFrete('valor')}
               className={`px-1.5 py-0.5 text-[10px] font-medium border-l border-ink-200 transition ${
-                modoFrete === 'valor' ? 'bg-ink-950 text-white' : 'bg-white text-ink-500 hover:bg-ink-50'
+                modoFrete === 'valor' ? 'bg-ink-950 text-white' : 'bg-surface text-ink-500 hover:bg-ink-50'
               }`}
             >
               R$
@@ -729,8 +898,10 @@ export function QuoteItemsList({
           </span>
         </div>
       ) : (
-        <div className={`flex items-center gap-1 ${alinhadoDireita ? 'justify-end' : ''}`}>
-          <span className={ativo ? 'font-semibold text-ink-900 underline decoration-dotted underline-offset-2' : ''}>{LABEL_COLUNA[chave]}</span>
+        <div className={`flex min-w-0 items-center gap-1 ${alinhadoDireita ? 'justify-end' : ''}`}>
+          <span className={`min-w-0 overflow-hidden leading-tight ${ativo ? 'font-semibold text-ink-900 underline decoration-dotted underline-offset-2' : ''}`}>
+            {LABEL_COLUNA[chave]}
+          </span>
           {renderFiltroNoTitulo(chave)}
         </div>
       )
@@ -748,8 +919,8 @@ export function QuoteItemsList({
         }}
         onDragEnd={() => setColunaArrastada(null)}
         title="Arraste pra reordenar as colunas — a setinha ao lado do nome filtra (ou oculta a coluna) e a borda da direita muda a largura"
-        className={`group relative py-2 pl-2 pr-3 font-medium cursor-move select-none border-r border-ink-200 transition ${
-          CLASSE_COLUNA[chave].includes('text-right') ? 'text-right' : ''
+        className={`group relative py-2 pl-1.5 pr-2.5 text-[13px] font-medium cursor-move select-none border-r border-ink-200 transition ${
+          alinhadoDireita ? 'text-right' : ''
         } ${colunaArrastada === chave ? 'opacity-40' : ''}`}
       >
         {conteudo}
@@ -789,7 +960,7 @@ export function QuoteItemsList({
     )
   }
 
-  const totalColunas = colunasVisiveis.length + 3
+  const totalColunas = colunasVisiveis.length + 2
 
   function renderLinha(item: QuoteItem) {
     const totalItens = (item.product.qtd || 0) * (item.product.valorUnt || 0)
@@ -808,9 +979,7 @@ export function QuoteItemsList({
         marcado={marcados.has(item.id)}
         onToggleMarcado={() => toggleMarcado(item.id)}
         onSelect={() => onSelect(item.id)}
-        onRemove={() => onRemove(item.id)}
         onPatch={(patch) => onPatchItem(item.id, patch)}
-        podeRemover={items.length > 1}
         cellCls={cellCls}
         inputCls={inputCls}
         stop={stop}
@@ -829,352 +998,496 @@ export function QuoteItemsList({
     )
   }
 
+  function renderSeloUf(uf: string | undefined) {
+    if (!uf) return null
+    return (
+      <span
+        title="Estado de onde o fornecedor despacha — o mesmo fornecedor em outro estado fica em outro grupo, com outro frete"
+        className="rounded border border-ink-300 px-1 py-px font-mono text-[10px] font-semibold text-ink-600"
+      >
+        {uf}
+      </span>
+    )
+  }
+
+  const colgroup = (
+    <colgroup>
+      <col style={{ width: LARGURA_CHECKBOX }} />
+      <col style={{ width: LARGURA_NUMERO }} />
+      {colunasVisiveis.map((chave) => (
+        <col key={chave} style={{ width: larguraNaTela(chave) }} />
+      ))}
+    </colgroup>
+  )
+  const estiloTabela = { tableLayout: 'fixed' as const, width: larguraTabela }
+  // o que é preso no topo ao rolar a tela: a barra de cima (na altura da barra do celular, que no
+  // computador é 0) e, logo abaixo dela, o cabeçalho da planilha
+  const topoCabecalho = `calc(var(--altura-topo) + ${alturaBarra}px)`
+  const btnBarraCls =
+    'inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs sm:px-3 sm:py-2 sm:text-sm font-medium transition'
+  const acaoMarcadosCls = 'pill-tab border border-brand-600 bg-brand-600 py-1.5 text-white hover:bg-brand-700'
+
   return (
-    <div className="card">
-      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-        <div>
-          <h2 className="font-display text-lg font-semibold text-ink-900">Itens da cotação</h2>
-          <p className="text-sm text-ink-400">
-            Edite direto na planilha — arraste o título de uma coluna pra reordenar, e use a setinha ▾ ao lado do
-            nome dela pra filtrar.
-          </p>
-        </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          {salvoRecentemente && (
-            <span className="text-xs font-medium text-emerald-600">✓ Cotação salva!</span>
-          )}
-          <button
-            type="button"
-            onClick={onGoToComparar}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 px-3 py-2 text-sm font-medium text-ink-700 hover:bg-ink-50 transition"
-          >
-            Comparar fornecedores
-          </button>
-          <button
-            type="button"
-            onClick={onAdd}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-700 transition"
-          >
-            + Adicionar item
-          </button>
-          <Button variant="primary" onClick={onSave} disabled={!podeSalvar}>
-            Salvar cotação
-          </Button>
-        </div>
-      </div>
-
-      {items.length > 1 && (
-        <div className="flex flex-wrap items-center gap-2 mb-4 rounded-lg border border-ink-100 bg-ink-50 px-3 py-2">
-          <span className="text-xs text-ink-500">Margem única pra todos os itens:</span>
-          <input
-            type="number"
-            step={0.1}
-            placeholder="%"
-            value={margemUnica}
-            onChange={(e) => setMargemUnica(e.target.value)}
-            className="field-input w-20 py-1 text-sm"
-          />
-          <button
-            type="button"
-            onClick={handleAplicarMargemUnica}
-            className="pill-tab border border-ink-200 text-ink-600 hover:bg-white"
-          >
-            Aplicar a todos
-          </button>
-        </div>
-      )}
-
-      {idsMarcados.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 mb-4 rounded-lg border border-ink-300 bg-ink-100 px-3 py-2">
-          <span className="text-xs font-medium text-ink-800">
-            {idsMarcados.length} item{idsMarcados.length > 1 ? 's' : ''} marcado{idsMarcados.length > 1 ? 's' : ''}:
-          </span>
-          <div className="relative">
-            <input
-              type="text"
-              placeholder="Nome do fornecedor"
-              value={fornecedorBulk}
-              onChange={(e) => {
-                setFornecedorBulk(e.target.value)
-                setFornecedorBulkAberto(true)
-              }}
-              onFocus={() => setFornecedorBulkAberto(true)}
-              className="field-input w-48 py-1 text-sm"
-            />
-            {fornecedorBulkAberto && sugestoesFornecedorBulk.length > 0 && (
-              <div
-                className="absolute left-0 top-full z-20 mt-1 w-56 rounded-lg border border-ink-200 bg-surface shadow-lg max-h-56 overflow-auto"
-                onMouseDown={(e) => e.preventDefault()}
-              >
-                {sugestoesFornecedorBulk.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => aplicarFornecedorAosMarcados(f.nome, f.estado)}
-                    className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-ink-50 focus:bg-ink-50 focus:outline-none"
-                  >
-                    {f.nome}
-                    {f.cidade ? <span className="text-ink-400"> — {f.cidade}{f.estado ? ` / ${f.estado}` : ''}</span> : null}
-                  </button>
-                ))}
-              </div>
-            )}
+    <div ref={blocoRef}>
+      {/* barra fixa: título, Salvar cotação e, com itens marcados, as ações em lote — acompanha a
+       * rolagem da tela até o fim de Valores dos produtos, então dá pra salvar ou aplicar algo nos
+       * marcados sem precisar voltar lá em cima */}
+      <div
+        ref={barraRef}
+        className="sticky z-10 rounded-t-2xl border border-ink-100 bg-surface px-4 py-3 shadow-[0_8px_14px_-12px_rgba(0,0,0,0.45)] sm:px-6"
+        style={{ top: 'var(--altura-topo)' }}
+      >
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <h2 className="font-display text-base sm:text-lg font-semibold text-ink-900">
+            Itens da cotação
+            <span className="ml-2 font-sans text-xs font-normal text-ink-400">
+              {items.length} ite{items.length === 1 ? 'm' : 'ns'}
+            </span>
+          </h2>
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            {salvoRecentemente && <span className="text-xs font-medium text-emerald-600">✓ Cotação salva!</span>}
+            <button
+              type="button"
+              onClick={onGoToComparar}
+              className={`${btnBarraCls} border border-ink-200 text-ink-700 hover:bg-ink-50`}
+            >
+              <span className="sm:hidden">Comparar</span>
+              <span className="hidden sm:inline">Comparar fornecedores</span>
+            </button>
+            <button
+              type="button"
+              onClick={onAdd}
+              className={`${btnBarraCls} border border-brand-600 bg-brand-600 text-white hover:bg-brand-700`}
+            >
+              + Adicionar item
+            </button>
+            <Button variant="primary" onClick={onSave} disabled={!podeSalvar} className="px-3 py-1.5 text-xs sm:px-4 sm:py-2 sm:text-sm">
+              Salvar cotação
+            </Button>
           </div>
-          <button
-            type="button"
-            onClick={handleAplicarFornecedorBulkDigitado}
-            className="pill-tab border border-brand-600 bg-brand-600 text-white hover:bg-brand-700"
-          >
-            Aplicar fornecedor
-          </button>
-          <span className="w-px self-stretch bg-brand-200" />
-          <input
-            type="text"
-            placeholder="Marca"
-            value={marcaBulk}
-            onChange={(e) => setMarcaBulk(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAplicarMarcaAosMarcados()}
-            className="field-input w-32 py-1 text-sm"
-          />
-          <button
-            type="button"
-            onClick={handleAplicarMarcaAosMarcados}
-            className="pill-tab border border-brand-600 bg-brand-600 text-white hover:bg-brand-700"
-          >
-            Aplicar marca
-          </button>
-          <span className="w-px self-stretch bg-brand-200" />
-          <input
-            type="text"
-            placeholder="NCM"
-            value={ncmBulk}
-            onChange={(e) => setNcmBulk(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAplicarNcmAosMarcados()}
-            className="field-input w-32 py-1 text-sm font-mono"
-          />
-          <button
-            type="button"
-            onClick={handleAplicarNcmAosMarcados}
-            className="pill-tab border border-brand-600 bg-brand-600 text-white hover:bg-brand-700"
-          >
-            Aplicar NCM
-          </button>
-          <span className="w-px self-stretch bg-brand-200" />
-          <input
-            type="number"
-            step={0.01}
-            placeholder={modoFrete === 'pct' ? 'Frete %' : 'Frete R$'}
-            value={freteBulk}
-            onChange={(e) => setFreteBulk(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAplicarFreteAosMarcados()}
-            className="field-input w-24 py-1 text-sm text-right tabular-nums"
-          />
-          <button
-            type="button"
-            onClick={handleAplicarFreteAosMarcados}
-            className="pill-tab border border-brand-600 bg-brand-600 text-white hover:bg-brand-700"
-          >
-            Aplicar frete
-          </button>
-          <span className="w-px self-stretch bg-brand-200" />
-          <button
-            type="button"
-            onClick={() => setMarcados(new Set())}
-            className="pill-tab border border-ink-200 text-ink-500 hover:bg-white"
-          >
-            Limpar marcação
-          </button>
-          <button
-            type="button"
-            onClick={handleGerarPlanilhaFornecedor}
-            title="Mostra uma prévia da planilha (.xlsx) só com os itens marcados, no formato de orçamento pra pedir preço ao fornecedor"
-            className="pill-tab border border-ink-200 text-ink-600 hover:bg-white"
-          >
-            Gerar planilha do fornecedor (.xlsx)
-          </button>
         </div>
-      )}
 
-      {planilhaFornecedorAberta && (
-        <PlanilhaFornecedorModal
-          items={itensParaPlanilhaFornecedor}
-          maquina={maquina}
-          cliente={cliente}
-          onClose={() => setPlanilhaFornecedorAberta(false)}
-        />
-      )}
-
-      {filtrosAtivos && (
-        <div className="flex flex-wrap items-center gap-2 mb-2 text-xs">
-          <span className="text-ink-500">
-            Mostrando <strong className="text-ink-900">{itensFiltrados.length}</strong> de {items.length} itens (filtrado
-            por {(Object.keys(filtros) as ColunaKey[]).map((c) => LABEL_COLUNA[c]).join(', ')})
-          </span>
-          <button
-            type="button"
-            onClick={() => setFiltros({})}
-            className="pill-tab border border-ink-200 py-1 text-ink-600 hover:bg-ink-50"
-          >
-            Limpar filtros
-          </button>
-        </div>
-      )}
-
-      {/* com um fornecedor só não há cabeçalho de grupo — o frete dele fica aqui em cima */}
-      {!agrupar && grupos.length === 1 && (
-        <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-l-4 border-ink-900 bg-ink-50 py-1.5 pl-2.5 pr-3">
-          {grupos[0].fornecedor && (
-            <span className="font-display text-[13px] font-bold uppercase tracking-wide text-ink-900">{grupos[0].fornecedor}</span>
-          )}
-          <span className={`flex flex-wrap items-center gap-1.5 ${grupos[0].fornecedor ? 'border-l border-ink-200 pl-3' : ''}`}>
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Frete</span>
-            {renderFrete(grupos[0].fornecedor)}
-          </span>
-        </div>
-      )}
-
-      <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
-        <div className="relative" ref={menuColunasRef}>
-          <button
-            type="button"
-            onClick={() => setMenuColunasAberto((v) => !v)}
-            aria-expanded={menuColunasAberto}
-            className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
-              colunasOcultas.length > 0 ? 'border-ink-400 bg-ink-100 text-ink-900' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
-            }`}
-          >
-            Colunas{colunasOcultas.length > 0 ? ` (${colunasOcultas.length} oculta${colunasOcultas.length > 1 ? 's' : ''})` : ''}
-            <span aria-hidden>▾</span>
-          </button>
-          {menuColunasAberto && (
-            <div className="absolute right-0 top-full z-30 mt-1 w-60 rounded-xl border border-ink-200 bg-surface p-2 shadow-lg">
-              <p className="px-1.5 pb-1 text-[11px] text-ink-400">Marque as colunas que aparecem na tabela:</p>
-              <div className="max-h-72 overflow-y-auto">
-                {ordemColunas.map((chave) => {
-                  const visivel = !colunasOcultas.includes(chave)
-                  return (
-                    <label
-                      key={chave}
-                      className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm text-ink-800 hover:bg-ink-50"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={visivel}
-                        disabled={visivel && colunasVisiveis.length === 1}
-                        onChange={() => alternarColuna(chave)}
-                      />
-                      {LABEL_COLUNA[chave]}
-                    </label>
-                  )
-                })}
-              </div>
-              <div className="mt-1 flex flex-wrap gap-1.5 border-t border-ink-100 px-1.5 pt-2">
+        {idsMarcados.length > 0 && (
+          <div className="mt-2.5 rounded-lg border border-ink-300 bg-ink-100 px-3 py-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-ink-800">
+                {idsMarcados.length} {idsMarcados.length > 1 ? 'itens marcados' : 'item marcado'}
+              </span>
+              <button
+                type="button"
+                onClick={() => setAcoesAbertasCelular((v) => !v)}
+                aria-expanded={acoesAbertasCelular}
+                className="pill-tab border border-ink-300 py-1 text-xs text-ink-700 sm:hidden"
+              >
+                Ações {acoesAbertasCelular ? '▴' : '▾'}
+              </button>
+              <div className={`${acoesAbertasCelular ? 'flex' : 'hidden'} w-full flex-wrap items-center gap-2 sm:flex sm:w-auto sm:flex-1`}>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="relative">
+                    <input
+                      type="text"
+                      placeholder="Nome do fornecedor"
+                      value={fornecedorBulk}
+                      onChange={(e) => {
+                        setFornecedorBulk(e.target.value)
+                        setFornecedorBulkAberto(true)
+                      }}
+                      onFocus={() => setFornecedorBulkAberto(true)}
+                      onBlur={() => setFornecedorBulkAberto(false)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleAplicarFornecedorBulkDigitado()}
+                      className="field-input w-44 py-1 text-sm"
+                    />
+                    {fornecedorBulkAberto && sugestoesFornecedorBulk.length > 0 && (
+                      <div
+                        className="absolute left-0 top-full z-30 mt-1 w-56 rounded-lg border border-ink-200 bg-surface shadow-lg max-h-56 overflow-auto"
+                        onMouseDown={(e) => e.preventDefault()}
+                      >
+                        {sugestoesFornecedorBulk.map((f) => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => aplicarFornecedorAosMarcados(f.nome, f.estado)}
+                            className="block w-full truncate px-3 py-2 text-left text-sm hover:bg-ink-50 focus:bg-ink-50 focus:outline-none"
+                          >
+                            {f.nome}
+                            {f.cidade ? (
+                              <span className="text-ink-400">
+                                {' '}
+                                — {f.cidade}
+                                {f.estado ? ` / ${f.estado}` : ''}
+                              </span>
+                            ) : f.estado ? (
+                              <span className="text-ink-400"> — {f.estado}</span>
+                            ) : null}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </span>
+                  <button type="button" onClick={handleAplicarFornecedorBulkDigitado} className={acaoMarcadosCls}>
+                    Aplicar fornecedor
+                  </button>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    placeholder="Marca"
+                    value={marcaBulk}
+                    onChange={(e) => setMarcaBulk(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAplicarMarcaAosMarcados()}
+                    className="field-input w-28 py-1 text-sm"
+                  />
+                  <button type="button" onClick={handleAplicarMarcaAosMarcados} className={acaoMarcadosCls}>
+                    Aplicar marca
+                  </button>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    placeholder="NCM"
+                    value={ncmBulk}
+                    onChange={(e) => setNcmBulk(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAplicarNcmAosMarcados()}
+                    className="field-input w-28 py-1 text-sm font-mono"
+                  />
+                  <button type="button" onClick={handleAplicarNcmAosMarcados} className={acaoMarcadosCls}>
+                    Aplicar NCM
+                  </button>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    step={0.01}
+                    placeholder={modoFrete === 'pct' ? 'Frete %' : 'Frete R$'}
+                    value={freteBulk}
+                    onChange={(e) => setFreteBulk(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAplicarFreteAosMarcados()}
+                    className="field-input w-24 py-1 text-sm text-right tabular-nums"
+                  />
+                  <button type="button" onClick={handleAplicarFreteAosMarcados} className={acaoMarcadosCls}>
+                    Aplicar frete
+                  </button>
+                </span>
+                <span className="hidden w-px self-stretch bg-ink-300 sm:block" />
                 <button
                   type="button"
-                  disabled={colunasOcultas.length === 0}
-                  onClick={() => setColunasOcultas([])}
-                  className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50 disabled:opacity-40"
+                  onClick={() => setMarcados(new Set())}
+                  className="pill-tab border border-ink-300 py-1.5 text-ink-600 hover:bg-surface"
                 >
-                  Mostrar todas
+                  Limpar marcação
                 </button>
                 <button
                   type="button"
-                  disabled={Object.keys(larguras).length === 0}
-                  onClick={() => setLarguras({})}
-                  className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50 disabled:opacity-40"
+                  onClick={handleGerarPlanilhaFornecedor}
+                  title="Mostra uma prévia da planilha (.xlsx) só com os itens marcados, no formato de orçamento pra pedir preço ao fornecedor"
+                  className="pill-tab border border-ink-300 py-1.5 text-ink-700 hover:bg-surface"
                 >
-                  Larguras padrão
+                  Gerar planilha do fornecedor (.xlsx)
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExcluirMarcados}
+                  title="Tira os itens marcados da cotação (pede confirmação; eles ficam guardados em Itens excluídos)"
+                  className="pill-tab border border-rose-300 py-1.5 text-rose-700 hover:bg-rose-50 dark:border-rose-500/60 dark:text-rose-300 dark:hover:bg-rose-500/10"
+                >
+                  Excluir selecionado{idsMarcados.length > 1 ? 's' : ''}
                 </button>
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-ink-100">
-        {/* larguras fixas por coluna (table-layout: fixed + colgroup) — é o que deixa arrastar a borda
-         * e a coluna ficar exatamente do tamanho escolhido; a última coluna (×) absorve a sobra quando
-         * a tabela é mais estreita que a tela */}
-        <table className="text-sm border-collapse" style={{ tableLayout: 'fixed', width: `max(${larguraTabela}px, 100%)` }}>
-          <colgroup>
-            <col style={{ width: LARGURA_CHECKBOX }} />
-            <col style={{ width: LARGURA_NUMERO }} />
-            {colunasVisiveis.map((chave) => (
-              <col key={chave} style={{ width: larguraDe(chave) }} />
-            ))}
-            <col />
-          </colgroup>
-          <thead>
-            <tr className="bg-ink-50 text-left text-ink-400">
-              <th className="py-2 px-2 border-r border-ink-200">
-                <input
-                  type="checkbox"
-                  checked={todosVisiveisMarcados}
-                  onChange={() => toggleConjunto(idsVisiveis)}
-                  title="Marcar/desmarcar todos os itens visíveis"
-                />
-              </th>
-              <th className="py-2 px-2 font-medium border-r border-ink-200">#</th>
-              {colunasVisiveis.map((chave) => renderCabecalho(chave))}
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {itensFiltrados.length === 0 && (
-              <tr>
-                <td colSpan={totalColunas} className="py-6 text-center text-sm text-ink-400 border-t border-ink-100">
-                  Nenhum item com esses filtros.
-                </td>
-              </tr>
+      <div className="card rounded-t-none border-t-0">
+        <p className="mb-3 text-sm text-ink-400">
+          Edite direto na planilha — arraste o título de uma coluna pra reordenar, e use a setinha ▾ ao lado do nome
+          dela pra filtrar. Pra excluir, marque os itens: a opção aparece na barra de cima.
+        </p>
+
+        {items.length > 1 && (
+          <div className="flex flex-wrap items-center gap-2 mb-4 rounded-lg border border-ink-100 bg-ink-50 px-3 py-2">
+            <span className="text-xs text-ink-500">Margem única pra todos os itens:</span>
+            <input
+              type="number"
+              step={0.1}
+              placeholder="%"
+              value={margemUnica}
+              onChange={(e) => setMargemUnica(e.target.value)}
+              className="field-input w-20 py-1 text-sm"
+            />
+            <button
+              type="button"
+              onClick={handleAplicarMargemUnica}
+              className="pill-tab border border-ink-200 text-ink-600 hover:bg-surface"
+            >
+              Aplicar a todos
+            </button>
+          </div>
+        )}
+
+        {planilhaFornecedorAberta && (
+          <PlanilhaFornecedorModal
+            items={itensParaPlanilhaFornecedor}
+            maquina={maquina}
+            cliente={cliente}
+            onClose={() => setPlanilhaFornecedorAberta(false)}
+          />
+        )}
+
+        {filtrosAtivos && (
+          <div className="flex flex-wrap items-center gap-2 mb-2 text-xs">
+            <span className="text-ink-500">
+              Mostrando <strong className="text-ink-900">{itensFiltrados.length}</strong> de {items.length} itens (filtrado
+              por {(Object.keys(filtros) as ColunaKey[]).map((c) => LABEL_COLUNA[c]).join(', ')})
+            </span>
+            <button
+              type="button"
+              onClick={() => setFiltros({})}
+              className="pill-tab border border-ink-200 py-1 text-ink-600 hover:bg-ink-50"
+            >
+              Limpar filtros
+            </button>
+          </div>
+        )}
+
+        {/* com um fornecedor só não há cabeçalho de grupo — o frete dele fica aqui em cima */}
+        {!agrupar && grupos.length === 1 && (
+          <div className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-l-4 border-ink-900 bg-ink-50 py-1.5 pl-2.5 pr-3">
+            {grupos[0].remetente.nome && (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="font-display text-[13px] font-bold uppercase tracking-wide text-ink-900">
+                  {grupos[0].remetente.nome}
+                </span>
+                {renderSeloUf(grupos[0].remetente.uf)}
+              </span>
             )}
-            {agrupar
-              ? grupos.map((grupo) => {
-                  const idsGrupo = grupo.itens.map((i) => i.id)
-                  const grupoMarcado = idsGrupo.every((id) => marcados.has(id))
-                  const subtotal = grupo.itens.reduce(
-                    (s, i) => s + (i.product.qtd || 0) * (i.product.valorUnt || 0),
-                    0,
-                  )
+            <span className={`flex flex-wrap items-center gap-1.5 ${grupos[0].remetente.nome ? 'border-l border-ink-200 pl-3' : ''}`}>
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Frete</span>
+              {renderFrete(grupos[0].remetente)}
+            </span>
+          </div>
+        )}
+
+        <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
+          <div className="relative" ref={menuColunasRef}>
+            <button
+              type="button"
+              onClick={() => setMenuColunasAberto((v) => !v)}
+              aria-expanded={menuColunasAberto}
+              className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-medium transition ${
+                colunasOcultas.length > 0 ? 'border-ink-400 bg-ink-100 text-ink-900' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+              }`}
+            >
+              Colunas{colunasOcultas.length > 0 ? ` (${colunasOcultas.length} oculta${colunasOcultas.length > 1 ? 's' : ''})` : ''}
+              <span aria-hidden>▾</span>
+            </button>
+            {menuColunasAberto && (
+              <div className="absolute right-0 top-full z-30 mt-1 w-60 rounded-xl border border-ink-200 bg-surface p-2 shadow-lg">
+                <p className="px-1.5 pb-1 text-[11px] text-ink-400">Marque as colunas que aparecem na tabela:</p>
+                <div className="max-h-72 overflow-y-auto">
+                  {ordemColunas.map((chave) => {
+                    const visivel = !colunasOcultas.includes(chave)
+                    return (
+                      <label
+                        key={chave}
+                        className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 text-sm text-ink-800 hover:bg-ink-50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={visivel}
+                          disabled={visivel && colunasVisiveis.length === 1}
+                          onChange={() => alternarColuna(chave)}
+                        />
+                        {LABEL_COLUNA[chave]}
+                      </label>
+                    )
+                  })}
+                </div>
+                <div className="mt-1 flex flex-wrap gap-1.5 border-t border-ink-100 px-1.5 pt-2">
+                  <button
+                    type="button"
+                    disabled={colunasOcultas.length === 0}
+                    onClick={() => setColunasOcultas([])}
+                    className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50 disabled:opacity-40"
+                  >
+                    Mostrar todas
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Object.keys(larguras).length === 0}
+                    onClick={() => setLarguras({})}
+                    className="rounded-md border border-ink-200 px-2 py-1 text-[11px] font-medium text-ink-600 hover:bg-ink-50 disabled:opacity-40"
+                  >
+                    Larguras padrão
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* a planilha: cabeçalho e corpo em tabelas separadas com as mesmas colunas (larguras fixas
+         * via table-layout: fixed + colgroup) — o cabeçalho fica preso logo abaixo da barra de cima
+         * enquanto a planilha rola com a tela, e a rolagem de lado dos dois anda junto */}
+        <div className="rounded-xl border border-ink-100">
+          <div
+            ref={cabecalhoRef}
+            className="sticky z-[5] overflow-hidden rounded-t-xl border-b border-ink-200 bg-ink-50"
+            style={{ top: topoCabecalho }}
+            onWheel={(e) => {
+              // rolar de lado em cima do cabeçalho (trackpad, shift+roda) move a planilha junto
+              if (e.deltaX && corpoRef.current) corpoRef.current.scrollLeft += e.deltaX
+            }}
+          >
+            <table className="text-sm border-collapse" style={estiloTabela}>
+              {colgroup}
+              <thead>
+                <tr className="text-left text-ink-400">
+                  <th className="py-2 px-2 border-r border-ink-200">
+                    <input
+                      type="checkbox"
+                      checked={todosVisiveisMarcados}
+                      onChange={() => toggleConjunto(idsVisiveis)}
+                      title="Marcar/desmarcar todos os itens visíveis"
+                    />
+                  </th>
+                  <th className="py-2 px-2 font-medium border-r border-ink-200">#</th>
+                  {colunasVisiveis.map((chave) => renderCabecalho(chave))}
+                </tr>
+              </thead>
+            </table>
+          </div>
+          <div
+            ref={corpoRef}
+            onScroll={aoRolarCorpo}
+            className={`sem-barra-rolagem overflow-x-auto ${rolaDeLado ? '' : 'rounded-b-xl'}`}
+          >
+            <table className="text-sm border-collapse" style={estiloTabela}>
+              {colgroup}
+              <tbody>
+                {itensFiltrados.length === 0 && (
+                  <tr>
+                    <td colSpan={totalColunas} className="py-6 text-center text-sm text-ink-400">
+                      {items.length === 0 ? 'Nenhum item na cotação.' : 'Nenhum item com esses filtros.'}
+                    </td>
+                  </tr>
+                )}
+                {agrupar
+                  ? grupos.map((grupo) => {
+                      const idsGrupo = grupo.itens.map((i) => i.id)
+                      const grupoMarcado = idsGrupo.every((id) => marcados.has(id))
+                      const subtotal = grupo.itens.reduce(
+                        (s, i) => s + (i.product.qtd || 0) * (i.product.valorUnt || 0),
+                        0,
+                      )
+                      return (
+                        <Fragment key={grupo.chave || '__sem_fornecedor__'}>
+                          {/* cabeçalho do grupo como um "tópico" dos itens logo abaixo: barra lateral,
+                           * nome do fornecedor (e a UF de onde ele despacha) em destaque e, na mesma
+                           * linha, o frete dele (até 3 cotações de transportadora) — preso na
+                           * esquerda da área visível, então continua à vista mesmo com a planilha
+                           * rolada de lado */}
+                          <tr>
+                            <td colSpan={totalColunas} className="px-0 pt-3 pb-0 border-t border-ink-100">
+                              <div
+                                className="sticky left-0 flex flex-wrap items-center gap-x-3 gap-y-1.5 border-l-4 border-ink-900 bg-ink-50 py-1.5 pl-2 pr-3"
+                                style={rolaDeLado && larguraVisivel > 0 ? { width: larguraVisivel } : undefined}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={grupoMarcado}
+                                  onChange={() => toggleConjunto(idsGrupo)}
+                                  title="Marcar/desmarcar todos os itens desse fornecedor"
+                                />
+                                <span className="inline-flex items-center gap-1.5">
+                                  <span className="font-display text-[13px] font-bold uppercase tracking-wide text-ink-900">
+                                    {grupo.remetente.nome || 'Sem fornecedor definido'}
+                                  </span>
+                                  {grupo.remetente.nome && renderSeloUf(grupo.remetente.uf)}
+                                </span>
+                                <span className="text-[11px] text-ink-500">
+                                  {grupo.itens.length} {grupo.itens.length > 1 ? 'itens' : 'item'} ·{' '}
+                                  <span className="font-mono font-semibold tabular-nums text-ink-900">{formatCurrency(subtotal)}</span>
+                                </span>
+                                {grupo.remetente.nome && (
+                                  <span className="flex flex-wrap items-center gap-1.5 border-l border-ink-200 pl-3">
+                                    <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Frete</span>
+                                    {renderFrete(grupo.remetente)}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                          {grupo.itens.map(renderLinha)}
+                        </Fragment>
+                      )
+                    })
+                  : itensFiltrados.map(renderLinha)}
+              </tbody>
+            </table>
+          </div>
+          {rolaDeLado && (
+            // barra de rolagem de lado presa embaixo da tela enquanto a planilha estiver à vista —
+            // sem ela, pra ver as colunas da direita era preciso descer até o fim da planilha
+            <div
+              ref={rolagemLateralRef}
+              onScroll={aoRolarBarraLateral}
+              className="sticky bottom-0 z-[5] overflow-x-auto overflow-y-hidden rounded-b-xl border-t border-ink-100 bg-surface"
+            >
+              {/* +2px: a borda da tabela soma uma fração de pixel — sem a folga, a barra parava 1px antes do fim */}
+              <div style={{ width: larguraTabela + 2, height: 1 }} />
+            </div>
+          )}
+        </div>
+
+        {itensExcluidos.length > 0 && (
+          <div className="mt-4 rounded-xl border border-ink-100">
+            <button
+              type="button"
+              onClick={() => setExcluidosAbertos((v) => !v)}
+              aria-expanded={excluidosAbertos}
+              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-ink-600 hover:bg-ink-50 rounded-xl"
+            >
+              <span>
+                Itens excluídos desta cotação <span className="font-semibold text-ink-900">({itensExcluidos.length})</span>
+                <span className="ml-2 text-xs text-ink-400">guardados no sistema — dá pra restaurar</span>
+              </span>
+              <span aria-hidden className="text-ink-400">
+                {excluidosAbertos ? '▴' : '▾'}
+              </span>
+            </button>
+            {excluidosAbertos && (
+              <ul className="divide-y divide-ink-100 border-t border-ink-100">
+                {itensExcluidos.map((excluido) => {
+                  const p = excluido.item.product
                   return (
-                    <Fragment key={grupo.fornecedor.toUpperCase() || '__sem_fornecedor__'}>
-                      {/* cabeçalho do grupo como um "tópico" dos itens logo abaixo: barra lateral,
-                       * nome do fornecedor em destaque e, na mesma linha, o frete dele (até 3
-                       * cotações de transportadora) — tudo alinhado à esquerda de propósito: a
-                       * tabela costuma ser mais larga que a tela, e o que ficasse na ponta direita
-                       * sumia de vista */}
-                      <tr>
-                        <td colSpan={totalColunas} className="px-0 pt-3 pb-0 border-t border-ink-100">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-l-4 border-ink-900 bg-ink-50 py-1.5 pl-2 pr-3">
-                            <input
-                              type="checkbox"
-                              checked={grupoMarcado}
-                              onChange={() => toggleConjunto(idsGrupo)}
-                              title="Marcar/desmarcar todos os itens desse fornecedor"
-                            />
-                            <span className="font-display text-[13px] font-bold uppercase tracking-wide text-ink-900">
-                              {grupo.fornecedor || 'Sem fornecedor definido'}
-                            </span>
-                            <span className="text-[11px] text-ink-500">
-                              {grupo.itens.length} item{grupo.itens.length > 1 ? 's' : ''} ·{' '}
-                              <span className="font-mono font-semibold tabular-nums text-ink-900">{formatCurrency(subtotal)}</span>
-                            </span>
-                            {grupo.fornecedor && (
-                              <span className="flex flex-wrap items-center gap-1.5 border-l border-ink-200 pl-3">
-                                <span className="text-[10px] font-semibold uppercase tracking-wider text-ink-400">Frete</span>
-                                {renderFrete(grupo.fornecedor)}
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                      {grupo.itens.map(renderLinha)}
-                    </Fragment>
+                    <li key={excluido.item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm">
+                      <span className="min-w-0 flex-1 text-ink-800">{descricaoDoItem(excluido.item)}</span>
+                      <span className="font-mono text-xs tabular-nums text-ink-500">
+                        {p.qtd || 0} × {formatCurrency(p.valorUnt || 0)}
+                      </span>
+                      <span className={`text-xs ${excluido.pendente ? 'text-amber-700' : 'text-ink-400'}`}>
+                        {excluido.pendente
+                          ? 'tirado agora — sai da cotação ao salvar'
+                          : `excluído${excluido.excluidoPor ? ` por ${excluido.excluidoPor}` : ''} em ${formatDate(excluido.excluidoEm)}`}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onRestaurarItem(excluido.item.id)}
+                        className="rounded-md border border-ink-200 px-2 py-1 text-xs font-medium text-ink-700 hover:bg-ink-50"
+                      >
+                        Restaurar
+                      </button>
+                    </li>
                   )
-                })
-              : itensFiltrados.map(renderLinha)}
-          </tbody>
-        </table>
+                })}
+              </ul>
+            )}
+          </div>
+        )}
       </div>
+
+      {children}
     </div>
   )
 }
@@ -1192,9 +1505,7 @@ function LinhaItem({
   marcado,
   onToggleMarcado,
   onSelect,
-  onRemove,
   onPatch,
-  podeRemover,
   cellCls,
   inputCls,
   stop,
@@ -1215,9 +1526,7 @@ function LinhaItem({
   marcado: boolean
   onToggleMarcado: () => void
   onSelect: () => void
-  onRemove: () => void
   onPatch: (patch: Partial<ProductInput>) => void
-  podeRemover: boolean
   cellCls: string
   inputCls: string
   stop: (e: MouseEvent) => void
@@ -1524,21 +1833,6 @@ function LinhaItem({
         </td>
         <td className={`${cellCls} text-ink-400 text-xs text-center`}>{numero}</td>
         {ordemColunas.map((chave) => celulas[chave])}
-        <td className={`${cellCls} text-center`}>
-          {podeRemover && (
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                onRemove()
-              }}
-              aria-label="Remover item"
-              className="h-6 w-6 rounded-full text-xs leading-none text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
-            >
-              ×
-            </button>
-          )}
-        </td>
       </tr>
       {historico && (
         <tr className="bg-surface">

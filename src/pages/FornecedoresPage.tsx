@@ -132,7 +132,11 @@ export function FornecedoresPage() {
   function handlePatchItemImportado(index: number, patch: Partial<FornecedorImportado>) {
     setItensImportados((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)))
   }
-  function handleRemoveItemImportado(index: number) {
+  async function handleRemoveItemImportado(index: number) {
+    const nome = itensImportados[index]?.nome?.trim()
+    if (!(await confirmar(`Tirar este fornecedor da importação?${nome ? `\n\n${nome}` : ''}`, { confirmText: 'Tirar', tone: 'danger' }))) {
+      return
+    }
     setItensImportados((prev) => prev.filter((_, i) => i !== index))
   }
 

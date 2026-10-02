@@ -7,7 +7,7 @@ export type TabKey =
   | 'analytics'
   | 'dashboard'
   | 'comparar'
-  | 'margins'
+  | 'faturamento'
   | 'pedidoCompra'
   | 'produtos'
   | 'fornecedores'
@@ -41,7 +41,7 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'cotacoes', label: 'Cotações' },
       { key: 'dashboard', label: 'Precificação' },
       { key: 'pedidoCompra', label: 'Pedido de Compra' },
-      { key: 'margins', label: 'Análise de Margens' },
+      { key: 'faturamento', label: 'Faturamento' },
       { key: 'acompanhamentoNotas', label: 'Transferências Fiscais', somenteAdmin: 'Max' },
       { key: 'notasFiscais', label: 'Notas Fiscais', somenteAdmin: 'Max' },
     ],
@@ -269,7 +269,9 @@ export function Layout({
       </aside>
 
       <div className="flex-1 min-w-0 flex flex-col">
-        <header className="sm:hidden flex items-center justify-between gap-3 border-b border-ink-100 bg-surface px-4 py-3 sticky top-0 z-20">
+        {/* altura fixa (h-14 = --altura-topo no index.css): o que gruda no topo ao rolar a tela (ex.:
+         * a barra de Itens da cotação) se posiciona logo abaixo dessa barra no celular */}
+        <header className="sm:hidden flex h-14 items-center justify-between gap-3 border-b border-ink-100 bg-surface px-4 sticky top-0 z-20">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}

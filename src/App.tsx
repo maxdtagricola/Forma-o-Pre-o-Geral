@@ -7,7 +7,7 @@ import { AnalyticsPage } from './pages/AnalyticsPage'
 import { ConfiguracoesPage } from './pages/ConfiguracoesPage'
 import { Dashboard } from './pages/Dashboard'
 import { CompararFornecedoresPage } from './pages/CompararFornecedoresPage'
-import { MarginAnalysisPage } from './pages/MarginAnalysisPage'
+import { FaturamentoPage } from './pages/FaturamentoPage'
 import { ProdutosPage } from './pages/ProdutosPage'
 import { FornecedoresPage } from './pages/FornecedoresPage'
 import { FretePage } from './pages/FretePage'
@@ -21,7 +21,7 @@ import { RecuperarRascunhoModal } from './components/RecuperarRascunhoModal'
 import { DialogHost } from './components/DialogHost'
 import { lerRascunho, limparRascunho, salvarRascunho, type RascunhoCotacao } from './rascunhoCotacao'
 import { calculateItem, definirTabelasCustomizadas } from './calc/calculator'
-import { listQuotes, saveQuote, setPlanilhaOriginal, updateQuoteStatus } from './db/analysesRepo'
+import { buscarQuote, listQuotes, saveQuote, setPlanilhaOriginal, updateQuoteStatus } from './db/analysesRepo'
 import { sincronizarProdutos } from './db/produtosRepo'
 import {
   DEFAULT_PRICING_GLOBAL,
@@ -42,6 +42,7 @@ import type {
   AdminName,
   Empresa,
   EstadoDestino,
+  ItemExcluidoCotacao,
   PricingConfig,
   ProductInput,
   QuoteItem,
@@ -103,7 +104,10 @@ export default function App() {
   const [activeResponsavel, setActiveResponsavel] = useState('')
   const [activeCreatedAt, setActiveCreatedAt] = useState<number | undefined>(undefined)
   const [dataSolicitacao, setDataSolicitacao] = useState<number | undefined>(undefined)
-  const [numeroCotacaoTransportadora, setNumeroCotacaoTransportadora] = useState('')
+  // itens que saíram da cotação: os já arquivados no servidor (vêm com o registro) e os tirados agora,
+  // na tela, que só vão pro arquivo no próximo "Salvar cotação" — os dois dá pra trazer de volta
+  const [itensExcluidosSalvos, setItensExcluidosSalvos] = useState<ItemExcluidoCotacao[]>([])
+  const [itensExcluidosPendentes, setItensExcluidosPendentes] = useState<ItemExcluidoCotacao[]>([])
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const [pricingGlobal, setPricingGlobalState] = useState<PricingGlobal>(DEFAULT_PRICING_GLOBAL)
   const [tabelasVersion, setTabelasVersion] = useState(0)
@@ -267,6 +271,13 @@ export default function App() {
     setActiveStatus(r.activeStatus)
     setActiveResponsavel(r.activeResponsavel)
     setPlanilhaOriginalState(r.planilhaOriginal)
+    setItensExcluidosPendentes([])
+    setItensExcluidosSalvos([])
+    buscarQuote(r.editingQuoteId)
+      .then((registro) => setItensExcluidosSalvos(registro?.itensExcluidos ?? []))
+      .catch(() => {
+        // sem servidor agora: a lista de excluídos só aparece depois do próximo salvar/abrir
+      })
     changeTab('dashboard')
     setRascunhoDisponivel(undefined)
   }
@@ -349,9 +360,21 @@ export default function App() {
     setActiveItemId(item.id)
   }
 
-  function handleRemoveItem(id: string) {
-    const idx = items.findIndex((item) => item.id === id)
-    const next = items.filter((item) => item.id !== id)
+  // a confirmação já foi feita por quem chamou (Itens da cotação, listando o que vai sair) — aqui
+  // não passa pelo "essa cotação já foi salva, quer mesmo alterar?" pra não perguntar duas vezes
+  function handleRemoveItems(ids: string[]) {
+    const remover = new Set(ids)
+    const removidos = items.filter((item) => remover.has(item.id))
+    if (removidos.length === 0) return
+    const agora = Date.now()
+    setItensExcluidosPendentes((prev) => [
+      ...prev.filter((e) => !remover.has(e.item.id)),
+      ...removidos.map((item) => ({ item, excluidoEm: agora, excluidoPor: currentAdmin ?? '' })),
+    ])
+    const idxAtivo = items.findIndex((item) => item.id === activeItemId)
+    const next = items.filter((item) => !remover.has(item.id))
+    setSalvoInalterado(false)
+    setTemAlteracoesNaoSalvas(true)
     if (next.length === 0) {
       const fresh = criarItemComGlobais()
       setItems([fresh])
@@ -359,10 +382,47 @@ export default function App() {
       return
     }
     setItems(next)
-    if (id === activeItemId) {
-      setActiveItemId(next[Math.min(idx, next.length - 1)].id)
+    if (remover.has(activeItemId)) {
+      // o item aberto saiu: abre o que ficou mais perto da posição dele
+      const proximo = items.slice(idxAtivo + 1).find((item) => !remover.has(item.id)) ?? next[next.length - 1]
+      setActiveItemId(proximo.id)
     }
   }
+
+  /** Traz de volta pra cotação um item que tinha sido tirado (agora mesmo ou já arquivado no servidor). */
+  function handleRestaurarItem(itemId: string) {
+    const entrada =
+      itensExcluidosPendentes.find((e) => e.item.id === itemId) ?? itensExcluidosSalvos.find((e) => e.item.id === itemId)
+    if (!entrada || items.some((item) => item.id === itemId)) return
+    const restaurado: QuoteItem = { ...entrada.item, pricing: { ...entrada.item.pricing, ...pricingGlobal } }
+    // a linha em branco que fica no lugar quando a cotação esvazia não precisa continuar ali
+    const semLinhaVazia = items.filter(
+      (item) =>
+        item.product.interno.trim() ||
+        item.product.referencia.trim() ||
+        item.product.descricao.trim() ||
+        item.product.fornecedor.trim() ||
+        item.product.valorUnt > 0,
+    )
+    setItems([...semLinhaVazia, restaurado])
+    setActiveItemId(restaurado.id)
+    setItensExcluidosPendentes((prev) => prev.filter((e) => e.item.id !== itemId))
+    setSalvoInalterado(false)
+    setTemAlteracoesNaoSalvas(true)
+  }
+
+  // lista mostrada em "Itens excluídos": os tirados agora (ainda não salvos) primeiro, depois os
+  // arquivados no servidor — menos os que já voltaram pra cotação
+  const itensExcluidosVisiveis = useMemo(() => {
+    const naCotacao = new Set(items.map((item) => item.id))
+    const pendentes = itensExcluidosPendentes.filter((e) => !naCotacao.has(e.item.id))
+    const idsPendentes = new Set(pendentes.map((e) => e.item.id))
+    const salvos = itensExcluidosSalvos.filter((e) => !naCotacao.has(e.item.id) && !idsPendentes.has(e.item.id))
+    return [
+      ...pendentes.map((e) => ({ ...e, pendente: true })),
+      ...[...salvos].reverse().map((e) => ({ ...e, pendente: false })),
+    ]
+  }, [items, itensExcluidosPendentes, itensExcluidosSalvos])
 
   async function handleSave() {
     if (!currentAdmin) return
@@ -377,9 +437,11 @@ export default function App() {
         editingQuoteId,
         empresaId,
         dataSolicitacao,
-        numeroCotacaoTransportadora,
+        { itensRemovidos: itensExcluidosPendentes.map((e) => e.item) },
       )
       setEditingQuoteId(record.id)
+      setItensExcluidosSalvos(record.itensExcluidos ?? [])
+      setItensExcluidosPendentes([])
       setHistoryRefreshKey((k) => k + 1)
       limparRascunho()
       // mantém o catálogo de Produtos (e o "mais barato já cotado" de cada item) em dia sem depender
@@ -411,7 +473,8 @@ export default function App() {
     setActiveResponsavel('')
     setActiveCreatedAt(undefined)
     setDataSolicitacao(undefined)
-    setNumeroCotacaoTransportadora('')
+    setItensExcluidosSalvos([])
+    setItensExcluidosPendentes([])
     setPlanilhaOriginalState(undefined)
     limparRascunho()
     setSalvoInalterado(false)
@@ -438,7 +501,8 @@ export default function App() {
     setActiveResponsavel(record.responsavelStatus)
     setActiveCreatedAt(record.createdAt)
     setDataSolicitacao(record.dataSolicitacao)
-    setNumeroCotacaoTransportadora(record.numeroCotacaoTransportadora ?? '')
+    setItensExcluidosSalvos(record.itensExcluidos ?? [])
+    setItensExcluidosPendentes([])
     setPlanilhaOriginalState(record.planilhaOriginal)
     setSalvoInalterado(false)
     setCotacaoRecemSalva(false)
@@ -561,7 +625,9 @@ export default function App() {
           isEditing={!!editingQuoteId}
           onSelectItem={setActiveItemId}
           onAddItem={protegido(handleAddItem)}
-          onRemoveItem={protegido(handleRemoveItem)}
+          onRemoveItems={handleRemoveItems}
+          itensExcluidos={itensExcluidosVisiveis}
+          onRestaurarItem={handleRestaurarItem}
           onPatchItem={protegido(patchItemProduct)}
           onApplyMarginToAll={protegido(handleApplyMarginToAll)}
           onApplyPerfilToAll={protegido(handleApplyPerfilToAll)}
@@ -577,13 +643,11 @@ export default function App() {
           createdAt={activeCreatedAt}
           dataSolicitacao={dataSolicitacao}
           onChangeDataSolicitacao={protegido(setDataSolicitacao)}
-          numeroCotacaoTransportadora={numeroCotacaoTransportadora}
-          onChangeNumeroCotacaoTransportadora={protegido(setNumeroCotacaoTransportadora)}
           cotacaoSalva={cotacaoRecemSalva}
           cotacaoId={editingQuoteId}
         />
       )}
-      {tab === 'margins' && <MarginAnalysisPage product={activeItem.product} pricing={activeItem.pricing} />}
+      {tab === 'faturamento' && <FaturamentoPage currentAdmin={currentAdmin} />}
       {tab === 'produtos' && <ProdutosPage currentAdmin={currentAdmin} />}
       {tab === 'fornecedores' && <FornecedoresPage />}
       {tab === 'frete' && <FretePage cotacaoIdInicial={editingQuoteId} />}

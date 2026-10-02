@@ -46,7 +46,6 @@ npm run preview    # visualiza essa versão localmente
 src/
   calc/
     calculator.ts       # motor de cálculo — reproduz a aba "Analise" da planilha
-    marginAnalysis.ts   # gera a faixa de margens 10%–50%
   data/
     rbc.json            # tabela "RBC" (redução de base de cálculo, Convênio 52/91)
     icmsStRo.json        # tabela "ICMS ST RO" (MVA ajustada por NCM)
@@ -56,7 +55,7 @@ src/
     db.ts                # wrapper sobre IndexedDB nativo (sem dependências)
     analysesRepo.ts       # salvar/listar/excluir análises (histórico)
   components/            # formulário, painel de preço, resultado, navegação
-  pages/                  # Início (Dashboard), Análise de Margens, Histórico
+  pages/                  # Precificação, Pedido de Compra, Faturamento, Histórico…
   types.ts                # tipos do domínio (produto, config, resultado)
 ```
 

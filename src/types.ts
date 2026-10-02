@@ -80,6 +80,21 @@ export function labelNecessidade(valor: string | undefined): string {
   return NECESSIDADES_TRANSFERENCIA.find((n) => n.value === valor)?.label ?? valor
 }
 
+/** O que aconteceu com o que foi transferido: faturado (virou venda) ou parado no estoque (não
+ * vendeu — a transferência não gerou o lucro esperado e conta como prejuízo). Vazio = ainda não se
+ * sabe. Vale pra nota inteira ou pra cada produto dela (o do produto, quando marcado, vence). */
+export type ResultadoTransferencia = '' | 'FATURADO' | 'ESTOQUE'
+
+export const RESULTADOS_TRANSFERENCIA: { value: Exclude<ResultadoTransferencia, ''>; label: string; curto: string }[] = [
+  { value: 'FATURADO', label: 'Faturado', curto: 'Faturado' },
+  { value: 'ESTOQUE', label: 'Parado no estoque (prejuízo)', curto: 'Estoque' },
+]
+
+export function labelResultado(valor: ResultadoTransferencia | undefined, curto = false): string {
+  const r = RESULTADOS_TRANSFERENCIA.find((x) => x.value === valor)
+  return r ? (curto ? r.curto : r.label) : ''
+}
+
 /** Um produto da nota (as linhas "Dados do produto/serviço" da DANFE, ou os <det> do XML). */
 export interface NotaFiscalItem {
   id: string
@@ -93,6 +108,8 @@ export interface NotaFiscalItem {
   valorTotal: number
   /** Necessidade da transferência desse produto — vazio = vale a da nota inteira. */
   necessidade: string
+  /** Faturado / parado no estoque — vazio = vale o da nota inteira. Registros antigos não têm. */
+  resultado?: ResultadoTransferencia
 }
 
 export interface NotaFiscal {
@@ -109,6 +126,8 @@ export interface NotaFiscal {
   /** Necessidade da transferência da nota como um todo (padrão pros produtos dela). Registros
    * antigos não têm. */
   necessidade?: string
+  /** Faturado / parado no estoque, pra nota inteira (padrão pros produtos dela). */
+  resultado?: ResultadoTransferencia
   /** Produtos a que a nota se refere. Registros antigos não têm. */
   itens?: NotaFiscalItem[]
   status: NotaFiscalStatus
@@ -127,6 +146,7 @@ export const DEFAULT_NOTA_FISCAL: Omit<NotaFiscal, 'id' | 'criadoPor' | 'created
   dataEmissao: '',
   tipo: 'PECAS',
   necessidade: '',
+  resultado: '',
   itens: [],
 }
 
@@ -284,16 +304,6 @@ export interface CalculationResult {
   }
 }
 
-export interface MarginPoint {
-  margemPct: number
-  custoUnitario: number
-  precoVendaUnitario: number
-  precoVendaTotal: number
-  lucroValor: number
-  markup: number
-  viavel: boolean
-}
-
 // ---------------------------------------------------------------------------
 // Status de uma cotação — acompanha o fluxo desde o pedido até o arquivo.
 // ---------------------------------------------------------------------------
@@ -356,6 +366,24 @@ export interface ItemFechado {
   qtd: number
   valorUnt: number
   freteRate: number
+}
+
+/** Quanto de um item foi faturado pro cliente (aba Faturamento) — comparado com o preço de venda que
+ * foi passado na cotação antes do pedido. Separado de item.product pelo mesmo motivo do ItemFechado:
+ * um não pode sobrescrever o outro, senão a comparação some. */
+export interface ItemFaturado {
+  qtd: number
+  valorUnt: number
+  registradoEm: number
+  registradoPor: string
+}
+
+/** Item que saiu de uma cotação — fica guardado no próprio registro dela, no servidor, com quem
+ * tirou e quando: o item nunca some do sistema e dá pra trazer de volta. */
+export interface ItemExcluidoCotacao {
+  item: QuoteItem
+  excluidoEm: number
+  excluidoPor: string
 }
 
 // ---------------------------------------------------------------------------
@@ -445,14 +473,22 @@ export interface QuoteRecord {
    * formato antigo, um conjunto só pra cotação inteira (hoje só usado quando os itens ainda não têm
    * fornecedor definido). O atual é `fretePorFornecedor`. */
   freteTransportadoras?: Record<string, DadosFreteTransportadora>
-  /** Frete separado por fornecedor (chave: nome do fornecedor dos itens em maiúsculas, ver
-   * chaveFornecedorFrete) e, dentro dele, por transportadora — cada fornecedor despacha de um
-   * lugar diferente e tem as suas próprias cotações de frete. */
+  /** Frete separado por fornecedor (chave: nome do fornecedor dos itens em maiúsculas + UF de
+   * origem, ver chaveFornecedorFrete) e, dentro dele, por transportadora — cada fornecedor (e cada
+   * estado de onde ele despacha) tem as suas próprias cotações de frete. Registros de antes da
+   * separação por UF têm a chave só com o nome. */
   fretePorFornecedor?: Record<string, Record<string, DadosFreteTransportadora>>
-  /** Medidas da carga (cm/kg) por fornecedor, informadas na aba Frete. */
+  /** Medidas da carga (cm/kg) por fornecedor, informadas na aba Frete — mesma chave do frete. */
   cargaFretePorFornecedor?: Record<string, MedidasCargaFrete>
   /** Valores fechados por item na aba Pedido de Compra — chave é o id do QuoteItem. */
   itensFechados?: Record<string, ItemFechado>
+  /** Valores faturados por item na aba Faturamento — chave é o id do QuoteItem. */
+  itensFaturados?: Record<string, ItemFaturado>
+  /** Nº da(s) nota(s) fiscal(is) de venda e data do faturamento (aba Faturamento). */
+  notaFaturamento?: string
+  dataFaturamento?: string
+  /** Itens que já saíram dessa cotação — guardados aqui pra nunca sumirem do sistema. */
+  itensExcluidos?: ItemExcluidoCotacao[]
   createdAt: number
   updatedAt: number
   // resumo pré-calculado para exibição rápida na lista do histórico

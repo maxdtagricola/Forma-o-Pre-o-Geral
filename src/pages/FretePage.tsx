@@ -5,11 +5,14 @@ import { getEmpresaPorTransportadora, setEmpresaPorTransportadora } from '../db/
 import { listEmpresas } from '../db/empresasRepo'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import {
+  cargaDoFornecedor,
   chaveFornecedorFrete,
   freteDoFornecedor,
   listQuotes,
+  remetentesDaCotacao,
   salvarCargaFrete,
   salvarFreteTransportadora,
+  type RemetenteFrete,
 } from '../db/analysesRepo'
 import { formatCurrency } from '../utils'
 import { formatarNumeroBR, formatarNumeroCurtoBR, parseNumeroFlexivel } from '../numeros'
@@ -580,9 +583,14 @@ function CampoMedida({
   )
 }
 
-/** Valor do <select> de fornecedor: "id:<id do cadastro>" ou "nome:<nome como está nos itens>"
- * (fornecedor usado nos itens mas que não tem cadastro — ainda dá pra salvar o frete dele). */
+/** Valor do <select> de fornecedor: "grupo:<chave>" — um fornecedor + UF que está nos itens da
+ * cotação (com ou sem cadastro; é a origem de onde a mercadoria sai) — ou "id:<id do cadastro>",
+ * outro fornecedor cadastrado que (ainda) não aparece nos itens. */
 type SelecaoFornecedor = string
+
+function rotuloComUf(r: RemetenteFrete): string {
+  return r.uf ? `${r.nome} — ${r.uf}` : r.nome
+}
 
 export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
   const [empresas, setEmpresas] = useState<Empresa[]>([])
@@ -614,29 +622,27 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
 
   const cotacaoSelecionada = useMemo(() => quotes.find((q) => q.id === cotacaoId), [quotes, cotacaoId])
 
-  // nomes de fornecedor distintos usados nos itens da cotação (sem repetir por maiúscula/espaço)
-  const nomesFornecedorNaCotacao = useMemo(() => {
-    if (!cotacaoSelecionada) return []
-    const porChave = new Map<string, string>()
-    for (const it of cotacaoSelecionada.items) {
-      const nome = it.product.fornecedor.trim()
-      if (nome && !porChave.has(chaveFornecedorFrete(nome))) porChave.set(chaveFornecedorFrete(nome), nome)
-    }
-    return Array.from(porChave.values())
-  }, [cotacaoSelecionada])
+  // fornecedores (+ UF de origem) distintos usados nos itens da cotação — o mesmo fornecedor em dois
+  // estados aparece duas vezes: são duas origens, cada uma com o seu frete
+  const remetentesNaCotacao = useMemo(
+    () => (cotacaoSelecionada ? remetentesDaCotacao(cotacaoSelecionada) : []),
+    [cotacaoSelecionada],
+  )
 
-  function selecaoParaNome(nome: string): SelecaoFornecedor {
-    const cadastrado = fornecedores.find((f) => chaveFornecedorFrete(f.nome) === chaveFornecedorFrete(nome))
-    return cadastrado ? `id:${cadastrado.id}` : `nome:${nome}`
+  /** Cadastro do fornecedor de um grupo dos itens: o de mesmo nome e mesmo estado, ou, não havendo,
+   * o de mesmo nome. */
+  function cadastroDoRemetente(r: RemetenteFrete): Fornecedor | null {
+    const doNome = fornecedores.filter((f) => chaveFornecedorFrete(f.nome) === chaveFornecedorFrete(r.nome))
+    return doNome.find((f) => (f.estado || '').toUpperCase() === (r.uf || '').toUpperCase()) ?? doNome[0] ?? null
   }
 
   // trocar de cotação zera o fornecedor escolhido (era de outra cotação) — e, com um fornecedor só
   // nos itens, já escolhe ele sozinho
   useEffect(() => {
-    if (nomesFornecedorNaCotacao.length === 1) setSelecaoFornecedor(selecaoParaNome(nomesFornecedorNaCotacao[0]))
+    if (remetentesNaCotacao.length === 1) setSelecaoFornecedor(`grupo:${remetentesNaCotacao[0].chave}`)
     else setSelecaoFornecedor('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cotacaoId, nomesFornecedorNaCotacao.join('|'), fornecedores])
+  }, [cotacaoId, remetentesNaCotacao.map((r) => r.chave).join('|')])
 
   // ao chegar direto de uma cotação (botão "Ir para Frete" da Precificação) com mais de um
   // fornecedor nos itens, pergunta qual é antes de mostrar o resto da página — sem isso os dados
@@ -647,7 +653,7 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
     if (
       cotacaoIdInicial &&
       cotacaoId === cotacaoIdInicial &&
-      nomesFornecedorNaCotacao.length > 1 &&
+      remetentesNaCotacao.length > 1 &&
       !selecaoFornecedor &&
       jaPerguntouPara.current !== cotacaoId
     ) {
@@ -656,38 +662,48 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
     }
     // escolheu o fornecedor de outro jeito (pela lista da página): a pergunta não precisa mais ficar aberta
     if (selecaoFornecedor) setPerguntandoFornecedor(false)
-  }, [cotacaoIdInicial, cotacaoId, nomesFornecedorNaCotacao, selecaoFornecedor])
+  }, [cotacaoIdInicial, cotacaoId, remetentesNaCotacao, selecaoFornecedor])
+
+  /** Fornecedor (+ UF) dono do frete — o nome como está nos itens e o estado de onde despacha; é a
+   * chave em que o frete e as medidas ficam salvos. */
+  const remetenteSelecionado = useMemo((): RemetenteFrete | null => {
+    if (selecaoFornecedor.startsWith('grupo:')) {
+      return remetentesNaCotacao.find((r) => r.chave === selecaoFornecedor.slice(6)) ?? null
+    }
+    if (selecaoFornecedor.startsWith('id:')) {
+      const f = fornecedores.find((x) => x.id === selecaoFornecedor.slice(3))
+      return f ? { nome: f.nome, uf: f.estado || undefined } : null
+    }
+    return null
+  }, [selecaoFornecedor, remetentesNaCotacao, fornecedores])
 
   const fornecedorCadastro = useMemo(() => {
     if (selecaoFornecedor.startsWith('id:')) return fornecedores.find((f) => f.id === selecaoFornecedor.slice(3)) ?? null
-    return null
-  }, [selecaoFornecedor, fornecedores])
+    return remetenteSelecionado ? cadastroDoRemetente(remetenteSelecionado) : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selecaoFornecedor, fornecedores, remetenteSelecionado])
 
-  /** Nome do fornecedor dono do frete (como nos itens) — é a chave em que o frete fica salvo. */
-  const nomeFornecedorFrete = useMemo(() => {
-    if (selecaoFornecedor.startsWith('nome:')) return selecaoFornecedor.slice(5)
-    if (!fornecedorCadastro) return ''
-    const nosItens = nomesFornecedorNaCotacao.find((n) => chaveFornecedorFrete(n) === chaveFornecedorFrete(fornecedorCadastro.nome))
-    return nosItens ?? fornecedorCadastro.nome
-  }, [selecaoFornecedor, fornecedorCadastro, nomesFornecedorNaCotacao])
+  // sem fornecedor escolhido (itens ainda sem fornecedor): o frete fica no conjunto geral da cotação
+  const remetenteFrete: RemetenteFrete = remetenteSelecionado ?? { nome: '' }
+  const chaveRemetente = chaveFornecedorFrete(remetenteFrete.nome, remetenteFrete.uf)
 
-  function handleEscolherFornecedorDaPergunta(nome: string) {
-    setSelecaoFornecedor(selecaoParaNome(nome))
+  function handleEscolherFornecedorDaPergunta(r: RemetenteFrete & { chave: string }) {
+    setSelecaoFornecedor(`grupo:${r.chave}`)
     setPerguntandoFornecedor(false)
   }
 
   const ctx: ContextoFrete = useMemo(() => {
     if (!cotacaoSelecionada) return contextoVazio
     const empresa = empresas.find((e) => e.id === cotacaoSelecionada.empresaId) ?? null
-    // só entram no pedido de frete os itens do fornecedor selecionado — cotação com mais de um
-    // fornecedor não pode juntar tudo num pedido só, já que cada um despacha de um lugar diferente.
-    // Sem fornecedor selecionado: usa todos os itens só se só existir um fornecedor na cotação
-    // (caso comum, nada a escolher); havendo mais de um, fica sem itens até alguém escolher.
-    const itensDoFornecedor = nomeFornecedorFrete
+    // só entram no pedido de frete os itens do fornecedor (+ UF) selecionado — cotação com mais de
+    // uma origem não pode juntar tudo num pedido só, já que cada uma despacha de um lugar diferente.
+    // Sem fornecedor selecionado: usa todos os itens só se só existir uma origem na cotação (caso
+    // comum, nada a escolher); havendo mais de uma, fica sem itens até alguém escolher.
+    const itensDoFornecedor = remetenteSelecionado
       ? cotacaoSelecionada.items.filter(
-          (it) => chaveFornecedorFrete(it.product.fornecedor) === chaveFornecedorFrete(nomeFornecedorFrete),
+          (it) => chaveFornecedorFrete(it.product.fornecedor, it.product.estadoOrigem) === chaveRemetente,
         )
-      : nomesFornecedorNaCotacao.length <= 1
+      : remetentesNaCotacao.length <= 1
         ? cotacaoSelecionada.items
         : []
     const pesoTotal = itensDoFornecedor.reduce((s, it) => s + (it.product.peso || 0) * (it.product.qtd || 0), 0)
@@ -705,9 +721,9 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
       qtdVolumes: itensDoFornecedor.length,
       descricao,
     }
-  }, [cotacaoSelecionada, fornecedorCadastro, empresas, nomeFornecedorFrete, nomesFornecedorNaCotacao])
+  }, [cotacaoSelecionada, fornecedorCadastro, empresas, remetenteSelecionado, chaveRemetente, remetentesNaCotacao])
 
-  const chaveContexto = `${cotacaoId}|${chaveFornecedorFrete(nomeFornecedorFrete)}`
+  const chaveContexto = `${cotacaoId}|${chaveRemetente}`
 
   // medidas da carga: as salvas pra esse fornecedor da cotação ou, sem nada salvo ainda, começa
   // pelo peso somado dos itens (peso × quantidade, em kg) — só as dimensões ficam pra preencher
@@ -717,7 +733,7 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
       cargaGravada.current = ''
       return
     }
-    const salva = cotacaoSelecionada.cargaFretePorFornecedor?.[chaveFornecedorFrete(nomeFornecedorFrete)]
+    const salva = cargaDoFornecedor(cotacaoSelecionada, remetenteFrete)
     const inicial = salva ?? { ...CARGA_VAZIA, pesoKg: Math.round(ctx.pesoTotal * 1000) / 1000 }
     setCarga(inicial)
     cargaGravada.current = salva ? JSON.stringify(salva) : ''
@@ -725,18 +741,18 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [chaveContexto, ctx.pesoTotal, cotacaoSelecionada?.id])
 
-  const fornecedorDefinido = nomesFornecedorNaCotacao.length <= 1 || !!nomeFornecedorFrete
+  const fornecedorDefinido = remetentesNaCotacao.length <= 1 || !!remetenteSelecionado
   const podeSalvar = !!cotacaoSelecionada && fornecedorDefinido
   const motivoNaoPodeSalvar = !cotacaoSelecionada
     ? 'Escolha uma cotação antes de salvar os dados de frete.'
-    : 'Essa cotação tem mais de um fornecedor — escolha de qual fornecedor é esse frete antes de salvar.'
+    : 'Essa cotação tem mais de um fornecedor (ou o mesmo fornecedor em estados diferentes) — escolha de qual é esse frete antes de salvar.'
 
   async function handleSalvarCarga() {
     if (!cotacaoSelecionada || !fornecedorDefinido) return
     const serializada = JSON.stringify(carga)
     if (serializada === cargaGravada.current) return
     try {
-      const atualizado = await salvarCargaFrete(cotacaoSelecionada.id, nomeFornecedorFrete, carga)
+      const atualizado = await salvarCargaFrete(cotacaoSelecionada.id, remetenteFrete, carga)
       cargaGravada.current = serializada
       setQuotes((prev) => prev.map((q) => (q.id === atualizado.id ? atualizado : q)))
       setCargaSalva(true)
@@ -758,7 +774,7 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
   async function handleSalvarFreteTransportadora(transportadora: string, dados: DadosFreteTransportadora): Promise<boolean> {
     if (!cotacaoSelecionada) return false
     try {
-      const atualizado = await salvarFreteTransportadora(cotacaoSelecionada.id, nomeFornecedorFrete, transportadora, dados)
+      const atualizado = await salvarFreteTransportadora(cotacaoSelecionada.id, remetenteFrete, transportadora, dados)
       setQuotes((prev) => prev.map((q) => (q.id === atualizado.id ? atualizado : q)))
       // as medidas da carga vão junto — quem preencheu as medidas e já salvou a transportadora não
       // precisa lembrar de sair do campo pra elas ficarem gravadas
@@ -771,8 +787,9 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
   }
 
   const freteSalvo = useMemo(
-    () => (cotacaoSelecionada ? freteDoFornecedor(cotacaoSelecionada, nomeFornecedorFrete) : {}),
-    [cotacaoSelecionada, nomeFornecedorFrete],
+    () => (cotacaoSelecionada ? freteDoFornecedor(cotacaoSelecionada, remetenteFrete) : {}),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cotacaoSelecionada, chaveRemetente],
   )
 
   const cotacaoOptions = [
@@ -781,20 +798,21 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
   ]
   const fornecedorOptions = useMemo(() => {
     const opcoes: { value: string; label: string }[] = [{ value: '', label: '— selecione —' }]
-    const jaListados = new Set<string>()
-    // primeiro os fornecedores que estão nos itens dessa cotação, inclusive os sem cadastro
-    for (const nome of nomesFornecedorNaCotacao) {
-      const valor = selecaoParaNome(nome)
-      jaListados.add(valor)
-      opcoes.push({ value: valor, label: valor.startsWith('nome:') ? `${nome} (sem cadastro)` : nome })
+    // primeiro os fornecedores (+ UF) que estão nos itens dessa cotação, inclusive os sem cadastro
+    const chavesNaCotacao = new Set(remetentesNaCotacao.map((r) => r.chave))
+    for (const r of remetentesNaCotacao) {
+      opcoes.push({
+        value: `grupo:${r.chave}`,
+        label: `${rotuloComUf(r)}${cadastroDoRemetente(r) ? '' : ' (sem cadastro)'}`,
+      })
     }
     for (const f of fornecedores) {
-      const valor = `id:${f.id}`
-      if (!jaListados.has(valor)) opcoes.push({ value: valor, label: f.nome })
+      if (chavesNaCotacao.has(chaveFornecedorFrete(f.nome, f.estado))) continue
+      opcoes.push({ value: `id:${f.id}`, label: f.estado ? `${f.nome} — ${f.estado}` : f.nome })
     }
     return opcoes
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nomesFornecedorNaCotacao, fornecedores])
+  }, [remetentesNaCotacao, fornecedores])
 
   return (
     <div className="space-y-5">
@@ -815,8 +833,8 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
           onChange={setSelecaoFornecedor}
           options={fornecedorOptions}
           hint={
-            nomesFornecedorNaCotacao.length > 1
-              ? `Essa cotação tem mais de um fornecedor nos itens (${nomesFornecedorNaCotacao.join(', ')}) — escolha qual usar; o frete de cada um fica salvo separado.`
+            remetentesNaCotacao.length > 1
+              ? `Essa cotação tem itens de mais de uma origem (${remetentesNaCotacao.map(rotuloComUf).join(', ')}) — escolha qual usar; o frete de cada fornecedor/estado fica salvo separado.`
               : undefined
           }
         />
@@ -833,7 +851,7 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
         <div className="card">
           <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
             <h3 className="font-display text-base font-semibold text-ink-900">
-              Medidas da carga{nomeFornecedorFrete ? ` — ${nomeFornecedorFrete}` : ''}
+              Medidas da carga{remetenteSelecionado ? ` — ${rotuloComUf(remetenteSelecionado)}` : ''}
             </h3>
             {cargaSalva && <span className="text-xs font-medium text-emerald-600">✓ Medidas salvas</span>}
           </div>
@@ -908,17 +926,18 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
           <div className="card max-w-sm w-full" onClick={(e) => e.stopPropagation()}>
             <h3 className="font-display text-base font-semibold text-ink-900 mb-1">De qual fornecedor é esse frete?</h3>
             <p className="text-sm text-ink-400 mb-4">
-              Essa cotação tem itens de mais de um fornecedor — escolha um pra não juntar tudo num pedido de frete só.
+              Essa cotação tem itens de mais de um fornecedor (ou do mesmo fornecedor saindo de estados diferentes) —
+              escolha um pra não juntar tudo num pedido de frete só.
             </p>
             <div className="flex flex-col gap-2">
-              {nomesFornecedorNaCotacao.map((nome) => (
+              {remetentesNaCotacao.map((r) => (
                 <button
-                  key={nome}
+                  key={r.chave}
                   type="button"
-                  onClick={() => handleEscolherFornecedorDaPergunta(nome)}
+                  onClick={() => handleEscolherFornecedorDaPergunta(r)}
                   className="rounded-lg border border-ink-200 px-4 py-2.5 text-left text-sm font-medium text-ink-700 hover:border-ink-400 hover:bg-ink-50 transition"
                 >
-                  {nome}
+                  {rotuloComUf(r)}
                 </button>
               ))}
               <button

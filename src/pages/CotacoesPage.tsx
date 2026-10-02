@@ -14,7 +14,7 @@ import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { QUOTE_STATUSES, VENDEDORES } from '../types'
 import type { PedidoCompraInfo, QuoteRecord, QuoteStatus, TipoReferencia } from '../types'
 import { useEstadoPersistente } from '../estadoPersistente'
-import { avisar } from '../dialogs'
+import { avisar, confirmar } from '../dialogs'
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
 const NOVO = '__novo__'
@@ -339,7 +339,12 @@ export function CotacoesPage({
   function handlePatchItemImportado(index: number, patch: Partial<ItemCotacaoImportado>) {
     setItensImportados((prev) => prev.map((it, i) => (i === index ? { ...it, ...patch } : it)))
   }
-  function handleRemoveItemImportado(index: number) {
+  async function handleRemoveItemImportado(index: number) {
+    const item = itensImportados[index]
+    const nome = item ? [item.referencia, item.descricao].filter((x) => x?.trim()).join(' — ') : ''
+    if (!(await confirmar(`Tirar este item da importação?${nome ? `\n\n${nome}` : ''}`, { confirmText: 'Tirar', tone: 'danger' }))) {
+      return
+    }
     setItensImportados((prev) => prev.filter((_, i) => i !== index))
   }
 

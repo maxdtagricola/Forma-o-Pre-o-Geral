@@ -124,6 +124,19 @@ export async function sincronizarProdutos(quotes: QuoteRecord[]): Promise<Produt
         vistoEm: quote.updatedAt,
       })
     }
+    // itens que saíram da cotação continuam no catálogo — só não vencem dados mais novos (contam
+    // como vistos na hora em que foram tirados)
+    for (const excluido of quote.itensExcluidos ?? []) {
+      const p = excluido.item.product
+      considerar({
+        interno: p.interno,
+        descricao: p.descricao,
+        referencia: p.referencia,
+        ncm: p.ncm,
+        peso: p.peso,
+        vistoEm: Math.min(excluido.excluidoEm, quote.updatedAt),
+      })
+    }
     for (const pre of quote.itensPreRegistro) {
       const refNorm = pre.referencia.trim().toLowerCase()
       if (refNorm && referenciasJaPrecificadas.has(refNorm)) continue // já virou item precificado nessa cotação

@@ -3,7 +3,7 @@ import { Button } from '../components/ui/Basics'
 import { ImportarCotacaoFornecedorModal, type ItemImportadoConfirmado } from '../components/ImportarCotacaoFornecedorModal'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import { formatCurrency, makeId, melhorCotacaoFornecedor, selecionarTudoAoFocar } from '../utils'
-import { avisar } from '../dialogs'
+import { avisar, confirmar } from '../dialogs'
 import { parseNumeroFlexivel } from '../numeros'
 import type { CotacaoFornecedorItem, Fornecedor, ProductInput, QuoteItem, QuoteStatus } from '../types'
 
@@ -287,7 +287,12 @@ export function CompararFornecedoresPage({
     )
   }
 
-  function handleRemoveCotacao(item: QuoteItem, cotacaoId: string) {
+  async function handleRemoveCotacao(item: QuoteItem, cotacaoId: string) {
+    const cotacao = (item.product.cotacoesFornecedores ?? []).find((c) => c.id === cotacaoId)
+    const quem = cotacao ? [cotacao.fornecedor, cotacao.marca].filter((x) => x?.trim()).join(' · ') : ''
+    if (!(await confirmar(`Tirar esta cotação de fornecedor do item?${quem ? `\n\n${quem}` : ''}`, { confirmText: 'Tirar', tone: 'danger' }))) {
+      return
+    }
     aplicarCotacoes(
       item.id,
       (item.product.cotacoesFornecedores ?? []).filter((c) => c.id !== cotacaoId),

@@ -3,7 +3,15 @@ import { Button } from '../components/ui/Basics'
 import { SelectField } from '../components/ui/Field'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { PedidoCompraFornecedorModal, type BasePedidoCompraFornecedor } from '../components/PedidoCompraFornecedorModal'
-import { chaveFornecedorFrete, freteDoFornecedor, listQuotes, salvarItensFechados, updateQuoteStatus } from '../db/analysesRepo'
+import {
+  chaveFornecedorFrete,
+  freteDoFornecedor,
+  listQuotes,
+  rotuloRemetente,
+  salvarItensFechados,
+  updateQuoteStatus,
+  type RemetenteFrete,
+} from '../db/analysesRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency } from '../utils'
 import { parseNumeroFlexivel } from '../numeros'
@@ -183,16 +191,26 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
     }
   }
 
-  // divide os itens do pedido por fornecedor — um pedido de compra pode ter saído fechado com
-  // mais de um fornecedor, e cada um tem seu próprio frete (origem diferente, cotação diferente)
+  // divide os itens do pedido por fornecedor (+ UF de origem) — um pedido de compra pode ter saído
+  // fechado com mais de um fornecedor, e cada um tem seu próprio frete (origem diferente, cotação
+  // diferente); o mesmo fornecedor saindo de outro estado também é outro pedido, com outro frete
   const gruposPorFornecedor = useMemo(() => {
-    const mapa = new Map<string, QuoteItem[]>()
+    const mapa = new Map<string, { remetente: RemetenteFrete; items: QuoteItem[] }>()
     for (const item of itensDoPedido) {
-      const nome = item.product.fornecedor.trim() || 'Sem fornecedor definido'
-      if (!mapa.has(nome)) mapa.set(nome, [])
-      mapa.get(nome)!.push(item)
+      const nome = item.product.fornecedor.trim()
+      const remetente: RemetenteFrete = nome ? { nome, uf: item.product.estadoOrigem } : { nome: '' }
+      const chave = chaveFornecedorFrete(remetente.nome, remetente.uf)
+      if (!mapa.has(chave)) mapa.set(chave, { remetente, items: [] })
+      mapa.get(chave)!.items.push(item)
     }
-    return Array.from(mapa.entries()).map(([fornecedor, items]) => ({ fornecedor, items }))
+    const remetentes = Array.from(mapa.values()).map((g) => g.remetente)
+    return Array.from(mapa.entries()).map(([chave, g]) => ({
+      chave,
+      remetente: g.remetente,
+      fornecedor: g.remetente.nome || 'Sem fornecedor definido',
+      rotulo: g.remetente.nome ? rotuloRemetente(g.remetente, remetentes) : 'Sem fornecedor definido',
+      items: g.items,
+    }))
   }, [itensDoPedido])
 
   const totaisGerais = useMemo(() => estatisticasGrupo(itensDoPedido, fechados), [itensDoPedido, fechados])
@@ -202,14 +220,14 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
   // realmente saiu, ver estatisticasGrupo), não o negociado na cotação original
   const dadosPedidoFornecedorAberto = useMemo((): BasePedidoCompraFornecedor | undefined => {
     if (!pedidoFornecedorAberto || !cotacao) return undefined
-    const grupo = gruposPorFornecedor.find((g) => g.fornecedor === pedidoFornecedorAberto)
+    const grupo = gruposPorFornecedor.find((g) => g.chave === pedidoFornecedorAberto)
     if (!grupo) return undefined
     const chaveFornecedor = chaveFornecedorFrete(grupo.fornecedor)
 
-    // transportadora: a da cotação de frete mais barata desse fornecedor (aba Frete / Itens da cotação)
+    // transportadora: a da cotação de frete mais barata desse fornecedor/UF (aba Frete / Itens da cotação)
     let transportadoraSugerida: string | undefined
     let menorFrete = Number.POSITIVE_INFINITY
-    for (const [transportadora, frete] of Object.entries(freteDoFornecedor(cotacao, grupo.fornecedor))) {
+    for (const [transportadora, frete] of Object.entries(freteDoFornecedor(cotacao, grupo.remetente))) {
       const valor = parseNumeroFlexivel(frete.valorCotacao)
       if (valor !== undefined && valor > 0 && valor < menorFrete) {
         menorFrete = valor
@@ -230,7 +248,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
     const prazoSugerido = prazos.size === 1 ? Array.from(prazos)[0] || undefined : undefined
 
     return {
-      chave: `${cotacao.id}|${chaveFornecedor}`,
+      chave: `${cotacao.id}|${grupo.chave}`,
       fornecedor: grupo.fornecedor,
       codigoCotacao: cotacao.codigo || '',
       comprador: currentAdmin,
@@ -369,10 +387,17 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
           {gruposPorFornecedor.map((grupo) => {
             const est = estatisticasGrupo(grupo.items, fechados)
             return (
-              <div key={grupo.fornecedor} className="card">
+              <div key={grupo.chave || '__sem_fornecedor__'} className="card">
                 <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                  <h3 className="font-display text-base font-semibold text-ink-900">Fornecedor: {grupo.fornecedor}</h3>
-                  <Button variant="secondary" onClick={() => setPedidoFornecedorAberto(grupo.fornecedor)}>
+                  <h3 className="font-display text-base font-semibold text-ink-900">
+                    Fornecedor: {grupo.rotulo}
+                    {grupo.remetente.uf && grupo.rotulo === grupo.fornecedor && (
+                      <span className="ml-2 rounded border border-ink-300 px-1 py-px font-mono text-[11px] font-semibold text-ink-600">
+                        {grupo.remetente.uf}
+                      </span>
+                    )}
+                  </h3>
+                  <Button variant="secondary" onClick={() => setPedidoFornecedorAberto(grupo.chave)}>
                     Gerar pedido de compra
                   </Button>
                 </div>
