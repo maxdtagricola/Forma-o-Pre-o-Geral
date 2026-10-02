@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react'
 import { listQuotes, saveQuote, updateItensPreRegistro } from '../db/analysesRepo'
 import { deleteProduto, sincronizarProdutos, updateProduto } from '../db/produtosRepo'
 import { Button } from '../components/ui/Basics'
-import { formatNumber } from '../utils'
+import { formatCurrency, formatNumber } from '../utils'
 import { SENHA_PADRAO } from '../senhaPadrao'
 import { avisar } from '../dialogs'
 import type { Produto, QuoteRecord } from '../types'
@@ -12,6 +12,33 @@ interface EdicaoProduto {
   referencias: string
   ncm: string
   peso: string
+}
+
+/** Os dois preços mais baratos já registrados pro produto — o primeiro (mais barato) em destaque,
+ * o segundo mais discreto logo abaixo, só pra referência. */
+function MelhoresPrecos({ produto }: { produto: Produto }) {
+  const [primeiro, segundo] = produto.melhoresCotacoes ?? []
+  if (!primeiro) return <span className="text-ink-300">—</span>
+  return (
+    <div className="space-y-1 min-w-[11rem]">
+      <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Mais barato</span>
+          <span className="font-mono text-sm font-bold tabular-nums text-ink-900">{formatCurrency(primeiro.valorUnt)}</span>
+        </div>
+        <p className="text-xs text-ink-700 truncate">
+          {primeiro.fornecedor || 'Fornecedor não informado'}
+          {primeiro.marca ? <span className="text-ink-400"> · {primeiro.marca}</span> : null}
+        </p>
+      </div>
+      {segundo && (
+        <p className="px-2 text-[11px] text-ink-400 truncate">
+          2º: <span className="font-mono tabular-nums">{formatCurrency(segundo.valorUnt)}</span> — {segundo.fornecedor || '—'}
+          {segundo.marca ? ` · ${segundo.marca}` : ''}
+        </p>
+      )}
+    </div>
+  )
 }
 
 export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
@@ -292,6 +319,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
                 <th className="py-2 pr-4 font-medium">Referência(s)</th>
                 <th className="py-2 pr-4 font-medium">NCM</th>
                 <th className="py-2 pr-4 font-medium text-right">Peso (kg)</th>
+                <th className="py-2 pr-4 font-medium">Melhores preços</th>
                 <th className="py-2 font-medium text-right">Ações</th>
               </tr>
             </thead>
@@ -373,6 +401,9 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
                           </td>
                         </>
                       )}
+                      <td className="py-2 pr-4 align-top">
+                        <MelhoresPrecos produto={p} />
+                      </td>
                       <td className="py-2 text-right">
                         {emEdicao ? (
                           <div className="flex items-center justify-end gap-1.5">
@@ -411,7 +442,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
                     </tr>
                     {emConfirmacao && (
                       <tr className="border-b border-ink-50 last:border-0">
-                        <td colSpan={6} className="py-0">
+                        <td colSpan={7} className="py-0">
                           <div className="my-2 rounded-xl border border-rose-200 bg-rose-50 p-3">
                             <p className="text-xs text-ink-900 mb-2">
                               Confirme a senha pra salvar a alteração de "{p.descricao || p.referencias[0]}"
@@ -452,7 +483,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
                     )}
                     {emExclusao && (
                       <tr className="border-b border-ink-50 last:border-0">
-                        <td colSpan={6} className="py-0">
+                        <td colSpan={7} className="py-0">
                           <div className="my-2 rounded-xl border border-rose-200 bg-rose-50 p-3">
                             <p className="text-xs text-ink-900 mb-2">
                               Confirme a senha pra excluir "{p.descricao || p.referencias[0] || p.interno}" do catálogo

@@ -334,6 +334,8 @@ export interface CotacaoFornecedorItem {
    * calcular unitário × quantidade; os dois às vezes divergem um pouco (arredondamento, desconto
    * fechado no total etc.) e vale a pena mostrar o que o fornecedor realmente cotou. */
   valorTotal?: number
+  /** Prazo de entrega que esse fornecedor deu (texto livre, ex.: "IMEDIATO", "5 DIAS"). */
+  prazoEntrega?: string
 }
 
 export interface PreRegistroItem {
@@ -407,6 +409,15 @@ export interface QuoteRecord {
 // cotações onde o produto apareceu forem excluídas depois (sincronizado a
 // partir delas, mas não derivado só delas — ver produtosRepo.ts).
 // ---------------------------------------------------------------------------
+/** Um registro de preço já visto pra um produto do catálogo — fornecedor, marca e valor unitário,
+ * de quando esse item foi precificado numa cotação. */
+export interface ProdutoCotacaoHistorico {
+  fornecedor: string
+  marca: string
+  valorUnt: number
+  registradoEm: number
+}
+
 export interface Produto {
   id: string
   interno: string
@@ -417,6 +428,9 @@ export interface Produto {
   peso: number
   createdAt: number
   updatedAt: number
+  /** As duas cotações mais baratas já vistas pra esse produto (fornecedor/marca/valor), a mais
+   * barata sempre no índice 0 — pra saber rápido onde comprou mais barato e por quanto. */
+  melhoresCotacoes?: ProdutoCotacaoHistorico[]
 }
 
 // ---------------------------------------------------------------------------

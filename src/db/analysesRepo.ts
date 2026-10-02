@@ -297,3 +297,31 @@ export async function findByReferencia(referencia: string): Promise<ProductInput
   }
   return undefined
 }
+
+export interface UltimoUsoDoProduto {
+  product: ProductInput
+  /** Código da cotação de onde veio esse preço (ex.: "COT-0042"). */
+  codigo: string
+  /** Quando essa cotação foi atualizada pela última vez. */
+  data: number
+}
+
+/** Último uso de um produto (por Interno ou Referência) numa cotação — preferindo a cotação mais
+ * recente em que ele JÁ TINHA preço (valor unitário > 0), pra "último preço usado" mostrar um valor
+ * de verdade, e não um item que ainda estava esperando cotação. Sem nenhum uso com preço, cai pro
+ * uso mais recente de qualquer jeito (ainda serve pra carregar descrição, NCM, peso etc.). */
+export async function buscarUltimoUsoDoProduto(campo: 'interno' | 'referencia', valor: string): Promise<UltimoUsoDoProduto | undefined> {
+  const target = valor.trim().toLowerCase()
+  if (!target) return undefined
+  const quotes = await listQuotes()
+  let semPreco: UltimoUsoDoProduto | undefined
+  for (const quote of quotes) {
+    for (const item of quote.items) {
+      if (item.product[campo].trim().toLowerCase() !== target) continue
+      const uso = { product: item.product, codigo: quote.codigo, data: quote.updatedAt }
+      if (item.product.valorUnt > 0) return uso
+      semPreco ??= uso
+    }
+  }
+  return semPreco
+}

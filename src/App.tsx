@@ -21,7 +21,8 @@ import { RecuperarRascunhoModal } from './components/RecuperarRascunhoModal'
 import { DialogHost } from './components/DialogHost'
 import { lerRascunho, limparRascunho, salvarRascunho, type RascunhoCotacao } from './rascunhoCotacao'
 import { calculateItem, definirTabelasCustomizadas } from './calc/calculator'
-import { saveQuote, setPlanilhaOriginal, updateQuoteStatus } from './db/analysesRepo'
+import { listQuotes, saveQuote, setPlanilhaOriginal, updateQuoteStatus } from './db/analysesRepo'
+import { sincronizarProdutos } from './db/produtosRepo'
 import {
   DEFAULT_PRICING_GLOBAL,
   getPlanilhaAtivaIds,
@@ -381,6 +382,11 @@ export default function App() {
       setEditingQuoteId(record.id)
       setHistoryRefreshKey((k) => k + 1)
       limparRascunho()
+      // mantém o catálogo de Produtos (e o "mais barato já cotado" de cada item) em dia sem depender
+      // de alguém abrir a aba Produtos — em segundo plano, sem segurar a tela nem avisar se falhar
+      listQuotes()
+        .then(sincronizarProdutos)
+        .catch(() => {})
       setSalvoInalterado(true)
       setTemAlteracoesNaoSalvas(false)
       setCotacaoRecemSalva(true)

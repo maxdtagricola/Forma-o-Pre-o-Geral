@@ -1,6 +1,6 @@
 import { dbDelete, dbGet, dbGetAll, dbPut } from './db'
 import { makeId } from '../utils'
-import type { Produto, QuoteRecord } from '../types'
+import type { Produto, ProdutoCotacaoHistorico, QuoteRecord } from '../types'
 
 const STORE_PRODUTOS = 'produtos'
 
@@ -22,6 +22,23 @@ export async function updateProduto(
 
 export async function deleteProduto(id: string): Promise<void> {
   await dbDelete(STORE_PRODUTOS, id)
+}
+
+/** Acha o produto do catálogo pelo Interno (prioridade) ou por uma das Referências conhecidas —
+ * usado em "Itens da cotação" pra mostrar o melhor preço já visto assim que o código é digitado. */
+export async function findProdutoPorInternoOuReferencia(interno: string, referencia: string): Promise<Produto | undefined> {
+  const internoAlvo = interno.trim()
+  const referenciaAlvo = referencia.trim().toLowerCase()
+  if (!internoAlvo && !referenciaAlvo) return undefined
+  const todos = await dbGetAll<Produto>(STORE_PRODUTOS)
+  if (internoAlvo) {
+    const porInterno = todos.find((p) => p.interno.trim() === internoAlvo)
+    if (porInterno) return porInterno
+  }
+  if (referenciaAlvo) {
+    return todos.find((p) => p.referencias.some((r) => r.trim().toLowerCase() === referenciaAlvo))
+  }
+  return undefined
 }
 
 /**
@@ -118,6 +135,42 @@ export async function sincronizarProdutos(quotes: QuoteRecord[]): Promise<Produt
         peso: 0,
         vistoEm: quote.updatedAt,
       })
+    }
+  }
+
+  // segunda passada: coleta, pra cada produto já resolvido acima, os preços (fornecedor/marca/
+  // valor) de todo item precificado que bate com ele — e guarda só os 2 mais baratos já vistos. Ao
+  // contrário dos outros campos (que só o mais recente vence), aqui mistura com o que o produto já
+  // tinha guardado antes: assim um preço bom continua no catálogo mesmo que a cotação de origem
+  // seja excluída depois — é exatamente o que faz esse catálogo "sobreviver" às cotações.
+  const candidatosPorProdutoId = new Map<string, ProdutoCotacaoHistorico[]>()
+  function registrarCandidato(produto: Produto | undefined, candidato: ProdutoCotacaoHistorico) {
+    if (!produto || candidato.valorUnt <= 0) return
+    const lista = candidatosPorProdutoId.get(produto.id) ?? []
+    lista.push(candidato)
+    candidatosPorProdutoId.set(produto.id, lista)
+  }
+  for (const quote of quotes) {
+    for (const item of quote.items) {
+      const p = item.product
+      const interno = p.interno.trim()
+      const referenciaNorm = p.referencia.trim().toLowerCase()
+      const produto = (interno ? porInterno.get(interno) : undefined) ?? (referenciaNorm ? porReferencia.get(referenciaNorm) : undefined)
+      registrarCandidato(produto, {
+        fornecedor: p.fornecedor,
+        marca: p.marca,
+        valorUnt: p.valorUnt,
+        registradoEm: quote.updatedAt,
+      })
+    }
+  }
+  for (const [produtoId, candidatosNovos] of candidatosPorProdutoId) {
+    const atual = paraSalvar.get(produtoId) ?? existentes.find((p) => p.id === produtoId)
+    if (!atual) continue
+    const todos = [...(atual.melhoresCotacoes ?? []), ...candidatosNovos].sort((a, b) => a.valorUnt - b.valorUnt)
+    const melhoresCotacoes = todos.slice(0, 2)
+    if (JSON.stringify(melhoresCotacoes) !== JSON.stringify(atual.melhoresCotacoes ?? [])) {
+      paraSalvar.set(produtoId, { ...atual, melhoresCotacoes })
     }
   }
 
