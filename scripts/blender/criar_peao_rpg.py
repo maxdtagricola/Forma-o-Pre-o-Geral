@@ -376,4 +376,7 @@ def main():
     print(f"[criar_peao_rpg] projeto salvo em: {CAMINHO_BLEND}")
 
 
-main()
+# só roda rodando este arquivo direto (blender --python …) — outros scripts (ex.: exportar_peao_mixamo.py)
+# importam as funções daqui pra montar o mesmo peão sem regravar o .glb do jogo nem o .blend
+if __name__ == "__main__":
+    main()
