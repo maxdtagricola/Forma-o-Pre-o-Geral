@@ -269,7 +269,11 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
 //   Gesto1, Gesto2…     — movimentos tocados de vez em quando, num intervalo sorteado por peça
 //   Walk                — andando no lugar enquanto a peça desliza de casa em casa
 //   Attack1, Attack2…   — os golpes DESTA peça (nenhum se repete entre tipos), sorteados na captura
-//   Mortal, MortalTombo — o mortal pra trás do gesto amigável (às vezes com tombo no fim)
+//   Mortal, MortalTombo — o mortal pra trás do gesto amigável (às vezes com tombo no fim); no
+//                         cavalo, um salto e um corcoveio que joga o cavaleiro pra cima
+//   Desembainhar, Embainhar — só o peão, o único com espada: ele saca antes do golpe e dos gestos e
+//                         guarda depois (a espada faz parte do modelo; ver EspadaRPG)
+// O cavalo é um cavaleiro (o mesmo esqueleto das outras peças) montado num cavalo com ossos próprios.
 // ---------------------------------------------------------------------------
 interface ModeloRPG {
   cena: THREE.Object3D
@@ -327,12 +331,28 @@ function sortearProximoGesto(agora: number): number {
   return agora + INTERVALO_GESTO_MIN_MS + Math.random() * (INTERVALO_GESTO_MAX_MS - INTERVALO_GESTO_MIN_MS)
 }
 
-/** Material da facção pelo nome do material que veio do Blender (Corpo/Detalhe/Coroa/Brilho). */
+/** Material da peça pelo nome do material que veio do Blender: Corpo/Detalhe/Brilho seguem a
+ * facção, Coroa é dourado, e a espada do peão (EspadaLamina, EspadaCabo, CaboBainha) usa o mesmo
+ * aço/couro da espada das peças geométricas. */
 function materialRPG(nome: string | undefined, cor: 'w' | 'b'): THREE.Material {
   if (nome === 'Detalhe') return materiaisPorFaccao[cor].detalhe
   if (nome === 'Coroa') return materialCoroa
   if (nome === 'Brilho') return materiaisPorFaccao[cor].brilho
+  if (nome === 'EspadaLamina') return materialLaminaEspada
+  if (nome === 'EspadaCabo' || nome === 'CaboBainha') return materialCaboEspada
   return materiaisPorFaccao[cor].armadura
+}
+
+/** Espada do peão RPG: as malhas da espada na mão (aparecem só desembainhada) e do cabo que fica
+ * pra fora da bainha (some enquanto ela está na mão), cada uma com o seu contorno, e os instantes
+ * (em segundos) em que ela sai da bainha no clipe "Desembainhar" e entra no "Embainhar" — gravados
+ * no próprio modelo pelo Blender (scripts/blender/importar_animacoes_mixamo.py). */
+interface EspadaRPG {
+  naMao: THREE.Object3D[]
+  naBainha: THREE.Object3D[]
+  segundoSaque: number
+  segundoGuarda: number
+  fora: boolean
 }
 
 /** Monta o grupo da peça a partir do modelo RPG carregado — mesmo "contrato" da peça geométrica
@@ -347,25 +367,45 @@ function buildPecaRPG(modelo: ModeloRPG, cor: 'w' | 'b'): THREE.Group {
   // mesmo material toon (com o gradiente em degraus) das peças geométricas — reaproveitado, não
   // clonado, igual ao resto do tabuleiro — pra não destoar visualmente das outras. O glTF divide a
   // malha em uma primitiva por material, então cada uma vira um SkinnedMesh próprio aqui, e o nome
-  // do material original (antes de trocar) diz qual cor da facção usar (ver materialRPG).
+  // do material original (antes de trocar) diz qual cor usar (ver materialRPG) — e, no peão, quais
+  // malhas são a espada na mão e o cabo na bainha.
+  const naMao: THREE.Object3D[] = []
+  const naBainha: THREE.Object3D[] = []
+  let segundoSaque: number | undefined
+  let segundoGuarda: number | undefined
+  const malhas: THREE.SkinnedMesh[] = []
   clone.traverse((filho) => {
-    if (filho instanceof THREE.SkinnedMesh) {
-      const nomeOriginal = Array.isArray(filho.material) ? undefined : filho.material?.name
-      filho.material = materialRPG(nomeOriginal, cor)
-      filho.castShadow = true
-      filho.receiveShadow = true
-
-      // contorno tipo desenho, igual ao resto das peças (casco invertido, maior, visto só por
-      // dentro/atrás) — preso no MESMO esqueleto da malha visível (mesmo bind), então acompanha a
-      // animação sozinho, sem precisar de outro mixer nem duplicar o cálculo de pose
-      const contorno = new THREE.SkinnedMesh(filho.geometry, materialContorno)
-      contorno.bind(filho.skeleton, filho.bindMatrix)
-      contorno.scale.setScalar(1.06)
-      contorno.castShadow = false
-      clone.add(contorno)
+    if (typeof filho.userData.segundo_saque === 'number') {
+      segundoSaque = filho.userData.segundo_saque
+      segundoGuarda = filho.userData.segundo_guarda
     }
+    if (filho instanceof THREE.SkinnedMesh) malhas.push(filho)
   })
+  for (const malha of malhas) {
+    const nomeOriginal = Array.isArray(malha.material) ? undefined : malha.material?.name
+    malha.material = materialRPG(nomeOriginal, cor)
+    malha.castShadow = true
+    malha.receiveShadow = true
+
+    // contorno tipo desenho, igual ao resto das peças (casco invertido, maior, visto só por
+    // dentro/atrás) — preso no MESMO esqueleto da malha visível (mesmo bind), então acompanha a
+    // animação sozinho, sem precisar de outro mixer nem duplicar o cálculo de pose
+    const contorno = new THREE.SkinnedMesh(malha.geometry, materialContorno)
+    contorno.bind(malha.skeleton, malha.bindMatrix)
+    contorno.scale.setScalar(1.06)
+    contorno.castShadow = false
+    clone.add(contorno)
+
+    if (nomeOriginal === 'EspadaLamina' || nomeOriginal === 'EspadaCabo') naMao.push(malha, contorno)
+    if (nomeOriginal === 'CaboBainha') naBainha.push(malha, contorno)
+  }
   grupo.add(clone)
+
+  if (naMao.length && segundoSaque !== undefined && segundoGuarda !== undefined) {
+    const espada: EspadaRPG = { naMao, naBainha, segundoSaque, segundoGuarda, fora: true }
+    grupo.userData.espadaRPG = espada
+    mostrarEspadaRPG(grupo, false)
+  }
 
   const mixer = new THREE.AnimationMixer(clone)
   const acoes: Record<string, THREE.AnimationAction> = {}
@@ -376,11 +416,17 @@ function buildPecaRPG(modelo: ModeloRPG, cor: 'w' | 'b'): THREE.Group {
   grupo.userData.mixer = mixer
   grupo.userData.acoesRPG = acoes
   grupo.userData.proximoGestoRPG = sortearProximoGesto(performance.now())
-  // ponto de fixação da espada durante o golpe (ver animarAtaqueEspada) — osso sem malha própria,
-  // só existe pra pendurar algo na mão direita
-  grupo.userData.maoDireitaRPG = clone.getObjectByName('Hand_R')
 
   return grupo
+}
+
+/** Espada na mão (true) ou guardada na bainha (false) — só o peão RPG tem espada. */
+function mostrarEspadaRPG(mesh: THREE.Object3D, naMao: boolean) {
+  const espada = mesh.userData.espadaRPG as EspadaRPG | undefined
+  if (!espada || espada.fora === naMao) return
+  espada.fora = naMao
+  for (const parte of espada.naMao) parte.visible = naMao
+  for (const parte of espada.naBainha) parte.visible = !naMao
 }
 
 /** Nomes dos clipes da peça que começam com `prefixo` (ex.: "Attack" → os golpes dela). */
@@ -389,21 +435,34 @@ function clipesRPGComPrefixo(mesh: THREE.Object3D, prefixo: string): string[] {
   return acoes ? Object.keys(acoes).filter((nome) => nome.startsWith(prefixo)) : []
 }
 
+/** Tira suavemente (fadeOut) tudo que estiver tocando ou parado no último quadro de um clipe
+ * encadeado — `isRunning()` do Three.js não conta um clipe parado no fim (clampWhenFinished), que
+ * continuaria com peso 1 misturado no seguinte. */
+function desligarClipesRPG(acoes: Record<string, THREE.AnimationAction>, exceto: THREE.AnimationAction, duracao: number) {
+  for (const outra of Object.values(acoes)) {
+    if (outra !== exceto && outra.enabled && outra.isScheduled()) outra.fadeOut(duracao)
+  }
+}
+
 /** Toca um clipe nomeado uma vez só — misturando a partir do que estiver tocando (Parado, um
- * gesto, o Walk…), sem precisar saber o quê — e volta pro "Parado" no fim. `aoTerminar` roda
- * quando o clipe acaba. Devolve false (e não faz nada) se a peça não tiver esse clipe (peça
- * geométrica, ou modelo sem essa animação). */
+ * gesto, o Walk…), sem precisar saber o quê — e volta pro "Parado" no fim (ou, com
+ * `voltarAoParado: false`, fica parado no último quadro, pra encadear outro clipe em seguida).
+ * `aoTerminar` roda quando o clipe acaba. Devolve false (e não faz nada) se a peça não tiver esse
+ * clipe (peça geométrica, ou modelo sem essa animação). */
 function tocarClipeRPGUmaVez(
   mesh: THREE.Object3D,
   nomeClipe: string,
-  { entrada = 0.1, saida = 0.2, aoTerminar }: { entrada?: number; saida?: number; aoTerminar?: () => void } = {},
+  {
+    entrada = 0.1,
+    saida = 0.2,
+    voltarAoParado = true,
+    aoTerminar,
+  }: { entrada?: number; saida?: number; voltarAoParado?: boolean; aoTerminar?: () => void } = {},
 ): boolean {
   const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
   const acao = acoes?.[nomeClipe]
   if (!acoes || !acao) return false
-  for (const outra of Object.values(acoes)) {
-    if (outra !== acao && outra.isRunning()) outra.fadeOut(entrada)
-  }
+  desligarClipesRPG(acoes, acao, entrada)
   acao.reset()
   acao.setLoop(THREE.LoopOnce, 1)
   acao.clampWhenFinished = true
@@ -412,34 +471,118 @@ function tocarClipeRPGUmaVez(
   const terminou = (evento: { action: THREE.AnimationAction }) => {
     if (evento.action !== acao) return
     mixer.removeEventListener('finished', terminou)
-    acoes.Parado?.reset().fadeIn(saida).play()
-    acao.fadeOut(saida)
+    if (voltarAoParado) {
+      acoes.Parado?.reset().fadeIn(saida).play()
+      acao.fadeOut(saida)
+    }
     aoTerminar?.()
   }
   mixer.addEventListener('finished', terminou)
   return true
 }
 
+/** Começa uma sequência de clipes na peça (sacar → golpe/gesto → guardar) e devolve a "senha" dela:
+ * os passos seguintes só acontecem se a senha ainda for a atual — começar outra sequência (ou um
+ * lance, ver animarPosicao) cancela a anterior sem precisar desmarcar timers. */
+function novaSequenciaRPG(mesh: THREE.Object3D): number {
+  const senha = ((mesh.userData.sequenciaRPG as number | undefined) ?? 0) + 1
+  mesh.userData.sequenciaRPG = senha
+  return senha
+}
+
+function sequenciaRPGValida(mesh: THREE.Object3D, senha: number): boolean {
+  return mesh.userData.sequenciaRPG === senha
+}
+
+/** Peão RPG desembainha a espada (a espada aparece na mão no instante em que ela sai da bainha) e
+ * fica em guarda; `depois` roda ao fim do clipe. Sem espada (outras peças), chama `depois` direto. */
+function sacarEspadaRPG(mesh: THREE.Object3D, senha: number, depois: () => void) {
+  const espada = mesh.userData.espadaRPG as EspadaRPG | undefined
+  if (!espada || espada.fora) {
+    depois()
+    return
+  }
+  const tocou = tocarClipeRPGUmaVez(mesh, 'Desembainhar', {
+    entrada: 0.25,
+    voltarAoParado: false,
+    aoTerminar: () => {
+      if (sequenciaRPGValida(mesh, senha)) depois()
+    },
+  })
+  if (!tocou) {
+    depois()
+    return
+  }
+  window.setTimeout(() => {
+    if (sequenciaRPGValida(mesh, senha)) mostrarEspadaRPG(mesh, true)
+  }, espada.segundoSaque * 1000)
+}
+
+/** Peão RPG embainha a espada (ela some da mão no instante em que entra na bainha) e volta pro
+ * Parado; `depois` (opcional) roda ao fim. */
+function guardarEspadaRPG(mesh: THREE.Object3D, senha: number, depois?: () => void) {
+  const espada = mesh.userData.espadaRPG as EspadaRPG | undefined
+  if (!espada || !espada.fora) {
+    depois?.()
+    return
+  }
+  const tocou = tocarClipeRPGUmaVez(mesh, 'Embainhar', {
+    entrada: 0.2,
+    saida: 0.3,
+    aoTerminar: () => {
+      if (sequenciaRPGValida(mesh, senha)) depois?.()
+    },
+  })
+  if (!tocou) {
+    mostrarEspadaRPG(mesh, false)
+    depois?.()
+    return
+  }
+  window.setTimeout(() => {
+    if (sequenciaRPGValida(mesh, senha)) mostrarEspadaRPG(mesh, false)
+  }, espada.segundoGuarda * 1000)
+}
+
 /** Golpe da captura: um dos golpes desta peça, sorteado — cada tipo de peça tem os seus (nenhum
- * se repete entre tipos), então a mesma peça varia de uma captura pra outra sem padrão fixo. */
+ * se repete entre tipos), então a mesma peça varia de uma captura pra outra sem padrão fixo. O
+ * peão golpeia com a espada (já desembainhada, ver capturarComGolpe). */
 function tocarGolpeRPG(mesh: THREE.Object3D) {
   const golpes = clipesRPGComPrefixo(mesh, 'Attack')
-  if (golpes.length) tocarClipeRPGUmaVez(mesh, golpes[Math.floor(Math.random() * golpes.length)])
+  if (golpes.length) {
+    tocarClipeRPGUmaVez(mesh, golpes[Math.floor(Math.random() * golpes.length)], { voltarAoParado: !mesh.userData.espadaRPG })
+  }
 }
 
 /** Chamado a cada quadro pra cada peça: parada a maior parte do tempo, de vez em quando (no
  * intervalo sorteado por peça) faz um dos gestos — só se estiver mesmo parada (sem andar, golpear
- * ou fazer um gesto amigável com outra peça naquele momento). */
+ * ou fazer um gesto amigável com outra peça naquele momento). O peão desembainha a espada, faz o
+ * gesto com ela na mão e guarda de volta. */
 function atualizarGestoRPG(mesh: THREE.Object3D, agora: number) {
   const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
   if (!acoes || agora < (mesh.userData.proximoGestoRPG as number)) return
   mesh.userData.proximoGestoRPG = sortearProximoGesto(agora)
-  const ocupada = meshesEmGesto.has(mesh) || Object.entries(acoes).some(([nome, acao]) => nome !== 'Parado' && acao.isRunning())
+  const ocupada =
+    meshesEmGesto.has(mesh) ||
+    Boolean((mesh.userData.espadaRPG as EspadaRPG | undefined)?.fora) ||
+    Object.entries(acoes).some(([nome, acao]) => nome !== 'Parado' && acao.enabled && acao.isScheduled() && acao.getEffectiveWeight() > 0.01)
   if (ocupada) return
   const gestos = clipesRPGComPrefixo(mesh, 'Gesto')
-  if (gestos.length) {
-    tocarClipeRPGUmaVez(mesh, gestos[Math.floor(Math.random() * gestos.length)], { entrada: 0.5, saida: 0.6 })
+  if (!gestos.length) return
+  const gesto = gestos[Math.floor(Math.random() * gestos.length)]
+  if (!mesh.userData.espadaRPG) {
+    tocarClipeRPGUmaVez(mesh, gesto, { entrada: 0.5, saida: 0.6 })
+    return
   }
+  const senha = novaSequenciaRPG(mesh)
+  sacarEspadaRPG(mesh, senha, () => {
+    tocarClipeRPGUmaVez(mesh, gesto, {
+      entrada: 0.3,
+      voltarAoParado: false,
+      aoTerminar: () => {
+        if (sequenciaRPGValida(mesh, senha)) guardarEspadaRPG(mesh, senha)
+      },
+    })
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -467,6 +610,9 @@ const CONFIG_BRACO_DIR: ConfigMembro = { geo: geoBraco, comprimento: 0.26, pivot
 
 /** Escala geral por tipo — só pra dar hierarquia de tamanho (rei/dama maiores, torre mais robusta). */
 const ESCALA_POR_TIPO: Record<string, number> = { p: 1, n: 1, b: 1.05, r: 1.1, q: 1.08, k: 1.15 }
+/** Ajuste extra só pros modelos RPG: o cavalo montado (cavaleiro sentado no cavalo) fica mais alto
+ * e mais comprido que um boneco em pé — encolhido um pouco pra caber na casa sem destoar. */
+const ESCALA_MODELO_RPG: Record<string, number> = { n: 0.85 }
 
 interface MembrosPersonagem {
   pernaEsq: THREE.Group
@@ -574,7 +720,7 @@ function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
     grupo.userData.tipo = tipo
     grupo.userData.cor = cor
     grupo.rotation.y = cor === 'w' ? Math.PI : 0
-    grupo.scale.setScalar(ESCALA_POR_TIPO[tipo] ?? 1)
+    grupo.scale.setScalar((ESCALA_POR_TIPO[tipo] ?? 1) * (ESCALA_MODELO_RPG[tipo] ?? 1))
     return grupo
   }
 
@@ -717,13 +863,15 @@ function animarPosicao(
   // pro "Parado" ao chegar. Sem crossFadeTo aqui de propósito (não assume qual ação está tocando no
   // momento — numa captura a peça pode chegar direto de um golpe, ou estar no meio de um gesto —
   // fadeIn/fadeOut mistura o peso a partir do que já estiver rodando, sem precisar saber a origem).
+  // um lance interrompe o que a peça estava fazendo (gesto com a espada na mão, por exemplo): a
+  // sequência em andamento é cancelada e a espada volta pra bainha
   const acoesRPG = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
   const caminhada = acoesRPG?.Walk
   const paradaRPG = acoesRPG?.Parado
   if (acoesRPG && caminhada && paradaRPG) {
-    for (const outra of Object.values(acoesRPG)) {
-      if (outra !== caminhada && outra.isRunning()) outra.fadeOut(0.15)
-    }
+    novaSequenciaRPG(mesh)
+    mostrarEspadaRPG(mesh, false)
+    desligarClipesRPG(acoesRPG, caminhada, 0.15)
     caminhada.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.15).play()
   }
 
@@ -863,6 +1011,8 @@ function animarGestoAmigavel(
     meshesEmGesto.add(mesh)
     const clipe = Math.random() < CHANCE_TOMBO_NO_MORTAL ? 'MortalTombo' : 'Mortal'
     window.setTimeout(() => {
+      novaSequenciaRPG(mesh)
+      mostrarEspadaRPG(mesh, false)
       const tocou = tocarClipeRPGUmaVez(mesh, clipe, { entrada: 0.15, saida: 0.3, aoTerminar: () => meshesEmGesto.delete(mesh) })
       if (!tocou) meshesEmGesto.delete(mesh)
     }, atraso)
@@ -1034,7 +1184,6 @@ function animarAtaqueEspada(
   aoTerminar: () => void,
 ) {
   const membros = mesh.userData.membros as MembrosPersonagem | undefined
-  const maoDireitaRPG = mesh.userData.maoDireitaRPG as THREE.Object3D | undefined
   const base = (mesh.userData.poseBase as PoseBaseMembros | undefined) ?? POSE_BASE_NEUTRA
   const rotYOriginal = mesh.rotation.y
   const posOriginal = { x: mesh.position.x, z: mesh.position.z }
@@ -1042,22 +1191,16 @@ function animarAtaqueEspada(
   const inicio = performance.now()
   let impactoDisparado = false
 
-  // desembainha — a espada só existe presa na mão durante o golpe; o resto do tempo o peão só
-  // tem o cabo na bainha (parte fixa do corpo, do lado esquerdo — ver criar_peao_rpg.py). Guardada
-  // de volta ao fim do ataque. Peça geométrica pendura no pivô do braço (membros); peão RPG
-  // pendura no osso da mão direita (Hand_R, ver buildPecaRPG) — os dois nunca coexistem na mesma
-  // peça, cada uma usa só o seu.
-  const espadaDesembainhada = criarEspadaDoPeao()
-  if (maoDireitaRPG) {
-    espadaDesembainhada.rotation.x = Math.PI * 0.5
-    espadaDesembainhada.position.y = -0.03
-    espadaDesembainhada.scale.setScalar(0.55)
-    maoDireitaRPG.add(espadaDesembainhada)
-  } else {
+  // peão geométrico: a espada só existe presa no pivô do braço durante o golpe (o resto do tempo
+  // só o cabo aparece na bainha) e é guardada de volta ao fim do ataque. As peças RPG não passam
+  // por aqui pra espada: o peão RPG tem a espada no próprio modelo (sacada antes do golpe, ver
+  // sacarEspadaRPG) e as outras peças não usam espada.
+  const espadaDesembainhada = membros ? criarEspadaDoPeao() : undefined
+  if (membros && espadaDesembainhada) {
     espadaDesembainhada.position.y = -CONFIG_BRACO_DIR.comprimento
     espadaDesembainhada.rotation.z = Math.PI * 0.15
     espadaDesembainhada.scale.setScalar(1.5)
-    membros?.bracoDir.add(espadaDesembainhada)
+    membros.bracoDir.add(espadaDesembainhada)
   }
 
   function passo(agora: number) {
@@ -1097,9 +1240,8 @@ function animarAtaqueEspada(
       if (membros) {
         membros.bracoDir.rotation.x = base.bracoDir
         membros.bracoDir.rotation.z = 0
-        membros.bracoDir.remove(espadaDesembainhada)
+        if (espadaDesembainhada) membros.bracoDir.remove(espadaDesembainhada)
       }
-      maoDireitaRPG?.remove(espadaDesembainhada)
       aoTerminar()
     }
   }
@@ -1724,35 +1866,44 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         const direcao = { x: paraAtaque.x - deAtaque.x, z: paraAtaque.z - deAtaque.z }
         // sorteia o estilo do golpe a cada captura, pra não ser sempre a mesma animação
         const estilo: EstiloAtaque = Math.random() < 0.5 ? 'corte' : 'derrubada'
-        tocarGolpeRPG(meshMovendo)
-        animarAtaqueEspada(
-          meshMovendo,
-          direcao,
-          estilo,
-          () => {
-            // no instante exato do impacto — não espera a espada voltar pra guarda pra já cair
-            animarImpacto(scene, vitima.position.x, vitima.position.z)
-            const nocaute = estilo === 'derrubada' ? direcao : undefined
-            animarQuedaEDesaparecimento(
-              vitima,
-              () => {
-                piecesGroup.remove(vitima)
-                seguirParaDestino()
-              },
-              nocaute,
-            )
+        // o peão RPG desembainha a espada primeiro, golpeia com ela e guarda de volta (a espada
+        // entra na bainha antes de a vítima terminar de sumir, então ele já anda com ela guardada);
+        // as outras peças golpeiam direto (sem espada)
+        const atacante = meshMovendo
+        const senha = novaSequenciaRPG(atacante)
+        sacarEspadaRPG(atacante, senha, () => {
+          tocarGolpeRPG(atacante)
+          animarAtaqueEspada(
+            atacante,
+            direcao,
+            estilo,
+            () => {
+              // no instante exato do impacto — não espera a espada voltar pra guarda pra já cair
+              animarImpacto(scene, vitima.position.x, vitima.position.z)
+              const nocaute = estilo === 'derrubada' ? direcao : undefined
+              animarQuedaEDesaparecimento(
+                vitima,
+                () => {
+                  piecesGroup.remove(vitima)
+                  seguirParaDestino()
+                },
+                nocaute,
+              )
 
-            // peças aliadas da atacante que estejam por perto comemoram junto, numa versão
-            // curta da comemoração de xeque-mate
-            const corAtacante = resultado.color
-            let atraso = 0
-            for (const aliada of pecasAliadasProximas(destino, corAtacante, 2.2)) {
-              animarComemoracao(aliada.mesh, atraso, 900)
-              atraso += 80
-            }
-          },
-          () => {},
-        )
+              // peças aliadas da atacante que estejam por perto comemoram junto, numa versão
+              // curta da comemoração de xeque-mate
+              const corAtacante = resultado.color
+              let atraso = 0
+              for (const aliada of pecasAliadasProximas(destino, corAtacante, 2.2)) {
+                animarComemoracao(aliada.mesh, atraso, 900)
+                atraso += 80
+              }
+            },
+            () => {
+              if (sequenciaRPGValida(atacante, senha)) guardarEspadaRPG(atacante, senha)
+            },
+          )
+        })
         return
       }
 
