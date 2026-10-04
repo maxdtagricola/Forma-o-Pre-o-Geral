@@ -256,69 +256,102 @@ function geometriasDoTipo(tipo: string): ParteGeom[] {
 }
 
 // ---------------------------------------------------------------------------
-// Primeiro passo rumo ao visual "RPG": o peão pode vir de um modelo .glb externo (malha +
-// esqueleto + animações, feito no Blender) em vez de só primitivas geométricas — carregado uma
-// vez só, em segundo plano, e reaproveitado (clonado) pra cada peão no tabuleiro. Se o arquivo não
-// existir ou falhar ao carregar, o peão cai de volta pro modelo geométrico de sempre — nunca quebra
-// o tabuleiro por causa disso.
+// Peças "RPG": cada tipo pode vir de um modelo .glb externo (malha + esqueleto + animações, feito
+// no Blender — ver scripts/blender/importar_animacoes_mixamo.py) em vez de só primitivas
+// geométricas. Todas usam o MESMO esqueleto (o do Mixamo, montado a partir do peão) e as mesmas
+// animações de base; cada tipo muda os acessórios e tem os próprios golpes. Carregados uma vez só,
+// em segundo plano, e reaproveitados (clonados) pra cada peça no tabuleiro. Se um arquivo não
+// existir ou falhar ao carregar, aquele tipo cai de volta pro modelo geométrico de sempre — nunca
+// quebra o tabuleiro por causa disso.
+//
+// Clipes que o jogo usa (nomes vindos do Blender):
+//   Parado              — em pé normal; a pose de descanso, tocando o tempo todo por baixo
+//   Gesto1, Gesto2…     — movimentos tocados de vez em quando, num intervalo sorteado por peça
+//   Walk                — andando no lugar enquanto a peça desliza de casa em casa
+//   Attack1, Attack2…   — os golpes DESTA peça (nenhum se repete entre tipos), sorteados na captura
+//   Mortal, MortalTombo — o mortal pra trás do gesto amigável (às vezes com tombo no fim)
 // ---------------------------------------------------------------------------
 interface ModeloRPG {
   cena: THREE.Object3D
   clipes: THREE.AnimationClip[]
 }
-let modeloPeaoRPG: ModeloRPG | null | undefined // undefined = ainda não tentou, null = tentou e falhou
-let carregamentoPeaoRPG: Promise<void> | null = null
+const ARQUIVOS_MODELO_RPG: Record<string, string> = {
+  p: 'peao_rpg.glb',
+  r: 'torre_rpg.glb',
+  n: 'cavalo_rpg.glb',
+  b: 'bispo_rpg.glb',
+  q: 'dama_rpg.glb',
+  k: 'rei_rpg.glb',
+}
+// por tipo: undefined = ainda não tentou, null = tentou e falhou
+const modelosRPG: Record<string, ModeloRPG | null | undefined> = {}
+let carregamentoModelosRPG: Promise<void> | null = null
 
-/** Dispara (uma única vez) o carregamento do modelo RPG do peão; chama `aoResolver` quando
- * terminar (com sucesso ou falha) — usado pra re-sincronizar o tabuleiro e trocar os peões já
- * desenhados pelo modelo novo assim que ele chegar. */
-function garantirModeloPeaoRPG(aoResolver: () => void) {
-  if (modeloPeaoRPG !== undefined) {
-    aoResolver()
-    return
-  }
-  if (!carregamentoPeaoRPG) {
+/** Dispara (uma única vez) o carregamento dos modelos RPG de todas as peças; chama `aoResolver`
+ * quando todos terminarem (com sucesso ou falha) — usado pra re-sincronizar o tabuleiro e trocar
+ * as peças já desenhadas (geométricas) pelos modelos novos assim que chegarem. */
+function garantirModelosRPG(aoResolver: () => void) {
+  if (!carregamentoModelosRPG) {
     const loader = new GLTFLoader()
-    carregamentoPeaoRPG = new Promise<void>((resolve) => {
-      loader.load(
-        `${import.meta.env.BASE_URL}models/peao_rpg.glb`,
-        (gltf) => {
-          modeloPeaoRPG = { cena: gltf.scene, clipes: gltf.animations }
-          resolve()
-        },
-        undefined,
-        () => {
-          // sem modelo ainda (ou falhou) — segue com o peão geométrico normal, sem quebrar nada
-          modeloPeaoRPG = null
-          resolve()
-        },
-      )
-    })
+    carregamentoModelosRPG = Promise.all(
+      Object.entries(ARQUIVOS_MODELO_RPG).map(
+        ([tipo, arquivo]) =>
+          new Promise<void>((resolve) => {
+            loader.load(
+              `${import.meta.env.BASE_URL}models/${arquivo}`,
+              (gltf) => {
+                modelosRPG[tipo] = { cena: gltf.scene, clipes: gltf.animations }
+                resolve()
+              },
+              undefined,
+              () => {
+                // sem modelo (ou falhou) — esse tipo segue com a peça geométrica normal
+                modelosRPG[tipo] = null
+                resolve()
+              },
+            )
+          }),
+      ),
+    ).then(() => undefined)
   }
-  carregamentoPeaoRPG.then(aoResolver)
+  carregamentoModelosRPG.then(aoResolver)
 }
 
-/** Monta o grupo do peão a partir do modelo RPG carregado — mesmo "contrato" do peão geométrico
+/** Intervalo (ms) entre um gesto e outro de cada peça parada — sorteado entre os dois valores pra
+ * cada peça ter o próprio ritmo: a maior parte do tempo elas ficam só em pé, e de vez em quando
+ * uma ou outra se mexe. */
+const INTERVALO_GESTO_MIN_MS = 15000
+const INTERVALO_GESTO_MAX_MS = 40000
+
+function sortearProximoGesto(agora: number): number {
+  return agora + INTERVALO_GESTO_MIN_MS + Math.random() * (INTERVALO_GESTO_MAX_MS - INTERVALO_GESTO_MIN_MS)
+}
+
+/** Material da facção pelo nome do material que veio do Blender (Corpo/Detalhe/Coroa/Brilho). */
+function materialRPG(nome: string | undefined, cor: 'w' | 'b'): THREE.Material {
+  if (nome === 'Detalhe') return materiaisPorFaccao[cor].detalhe
+  if (nome === 'Coroa') return materialCoroa
+  if (nome === 'Brilho') return materiaisPorFaccao[cor].brilho
+  return materiaisPorFaccao[cor].armadura
+}
+
+/** Monta o grupo da peça a partir do modelo RPG carregado — mesmo "contrato" da peça geométrica
  * (posição/rotação/escala aplicadas por fora, em buildPieceMesh), mas com esqueleto de verdade em
  * vez de pivôs manuais: guarda o AnimationMixer em userData pro laço de render atualizar, e as
  * ações (clipes) nomeadas em userData.acoesRPG pra outras funções (ataque, etc.) poderem tocar.
  */
-function buildPeaoRPG(modelo: ModeloRPG, cor: 'w' | 'b'): THREE.Group {
+function buildPecaRPG(modelo: ModeloRPG, cor: 'w' | 'b'): THREE.Group {
   const grupo = new THREE.Group()
   const clone = clonarComEsqueleto(modelo.cena) as THREE.Object3D
 
   // mesmo material toon (com o gradiente em degraus) das peças geométricas — reaproveitado, não
-  // clonado, igual ao resto do tabuleiro — pra esse peão não destoar visualmente dos outros. Duas
-  // cores, igual ao peão geométrico (corpo numa cor, capacete/ombreiras na cor de destaque): o
-  // Blender exporta o chapéu/ombreiras num material "Detalhe" separado do resto ("Corpo") — o
-  // glTF divide a malha em uma primitiva por material, então cada uma vira um SkinnedMesh próprio
-  // aqui, e o nome do material original (antes de trocar) diz qual cor de destaque usar.
-  const materialArmadura = materiaisPorFaccao[cor].armadura
-  const materialDetalhe = materiaisPorFaccao[cor].detalhe
+  // clonado, igual ao resto do tabuleiro — pra não destoar visualmente das outras. O glTF divide a
+  // malha em uma primitiva por material, então cada uma vira um SkinnedMesh próprio aqui, e o nome
+  // do material original (antes de trocar) diz qual cor da facção usar (ver materialRPG).
   clone.traverse((filho) => {
     if (filho instanceof THREE.SkinnedMesh) {
-      const ehDetalhe = !Array.isArray(filho.material) && filho.material?.name === 'Detalhe'
-      filho.material = ehDetalhe ? materialDetalhe : materialArmadura
+      const nomeOriginal = Array.isArray(filho.material) ? undefined : filho.material?.name
+      filho.material = materialRPG(nomeOriginal, cor)
       filho.castShadow = true
       filho.receiveShadow = true
 
@@ -339,9 +372,10 @@ function buildPeaoRPG(modelo: ModeloRPG, cor: 'w' | 'b'): THREE.Group {
   for (const clipe of modelo.clipes) {
     acoes[clipe.name] = mixer.clipAction(clipe)
   }
-  acoes.Idle?.play()
+  acoes.Parado?.play()
   grupo.userData.mixer = mixer
   grupo.userData.acoesRPG = acoes
+  grupo.userData.proximoGestoRPG = sortearProximoGesto(performance.now())
   // ponto de fixação da espada durante o golpe (ver animarAtaqueEspada) — osso sem malha própria,
   // só existe pra pendurar algo na mão direita
   grupo.userData.maoDireitaRPG = clone.getObjectByName('Hand_R')
@@ -349,25 +383,63 @@ function buildPeaoRPG(modelo: ModeloRPG, cor: 'w' | 'b'): THREE.Group {
   return grupo
 }
 
-/** Toca um clipe nomeado (ex.: "Attack") uma vez só e volta pro "Idle" em seguida — silencioso se
- * a peça não tiver esse clipe (peça geométrica, ou modelo sem essa animação). */
-function tocarClipeRPGUmaVez(mesh: THREE.Object3D, nomeClipe: string) {
+/** Nomes dos clipes da peça que começam com `prefixo` (ex.: "Attack" → os golpes dela). */
+function clipesRPGComPrefixo(mesh: THREE.Object3D, prefixo: string): string[] {
+  const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
+  return acoes ? Object.keys(acoes).filter((nome) => nome.startsWith(prefixo)) : []
+}
+
+/** Toca um clipe nomeado uma vez só — misturando a partir do que estiver tocando (Parado, um
+ * gesto, o Walk…), sem precisar saber o quê — e volta pro "Parado" no fim. `aoTerminar` roda
+ * quando o clipe acaba. Devolve false (e não faz nada) se a peça não tiver esse clipe (peça
+ * geométrica, ou modelo sem essa animação). */
+function tocarClipeRPGUmaVez(
+  mesh: THREE.Object3D,
+  nomeClipe: string,
+  { entrada = 0.1, saida = 0.2, aoTerminar }: { entrada?: number; saida?: number; aoTerminar?: () => void } = {},
+): boolean {
   const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
   const acao = acoes?.[nomeClipe]
-  if (!acao) return
-  const idle = acoes?.Idle
+  if (!acoes || !acao) return false
+  for (const outra of Object.values(acoes)) {
+    if (outra !== acao && outra.isRunning()) outra.fadeOut(entrada)
+  }
   acao.reset()
   acao.setLoop(THREE.LoopOnce, 1)
   acao.clampWhenFinished = true
-  idle?.crossFadeTo(acao, 0.1, false)
-  acao.play()
+  acao.fadeIn(entrada).play()
   const mixer = mesh.userData.mixer as THREE.AnimationMixer
-  const aoTerminar = (evento: { action: THREE.AnimationAction }) => {
+  const terminou = (evento: { action: THREE.AnimationAction }) => {
     if (evento.action !== acao) return
-    mixer.removeEventListener('finished', aoTerminar)
-    if (idle) acao.crossFadeTo(idle, 0.2, false)
+    mixer.removeEventListener('finished', terminou)
+    acoes.Parado?.reset().fadeIn(saida).play()
+    acao.fadeOut(saida)
+    aoTerminar?.()
   }
-  mixer.addEventListener('finished', aoTerminar)
+  mixer.addEventListener('finished', terminou)
+  return true
+}
+
+/** Golpe da captura: um dos golpes desta peça, sorteado — cada tipo de peça tem os seus (nenhum
+ * se repete entre tipos), então a mesma peça varia de uma captura pra outra sem padrão fixo. */
+function tocarGolpeRPG(mesh: THREE.Object3D) {
+  const golpes = clipesRPGComPrefixo(mesh, 'Attack')
+  if (golpes.length) tocarClipeRPGUmaVez(mesh, golpes[Math.floor(Math.random() * golpes.length)])
+}
+
+/** Chamado a cada quadro pra cada peça: parada a maior parte do tempo, de vez em quando (no
+ * intervalo sorteado por peça) faz um dos gestos — só se estiver mesmo parada (sem andar, golpear
+ * ou fazer um gesto amigável com outra peça naquele momento). */
+function atualizarGestoRPG(mesh: THREE.Object3D, agora: number) {
+  const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
+  if (!acoes || agora < (mesh.userData.proximoGestoRPG as number)) return
+  mesh.userData.proximoGestoRPG = sortearProximoGesto(agora)
+  const ocupada = meshesEmGesto.has(mesh) || Object.entries(acoes).some(([nome, acao]) => nome !== 'Parado' && acao.isRunning())
+  if (ocupada) return
+  const gestos = clipesRPGComPrefixo(mesh, 'Gesto')
+  if (gestos.length) {
+    tocarClipeRPGUmaVez(mesh, gestos[Math.floor(Math.random() * gestos.length)], { entrada: 0.5, saida: 0.6 })
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -492,11 +564,13 @@ function criarMembro(cfg: ConfigMembro, cor: 'w' | 'b'): THREE.Group {
 }
 
 function buildPieceMesh(tipo: string, cor: 'w' | 'b'): THREE.Group {
-  // peão com o modelo RPG carregado (malha + esqueleto + animações do Blender) em vez do
-  // geométrico de sempre — mesmo "contrato" externo (userData.tipo/cor, rotação por cor, escala),
-  // só a montagem interna que muda. Sem sheath/espada procedural aqui: esse modelo é autocontido.
-  if (tipo === 'p' && modeloPeaoRPG) {
-    const grupo = buildPeaoRPG(modeloPeaoRPG, cor)
+  // peça com o modelo RPG carregado (malha + esqueleto + animações do Blender) em vez da
+  // geométrica de sempre — mesmo "contrato" externo (userData.tipo/cor, rotação por cor, escala),
+  // só a montagem interna que muda. Sem bainha/espada procedural aqui: o modelo é autocontido. Os
+  // modelos olham pra +Z, como as peças geométricas (inclusive o cavalo, que lá é exceção)
+  const modeloRPG = modelosRPG[tipo]
+  if (modeloRPG) {
+    const grupo = buildPecaRPG(modeloRPG, cor)
     grupo.userData.tipo = tipo
     grupo.userData.cor = cor
     grupo.rotation.y = cor === 'w' ? Math.PI : 0
@@ -638,17 +712,19 @@ function animarPosicao(
   const membros = mesh.userData.membros as MembrosPersonagem | undefined
   const base = (mesh.userData.poseBase as PoseBaseMembros | undefined) ?? POSE_BASE_NEUTRA
 
-  // peão RPG: em vez de balançar membros manualmente (isso é só pras peças geométricas, que não
+  // peça RPG: em vez de balançar membros manualmente (isso é só pras peças geométricas, que não
   // têm esqueleto de verdade), troca pro clipe "Walk" do próprio modelo enquanto desliza — e volta
-  // pro "Idle" ao chegar. Sem crossFadeTo aqui de propósito (não assume qual ação está tocando no
-  // momento — numa captura o peão pode chegar direto de "Attack" — fadeIn/fadeOut mistura o peso a
-  // partir do que já estiver rodando, sem precisar saber a origem).
+  // pro "Parado" ao chegar. Sem crossFadeTo aqui de propósito (não assume qual ação está tocando no
+  // momento — numa captura a peça pode chegar direto de um golpe, ou estar no meio de um gesto —
+  // fadeIn/fadeOut mistura o peso a partir do que já estiver rodando, sem precisar saber a origem).
   const acoesRPG = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
   const caminhada = acoesRPG?.Walk
-  const paradaRPG = acoesRPG?.Idle
-  if (caminhada && paradaRPG) {
+  const paradaRPG = acoesRPG?.Parado
+  if (acoesRPG && caminhada && paradaRPG) {
+    for (const outra of Object.values(acoesRPG)) {
+      if (outra !== caminhada && outra.isRunning()) outra.fadeOut(0.15)
+    }
     caminhada.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.15).play()
-    paradaRPG.fadeOut(0.15)
   }
 
   const distancia = Math.hypot(para.x - de.x, para.z - de.z)
@@ -745,6 +821,8 @@ function animarComemoracao(mesh: THREE.Object3D, atraso: number, duracaoMs: numb
  * um pouco mais curto (senão fica devagar demais pra dar uma volta inteira). */
 const DURACAO_GESTO_MS = 2800
 const DURACAO_MORTAL_MS = 1800
+/** Chance de o mortal da peça RPG terminar num tombo (cai sentada, fica tonta e levanta). */
+const CHANCE_TOMBO_NO_MORTAL = 0.3
 
 /** Meshes com um gesto amigável em andamento agora — sincronizarPecas() confere esse conjunto
  * antes de recriar uma peça do zero, pra não cortar/acelerar a interação no meio caso um lance
@@ -777,6 +855,19 @@ function animarGestoAmigavel(
   const anguloAlvo = Math.atan2(direcao.x, direcao.z)
   const duracao = tipo === 'mortal' ? DURACAO_MORTAL_MS : DURACAO_GESTO_MS
   const inicio = performance.now() + atraso
+  const ehRPG = Boolean(mesh.userData.acoesRPG)
+
+  // peça RPG: o mortal é o clipe feito no Blender — agacha, toma impulso, gira grupada no ar e
+  // aterrissa amortecendo; de vez em quando gira demais e cai sentada (tombo), fica tonta e levanta
+  if (tipo === 'mortal' && ehRPG && clipesRPGComPrefixo(mesh, 'Mortal').length) {
+    meshesEmGesto.add(mesh)
+    const clipe = Math.random() < CHANCE_TOMBO_NO_MORTAL ? 'MortalTombo' : 'Mortal'
+    window.setTimeout(() => {
+      const tocou = tocarClipeRPGUmaVez(mesh, clipe, { entrada: 0.15, saida: 0.3, aoTerminar: () => meshesEmGesto.delete(mesh) })
+      if (!tocou) meshesEmGesto.delete(mesh)
+    }, atraso)
+    return
+  }
 
   function passo(agora: number) {
     if (agora < inicio) {
@@ -808,7 +899,9 @@ function animarGestoAmigavel(
       }
       case 'agachamento': {
         const envelope = Math.sin(t * Math.PI)
-        mesh.position.y = yOriginal - envelope * 0.14
+        // a peça RPG não tem pernas soltas pra dobrar aqui — descer o corpo inteiro a afundaria no
+        // tabuleiro, então ela só vira pra outra peça
+        if (!ehRPG) mesh.position.y = yOriginal - envelope * 0.14
         if (membros) {
           membros.pernaEsq.rotation.x = base.pernaEsq + envelope * 0.6
           membros.pernaDir.rotation.x = base.pernaDir - envelope * 0.6
@@ -952,7 +1045,7 @@ function animarAtaqueEspada(
   // desembainha — a espada só existe presa na mão durante o golpe; o resto do tempo o peão só
   // tem o cabo na bainha (parte fixa do corpo, do lado esquerdo — ver criar_peao_rpg.py). Guardada
   // de volta ao fim do ataque. Peça geométrica pendura no pivô do braço (membros); peão RPG
-  // pendura no osso da mão direita (Hand_R, ver buildPeaoRPG) — os dois nunca coexistem na mesma
+  // pendura no osso da mão direita (Hand_R, ver buildPecaRPG) — os dois nunca coexistem na mesma
   // peça, cada uma usa só o seu.
   const espadaDesembainhada = criarEspadaDoPeao()
   if (maoDireitaRPG) {
@@ -1617,19 +1710,21 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         }
       }
 
-      // peão capturando: golpe de espada primeiro, só depois a vítima cai e some — pra qualquer
-      // outro tipo de peça capturando, mantém a remoção direta de antes
+      // captura: golpe primeiro, só depois a vítima cai e some — o peão (geométrico ou RPG) e
+      // qualquer peça RPG golpeiam; uma peça geométrica de outro tipo mantém a remoção direta. O
+      // golpe só acontece aqui, na hora da captura
       const vitima = meshCapturada ?? (resultado.isEnPassant() && origem && destino
         ? pieceMeshBySquare.get(`${destino[0]}${origem[1]}` as Square)
         : undefined)
+      const golpeia = resultado.piece === 'p' || Boolean(meshMovendo?.userData.acoesRPG)
 
-      if (vitima && resultado.piece === 'p' && meshMovendo && origem && destino) {
+      if (vitima && golpeia && meshMovendo && origem && destino) {
         const deAtaque = squareToPosPeca(origem)
         const paraAtaque = squareToPosPeca(destino)
         const direcao = { x: paraAtaque.x - deAtaque.x, z: paraAtaque.z - deAtaque.z }
         // sorteia o estilo do golpe a cada captura, pra não ser sempre a mesma animação
         const estilo: EstiloAtaque = Math.random() < 0.5 ? 'corte' : 'derrubada'
-        tocarClipeRPGUmaVez(meshMovendo, 'Attack')
+        tocarGolpeRPG(meshMovendo)
         animarAtaqueEspada(
           meshMovendo,
           direcao,
@@ -1883,10 +1978,10 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     sincronizarPecas()
     atualizarStatusTexto()
 
-    // o modelo RPG do peão carrega em segundo plano — quando (e se) chegar, re-sincroniza pra
-    // trocar os peões já desenhados (geométricos) pelo modelo novo, sem precisar recarregar a página
+    // os modelos RPG das peças carregam em segundo plano — quando (e se) chegarem, re-sincroniza
+    // pra trocar as peças já desenhadas (geométricas) pelos modelos novos, sem recarregar a página
     let montado = true
-    garantirModeloPeaoRPG(() => {
+    garantirModelosRPG(() => {
       if (montado) sincronizarPecas()
     })
 
@@ -1895,8 +1990,10 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     function animate() {
       frameId = requestAnimationFrame(animate)
       const delta = relogio.getDelta()
+      const agora = performance.now()
       for (const peca of piecesGroup.children) {
         ;(peca.userData.mixer as THREE.AnimationMixer | undefined)?.update(delta)
+        atualizarGestoRPG(peca, agora)
       }
       controls.update()
       renderer.render(scene, camera)

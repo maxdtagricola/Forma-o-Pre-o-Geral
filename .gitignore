@@ -22,13 +22,24 @@ scripts/**/screenshots/
 
 # gerados pelo scripts/blender/exportar_peao_mixamo.py (dá pra gerar de novo a qualquer momento)
 scripts/blender/peao_rpg_mixamo.*
-# imagem de conferência do scripts/blender/importar_animacoes_mixamo.py
+# imagens de conferência do scripts/blender/importar_animacoes_mixamo.py
 scripts/blender/peao_rpg_jogo.png
+scripts/blender/peao_rpg_mortal.png
 # downloads do Mixamo: só entram no repositório os que o importar_animacoes_mixamo.py usa (o peão
-# riggado e as animações escolhidas em ANIMACOES) — o resto do pacote fica só na máquina
+# riggado e as animações de ANIMACOES e GOLPES) — o resto do pacote fica só na máquina
 scripts/blender/*.fbx
 !scripts/blender/peao_rpgrtp.fbx
 !scripts/blender/sword and shield idle.fbx
+!scripts/blender/sword and shield idle (2).fbx
 !scripts/blender/sword and shield walk.fbx
 !scripts/blender/sword and shield slash.fbx
+!scripts/blender/sword and shield attack (4).fbx
+!scripts/blender/sword and shield slash (2).fbx
+!scripts/blender/sword and shield kick.fbx
+!scripts/blender/sword and shield attack (2).fbx
+!scripts/blender/sword and shield slash (3).fbx
+!scripts/blender/sword and shield casting (2).fbx
+!scripts/blender/sword and shield power up.fbx
+!scripts/blender/sword and shield slash (4).fbx
+!scripts/blender/sword and shield attack (3).fbx
 scripts/blender/__pycache__/
