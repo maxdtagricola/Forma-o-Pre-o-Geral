@@ -181,6 +181,8 @@ MATERIAIS = {
     "EspadaLamina": (0.54, 0.58, 0.64, 1.0),
     "EspadaCabo": (0.55, 0.35, 0.17, 1.0),
     "CaboBainha": (0.55, 0.35, 0.17, 1.0),
+    # saya (bainha da katana): laca preta
+    "BainhaKatana": (0.04, 0.04, 0.05, 1.0),
 }
 # peças de túnica: o tronco vai na cor de detalhe (como a batina/vestido das peças geométricas)
 TRONCO_DETALHE = {"b", "q", "k"}
@@ -246,15 +248,19 @@ COM_CHAPEU = {"p", "n"}
 # na preparação do golpe, apontando pro alvo no impacto e descendo junto do quadril esquerdo ao
 # embainhar (as outras direções testadas ficavam de lado no golpe ou apontando pra cima ao guardar)
 EMPUNHADURA = Vector((0.93, 0.31, -0.18)).normalized()
+# pra onde a katana curva (as costas da lâmina), com o peão em pose T: pra cima, perpendicular à lâmina
+CURVA_EMPUNHADURA = (Vector((0, 0, 1)) - EMPUNHADURA * EMPUNHADURA.z).normalized()
 # centro do punho fechado, em pose T: logo depois da ponta do antebraço direito
 PUNHO = Vector((0.36, 0, 0.57))
-# medidas da espada (as proporções de criarEspadaDoPeao em ChessBoard3D.tsx, na escala 0,75 — na
-# 0,55 de antes ela parecia um punhal): cabo (raio, comprimento), guarda (largura, espessura,
-# altura), lâmina (espessura, largura, comprimento); o punho segura o meio do cabo
-CABO_ESPADA = (0.0105, 0.056)
-GUARDA_ESPADA = (0.075, 0.016, 0.016)
-LAMINA_ESPADA = (0.024, 0.049, 0.195)
-BAINHA_ESPADA = (0.018, 0.21)  # raio, comprimento
+# katana: tsuka (cabo longo, de duas mãos — o punho direito fica perto da guarda), tsuba (a guarda
+# redonda), lâmina curva de um gume só que afina até a ponta, e a saya (bainha) laqueada de preto,
+# curva como a lâmina. Medidas em metros, no tamanho do peão.
+CABO_KATANA = (0.0105, 0.085)  # raio, comprimento
+CABO_ATRAS_DO_PUNHO = 0.055  # quanto do cabo fica atrás do punho (o resto vai até a tsuba)
+TSUBA = (0.026, 0.008)  # raio, espessura
+LAMINA_KATANA = (0.007, 0.026, 0.27)  # espessura, largura, comprimento
+CURVATURA_KATANA = 0.022  # quanto a ponta sai da linha reta do cabo (o "sori")
+SAYA = (0.016, 0.29)  # raio, comprimento
 # desembainhar/embainhar: as duas animações de bainha do pacote do Mixamo — "sheath sword 1" sai da
 # postura de espada e leva a mão até o quadril esquerdo, enfiando a espada (a mão para no quadril
 # perto do quadro 30); "sheath sword 2" solta o cabo e relaxa os braços. Embainhar = 1 + 2;
@@ -516,20 +522,61 @@ def juntar_na_malha(malha, objetos):
     bpy.ops.object.shade_flat()
 
 
-def partes_da_espada(prefixo, punho, direcao, materiais, osso):
-    """Cabo, guarda e lâmina de uma espada empunhada em `punho`, com a lâmina pra `direcao`.
-    `materiais` = (cabo e guarda, lâmina); sem material de lâmina, só o cabo e a guarda (a parte da
-    espada que fica pra fora da bainha)."""
-    material_cabo, material_lamina = materiais
-    raio_cabo, comprimento_cabo = CABO_ESPADA
-    guarda = punho + direcao * (comprimento_cabo / 2)
+def malha_curva(nome, base, direcao, curva, comprimento, secao, nome_material, osso, afinar=False, segmentos=12):
+    """Peça comprida e curva (lâmina, saya): uma seção (lista de pontos (u, v) em volta do eixo —
+    u na direção de `curva`, v na outra) varrida ao longo de `direcao` a partir de `base`, com o
+    eixo se afastando da reta na direção de `curva` como uma parábola (a curvatura da katana).
+    `afinar`: a seção encolhe até a ponta (a ponta da lâmina)."""
+    lado = direcao.cross(curva).normalized()
+    vertices = []
+    for i in range(segmentos + 1):
+        t = i / segmentos
+        centro = base + direcao * (comprimento * t) + curva * (CURVATURA_KATANA * t * t)
+        escala = 1.0 if not afinar else (1.0 if t < 0.8 else 1.0 - (t - 0.8) / 0.2 * 0.9)
+        for u, v in secao:
+            vertices.append(centro + curva * (u * escala) + lado * (v * (1.0 if not afinar else max(escala, 0.5))))
+    n = len(secao)
+    faces = []
+    for i in range(segmentos):
+        for j in range(n):
+            a = i * n + j
+            b = i * n + (j + 1) % n
+            faces.append((a, b, b + n, a + n))
+    faces.append(tuple(reversed(range(n))))  # tampa da base
+    faces.append(tuple(segmentos * n + j for j in range(n)))  # tampa da ponta
+    dados = bpy.data.meshes.new(nome)
+    dados.from_pydata([tuple(p) for p in vertices], [], faces)
+    # faces viradas pra fora (no jogo o material só desenha a frente da face)
+    bm = bmesh.new()
+    bm.from_mesh(dados)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    bm.to_mesh(dados)
+    bm.free()
+    dados.update()
+    objeto = bpy.data.objects.new(nome, dados)
+    bpy.context.scene.collection.objects.link(objeto)
+    objeto.vertex_groups.new(name=osso).add(list(range(len(vertices))), 1.0, "REPLACE")
+    objeto.data.materials.append(material(nome_material))
+    return objeto
+
+
+def partes_da_katana(prefixo, punho, direcao, curva, material_cabo, material_lamina, osso):
+    """Cabo, tsuba e (com `material_lamina`) a lâmina de uma katana empunhada em `punho`, com a
+    lâmina saindo na `direcao` e curvando pra `curva`. Sem lâmina: a parte que fica pra fora da
+    bainha (cabo e tsuba)."""
+    raio_cabo, comprimento_cabo = CABO_KATANA
+    centro_cabo = punho + direcao * (comprimento_cabo / 2 - CABO_ATRAS_DO_PUNHO)
+    frente_cabo = punho + direcao * (comprimento_cabo - CABO_ATRAS_DO_PUNHO)
+    raio_tsuba, espessura_tsuba = TSUBA
     partes = [
-        peca_alinhada(f"{prefixo}Cabo", "cilindro", CABO_ESPADA, punho, direcao, material_cabo, osso),
-        peca_alinhada(f"{prefixo}Guarda", "caixa", GUARDA_ESPADA, guarda, direcao, material_cabo, osso),
+        peca_alinhada(f"{prefixo}Tsuka", "cilindro", CABO_KATANA, centro_cabo, direcao, material_cabo, osso),
+        peca_alinhada(f"{prefixo}Tsuba", "cilindro", (raio_tsuba, espessura_tsuba), frente_cabo + direcao * (espessura_tsuba / 2), direcao, material_cabo, osso),
     ]
     if material_lamina:
-        espessura, largura, comprimento = LAMINA_ESPADA
-        partes.append(peca_alinhada(f"{prefixo}Lamina", "caixa", (espessura, largura, comprimento), guarda + direcao * (comprimento / 2), direcao, material_lamina, osso))
+        espessura, largura, comprimento = LAMINA_KATANA
+        # seção da lâmina: mais grossa nas costas (lado da curva), fina no gume
+        secao = [(largura / 2, espessura / 2), (largura / 2, -espessura / 2), (-largura / 2, -espessura / 6), (-largura / 2, espessura / 6)]
+        partes.append(malha_curva(f"{prefixo}Lamina", frente_cabo + direcao * espessura_tsuba, direcao, curva, comprimento, secao, material_lamina, osso, afinar=True))
     return partes
 
 
@@ -813,6 +860,150 @@ def comemorar():
     return chaves
 
 
+# controles "dos dois lados" e os de cada lado que eles preenchem
+PARES_DE_LADO = {
+    "braco": ("bd", "be"),
+    "cotovelo": ("cd", "ce"),
+    "coxa": ("coxa_d", "coxa_e"),
+    "joelho": ("joelho_d", "joelho_e"),
+    "pe": ("pe_d", "pe_e"),
+}
+
+
+def com(base, **valores):
+    """Pose `base` com os valores por cima — um controle dos dois lados (ex.: coxa) vale pros dois
+    lados (coxa_d e coxa_e), a não ser que a chave traga o lado separado."""
+    pose = dict(base)
+    for nome, valor in valores.items():
+        pose[nome] = valor
+        for lado in PARES_DE_LADO.get(nome, ()):
+            if lado not in valores:
+                pose[lado] = valor
+    return pose
+
+
+def pose_parada(**valores):
+    """Todos os controles do corpo no neutro (em pé, Parado), com os valores dados por cima."""
+    neutro = dict(
+        giro=0, tronco=0, cabeca=0, cabeca_lado=0, braco=0, cotovelo=0, coxa=0, joelho=0, pe=0, plantar=1, z=0,
+        bd=0, be=0, cd=0, ce=0, bd_lado=0, be_lado=0, cd_giro=0, ce_giro=0, tronco_giro=0,
+        coxa_d=0, coxa_e=0, joelho_d=0, joelho_e=0, abre=0, pe_d=0, pe_e=0,
+    )
+    return com(neutro, **valores)
+
+
+def segurar(pose, inicio, fim, respiracao=2.5, passo=12):
+    """Mantém a pose de `inicio` a `fim` respirando (o tronco e a cabeça sobem e descem de leve)."""
+    chaves = {}
+    for n, quadro in enumerate(range(inicio, fim + 1, passo)):
+        sinal = 1 if n % 2 == 0 else -1
+        chaves[quadro] = com(pose, tronco=pose["tronco"] + sinal * respiracao * 0.5, cabeca=pose["cabeca"] - sinal * respiracao * 0.3)
+    return chaves
+
+
+# base de samurai: pés afastados e os dois joelhos dobrados por igual (os dois pés no chão)
+BASE_SAMURAI = dict(coxa=26, joelho=-48, pe=22, abre=11)
+
+
+def kamae():
+    """Chudan no kamae — a guarda do samurai: base firme com os joelhos dobrados, katana apontada
+    pra frente na altura do peito do adversário, a mão esquerda junto da direita no cabo."""
+    guarda = pose_parada(
+        **BASE_SAMURAI, tronco=-6, cabeca=4, tronco_giro=-8,
+        bd=62, cd=18, bd_lado=-12, be=58, ce=52, be_lado=-38, ce_giro=20,
+    )
+    chaves = {1: pose_parada(), 14: guarda}
+    chaves.update(segurar(guarda, 26, 110))
+    chaves[124] = pose_parada(bd=20, cd=10, be=15, ce=15)
+    chaves[134] = pose_parada()
+    return chaves
+
+
+def hasso():
+    """Hasso no kamae — a katana erguida na vertical ao lado da cabeça, a mão esquerda junto."""
+    guarda = pose_parada(
+        **BASE_SAMURAI, tronco=-3, tronco_giro=-14, cabeca=-4,
+        bd=40, bd_lado=40, cd=118, cd_giro=10, be=72, ce=105, be_lado=-48, ce_giro=15,
+    )
+    chaves = {1: pose_parada(), 16: guarda}
+    chaves.update(segurar(guarda, 28, 110))
+    chaves[124] = pose_parada(bd=25, cd=40, be=20, ce=30)
+    chaves[134] = pose_parada()
+    return chaves
+
+
+# ajoelhando: apoia um joelho primeiro, como se ajoelha de verdade
+AJOELHANDO = dict(coxa_d=70, joelho_d=-95, coxa_e=-5, joelho_e=-110, pe_d=25, pe_e=40, tronco=-12, bd=10, be=10)
+# seiza: sentado sobre os calcanhares
+SEIZA = dict(coxa=95, joelho=-165, pe=55)
+
+
+def meditar():
+    """Meditação: ajoelha (seiza), junta as mãos na frente do peito (gassho), baixa a cabeça e
+    respira devagar; depois levanta."""
+    sentado = pose_parada(
+        **SEIZA, tronco=0, cabeca=-14,
+        bd=25, be=25, cd=85, ce=85, bd_lado=-10, be_lado=-10, cd_giro=55, ce_giro=55,
+    )
+    chaves = {
+        1: pose_parada(),
+        12: pose_parada(**AJOELHANDO),
+        24: com(sentado, cabeca=-6, cd_giro=20, ce_giro=20, cd=60, ce=60),
+        32: sentado,
+    }
+    chaves.update(segurar(sentado, 40, 150, respiracao=3, passo=22))
+    chaves[164] = pose_parada(**AJOELHANDO)
+    chaves[176] = pose_parada()
+    return chaves
+
+
+def reverencia():
+    """Reverência de respeito: curva o tronco devagar com as mãos nas coxas, segura e levanta."""
+    curvado = pose_parada(tronco=-52, cabeca=-12, bd=12, be=12, cd=8, ce=8)
+    return {
+        1: pose_parada(),
+        22: curvado,
+        40: com(curvado, tronco=-55),
+        58: curvado,
+        78: pose_parada(),
+        84: pose_parada(),
+    }
+
+
+def sacrificio():
+    """Honra do samurai derrotado (peão capturado por outro peão): ajoelha (seiza), pousa as mãos nas
+    coxas, curva-se numa reverência profunda e devagar e tomba pra frente, imóvel — estilizado, sem
+    mostrar ferimento nenhum. Termina caído (o jogo some com ele em seguida)."""
+    sentado = pose_parada(**SEIZA, cabeca=-6, bd=14, be=14, cd=20, ce=20)
+    curvado = com(sentado, tronco=-62, cabeca=-22, bd=40, be=40, cd=30, ce=30)
+    caido = com(curvado, giro=-72, tronco=-26, cabeca=-8, bd=-20, be=-15, cd=5, ce=5, coxa=78, joelho=-148, plantar=0, z=-0.325)
+    return {
+        1: pose_parada(),
+        12: pose_parada(**AJOELHANDO),
+        26: sentado,
+        44: com(sentado, cabeca=-14),
+        70: curvado,
+        86: com(curvado, tronco=-66),
+        # tomba pra frente: o corpo inteiro gira por cima dos joelhos até o chão (a altura passa aos
+        # poucos de "plantada nos pés" pra livre, sem pulo)
+        104: com(caido, giro=-68, tronco=-30, cabeca=-10, coxa=80, joelho=-150, z=-0.3),
+        112: com(caido, giro=-74, z=-0.33),
+        120: caido,
+    }
+
+
+# clipes do peão feitos aqui (nome no jogo → chaves). Os "Gesto…" entram no sorteio dos gestos
+# ocasionais do peão (a guarda e a katana erguida com a katana na mão; a meditação sem ela);
+# "Reverencia"/"Sacrificio" são da captura de peão por peão (ver capturarComHonra no jogo)
+CLIPES_PEAO = {
+    "GestoKamae": kamae,
+    "GestoHasso": hasso,
+    "GestoMeditar": meditar,
+    "Reverencia": reverencia,
+    "Sacrificio": sacrificio,
+}
+
+
 def suavizar(malha):
     """Sombreado suave nas superfícies curvas (cilindros, esferas) e quinas vivas onde as faces se
     encontram num ângulo forte (caixas, tampas) — o visual "HD" sem perder o recorte das peças."""
@@ -872,24 +1063,33 @@ def criar_mortal(esqueleto, parado, nome, chaves):
     anteriores = {}
     for quadro in range(1, ultimo + 1):
         v = {controle: curva_suave(pontos, quadro) for controle, pontos in controles.items()}
+        # controles por lado (bd/be, cd/ce, coxa_d/coxa_e, joelho_d/joelho_e) caem no controle dos
+        # dois lados quando a chave não traz o lado separado
+        def c(nome, padrao=0.0):
+            return v.get(nome, padrao)
+
         extra = {
             "mixamorig:Hips": no_corpo("mixamorig:Hips", "X", v["giro"]),
             # giro + em X leva o topo pra trás (-Y): curvar pra frente (tronco/cabeça negativos) é
             # giro negativo; num membro pendurado, giro + leva a ponta pra frente
             "mixamorig:Spine": no_corpo("mixamorig:Spine", "X", v["tronco"] / 3),
             "mixamorig:Spine1": no_corpo("mixamorig:Spine1", "X", v["tronco"] / 3),
-            "mixamorig:Spine2": no_corpo("mixamorig:Spine2", "X", v["tronco"] / 3),
+            "mixamorig:Spine2": no_corpo("mixamorig:Spine2", "X", v["tronco"] / 3) @ no_corpo("mixamorig:Spine2", "Z", c("tronco_giro")),
             "mixamorig:Head": no_corpo("mixamorig:Head", "X", v["cabeca"]) @ no_corpo("mixamorig:Head", "Z", v["cabeca_lado"]),
-            "mixamorig:LeftArm": no_corpo("mixamorig:LeftArm", "X", v["braco"]),
-            "mixamorig:RightArm": no_corpo("mixamorig:RightArm", "X", v["braco"]),
-            "mixamorig:LeftForeArm": no_corpo("mixamorig:LeftForeArm", "X", v["cotovelo"]),
-            "mixamorig:RightForeArm": no_corpo("mixamorig:RightForeArm", "X", v["cotovelo"]),
-            "mixamorig:LeftUpLeg": no_corpo("mixamorig:LeftUpLeg", "X", v["coxa"]),
-            "mixamorig:RightUpLeg": no_corpo("mixamorig:RightUpLeg", "X", v["coxa"]),
-            "mixamorig:LeftLeg": no_corpo("mixamorig:LeftLeg", "X", v["joelho"]),
-            "mixamorig:RightLeg": no_corpo("mixamorig:RightLeg", "X", v["joelho"]),
-            "mixamorig:LeftFoot": no_corpo("mixamorig:LeftFoot", "X", v["pe"]),
-            "mixamorig:RightFoot": no_corpo("mixamorig:RightFoot", "X", v["pe"]),
+            # braço: pra frente (X) e abrindo pro lado (Y; negativo cruza pra frente do corpo);
+            # antebraço: dobra (X) e gira na horizontal pra dentro (Z)
+            "mixamorig:LeftArm": no_corpo("mixamorig:LeftArm", "X", c("be", v["braco"])) @ no_corpo("mixamorig:LeftArm", "Y", c("be_lado")),
+            "mixamorig:RightArm": no_corpo("mixamorig:RightArm", "X", c("bd", v["braco"])) @ no_corpo("mixamorig:RightArm", "Y", -c("bd_lado")),
+            # (o giro pra dentro vem depois de dobrar — com o antebraço ainda pendurado na vertical,
+            # girar em volta da vertical não faria nada)
+            "mixamorig:LeftForeArm": no_corpo("mixamorig:LeftForeArm", "Z", -c("ce_giro")) @ no_corpo("mixamorig:LeftForeArm", "X", c("ce", v["cotovelo"])),
+            "mixamorig:RightForeArm": no_corpo("mixamorig:RightForeArm", "Z", c("cd_giro")) @ no_corpo("mixamorig:RightForeArm", "X", c("cd", v["cotovelo"])),
+            "mixamorig:LeftUpLeg": no_corpo("mixamorig:LeftUpLeg", "Y", c("abre")) @ no_corpo("mixamorig:LeftUpLeg", "X", c("coxa_e", v["coxa"])),
+            "mixamorig:RightUpLeg": no_corpo("mixamorig:RightUpLeg", "Y", -c("abre")) @ no_corpo("mixamorig:RightUpLeg", "X", c("coxa_d", v["coxa"])),
+            "mixamorig:LeftLeg": no_corpo("mixamorig:LeftLeg", "X", c("joelho_e", v["joelho"])),
+            "mixamorig:RightLeg": no_corpo("mixamorig:RightLeg", "X", c("joelho_d", v["joelho"])),
+            "mixamorig:LeftFoot": no_corpo("mixamorig:LeftFoot", "X", c("pe_e", v["pe"])),
+            "mixamorig:RightFoot": no_corpo("mixamorig:RightFoot", "X", c("pe_d", v["pe"])),
         }
         for pose_osso in ossos:
             pose_osso.rotation_mode = "QUATERNION"
@@ -996,23 +1196,28 @@ def armar_peao(malha, esqueleto, embainhar_mixamo, cabo_antigo):
         quadril = ossos["mixamorig:Hips"].matrix
         punho = mao @ punho_na_mao
         cabo = quadril @ quadril_descanso.inverted() @ cabo_antigo
-        lamina = (mao.to_3x3() @ mao_descanso.to_3x3().inverted() @ EMPUNHADURA).normalized()
-        return punho, cabo, lamina, quadril
+        giro_mao = mao.to_3x3() @ mao_descanso.to_3x3().inverted()
+        lamina = (giro_mao @ EMPUNHADURA).normalized()
+        curva = (giro_mao @ CURVA_EMPUNHADURA).normalized()
+        return punho, cabo, lamina, curva, quadril
 
     contato = min(range(inicio, fim + 1), key=lambda q: (no_quadro(q)[0] - no_quadro(q)[1]).length)
-    punho, _, lamina, quadril = no_quadro(contato)
+    punho, _, lamina, curva, quadril = no_quadro(contato)
     para_descanso = quadril_descanso @ quadril.inverted()
     punho_bainha = para_descanso @ punho
     direcao_bainha = (para_descanso.to_3x3() @ lamina).normalized()
+    curva_bainha = (para_descanso.to_3x3() @ curva).normalized()
     esqueleto.animation_data.action = None
 
-    raio, comprimento = BAINHA_ESPADA
-    boca = punho_bainha + direcao_bainha * (CABO_ESPADA[1] / 2 + GUARDA_ESPADA[2])
-    partes = partes_da_espada("Espada", PUNHO, EMPUNHADURA, ("EspadaCabo", "EspadaLamina"), "mixamorig:RightHand")
-    partes += partes_da_espada("Embainhada", punho_bainha, direcao_bainha, ("CaboBainha", None), "mixamorig:Hips")
-    partes.append(peca_alinhada("Bainha", "cilindro", (raio, comprimento), boca + direcao_bainha * (comprimento / 2), direcao_bainha, "Detalhe", "mixamorig:Hips"))
+    # a saya começa logo depois da tsuba e curva junto com a lâmina guardada dentro dela
+    raio_saya, comprimento_saya = SAYA
+    boca = punho_bainha + direcao_bainha * (CABO_KATANA[1] - CABO_ATRAS_DO_PUNHO + TSUBA[1])
+    secao_saya = [(raio_saya * math.cos(a), raio_saya * 0.75 * math.sin(a)) for a in (2 * math.pi * k / 12 for k in range(12))]
+    partes = partes_da_katana("Katana", PUNHO, EMPUNHADURA, CURVA_EMPUNHADURA, "EspadaCabo", "EspadaLamina", "mixamorig:RightHand")
+    partes += partes_da_katana("Embainhada", punho_bainha, direcao_bainha, curva_bainha, "CaboBainha", None, "mixamorig:Hips")
+    partes.append(malha_curva("Saya", boca, direcao_bainha, curva_bainha, comprimento_saya, secao_saya, "BainhaKatana", "mixamorig:Hips"))
     juntar_na_malha(malha, partes)
-    log(f"peão: espada na mão e bainha no quadril (a mão chega na bainha no quadro {contato} do {ARQUIVOS_BAINHA[0]})")
+    log(f"peão: katana na mão e saya no quadril (a mão chega na bainha no quadro {contato} do {ARQUIVOS_BAINHA[0]})")
     return contato
 
 
@@ -1336,7 +1541,7 @@ def clipes_da_peca(acoes, tipo):
     for numero in range(1, len(GOLPES[tipo]) + 1):
         clipes[f"Attack{numero}"] = acoes[f"Attack_{tipo}{numero}"]
     if tipo == "p":
-        clipes.update({nome: acoes[nome] for nome in ("Desembainhar", "Embainhar")})
+        clipes.update({nome: acoes[nome] for nome in ("Desembainhar", "Embainhar", *CLIPES_PEAO)})
     return clipes
 
 
@@ -1413,6 +1618,11 @@ QUADROS_CONFERENCIA_MORTAL = {
     "Comemorar": (1, 6, 10, 15, 20, 24, 28, 33, 38, 42, 50),
     "Morte": (1, 8, 16, 24, 32, 40, 48, 56, 64, 70),
     "Run": (1, 5, 9, 13, 17, 21),
+    "GestoKamae": (1, 14, 60),
+    "GestoHasso": (16, 60),
+    "GestoMeditar": (12, 24, 32, 90),
+    "Reverencia": (22, 40),
+    "Sacrificio": (12, 26, 70, 87, 104, 120),
 }
 QUADROS_CONFERENCIA_CAVALO = {
     "Parado": (1,), "Walk": (1, 9, 17, 25), "Gesto1": (16, 22), "Gesto2": (18, 24),
@@ -1543,6 +1753,8 @@ def main():
     acoes["Mortal"] = criar_mortal(esqueleto, acoes["Parado"], "Mortal", mortal(tombo=False))
     acoes["MortalTombo"] = criar_mortal(esqueleto, acoes["Parado"], "MortalTombo", mortal(tombo=True))
     acoes["Comemorar"] = criar_mortal(esqueleto, acoes["Parado"], "Comemorar", comemorar())
+    for nome_clipe, chaves in CLIPES_PEAO.items():
+        acoes[nome_clipe] = criar_mortal(esqueleto, acoes["Parado"], nome_clipe, chaves())
     for nome_clipe, arquivo in ANIMACOES.items():
         acoes[nome_clipe] = carregar_animacao(nome_clipe, arquivo, esqueleto, conversao, comprimentos)
     for nome_clipe in ANDAR_NO_LUGAR:

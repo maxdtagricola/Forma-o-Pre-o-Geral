@@ -9,7 +9,7 @@ import { Chess, type Square } from 'chess.js'
 import { Button } from './ui/Basics'
 import { carregarLivroDeAberturas, type LivroDeAberturas } from '../chess/pgnBook'
 import { escolherJogadaDaMaquina } from '../chess/engine'
-import { listPartidasDoJogador, novaPartida, salvarPartida, type PartidaXadrez } from '../db/xadrezRepo'
+import { listPartidasDoJogador, novaPartida, novaPartidaDemonstracao, salvarPartida, type PartidaXadrez } from '../db/xadrezRepo'
 import { registrarAprendizadoDaPartida, type ResultadoPartida as ResultadoPartidaXadrez } from '../db/xadrezAprendizadoRepo'
 
 const COR_SELECIONADA = 0x2a9d5f
@@ -135,9 +135,9 @@ function criarTexturaMadeira(
   return textura
 }
 
-/** Material de madeira envernizada (verniz brilhante por cima, refletindo o ambiente), a partir de
- * uma textura base — cada casa usa um pedaço diferente dela (deslocamento/giro), pra não parecerem
- * carimbadas. */
+/** Material de madeira fosca (sem verniz nem reflexo — o brilho refletido nas casas atrapalhava ver
+ * o jogo), a partir de uma textura base — cada casa usa um pedaço diferente dela
+ * (deslocamento/giro), pra não parecerem carimbadas. */
 function materialMadeira(base: THREE.Texture, anisotropia: number, deslocamento?: { x: number; y: number; giro: number }) {
   const mapa = base.clone()
   mapa.anisotropy = anisotropia
@@ -147,7 +147,7 @@ function materialMadeira(base: THREE.Texture, anisotropia: number, deslocamento?
     mapa.rotation = deslocamento.giro
   }
   mapa.needsUpdate = true
-  return new THREE.MeshPhysicalMaterial({ map: mapa, roughness: 0.42, clearcoat: 0.7, clearcoatRoughness: 0.12 })
+  return new THREE.MeshStandardMaterial({ map: mapa, roughness: 0.85, metalness: 0, envMapIntensity: 0.25 })
 }
 
 const LETRAS_COLUNAS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
@@ -393,14 +393,16 @@ function sortearProximoGesto(agora: number): number {
 }
 
 /** Material da peça pelo nome do material que veio do Blender: Corpo/Detalhe/Brilho seguem a
- * facção, Coroa é dourado, e a espada do peão (EspadaLamina, EspadaCabo, CaboBainha) usa o mesmo
- * aço/couro da espada das peças geométricas. */
+ * facção, Coroa é dourado, e a katana do peão: lâmina de aço (EspadaLamina), cabo e tsuba com a
+ * trama escura (EspadaCabo, e CaboBainha — o cabo que aparece pra fora da saya) e a saya laqueada
+ * de preto (BainhaKatana). */
 function materialRPG(nome: string | undefined, cor: 'w' | 'b'): THREE.Material {
   if (nome === 'Detalhe') return materiaisPorFaccao[cor].detalhe
   if (nome === 'Coroa') return materialCoroa
   if (nome === 'Brilho') return materiaisPorFaccao[cor].brilho
   if (nome === 'EspadaLamina') return materialLaminaEspada
-  if (nome === 'EspadaCabo' || nome === 'CaboBainha') return materialCaboEspada
+  if (nome === 'EspadaCabo' || nome === 'CaboBainha') return materialCaboKatana
+  if (nome === 'BainhaKatana') return materialSaya
   return materiaisPorFaccao[cor].armadura
 }
 
@@ -623,6 +625,12 @@ function tocarGolpeRPG(mesh: THREE.Object3D) {
   }
 }
 
+/** Gestos feitos com a espada na mão (o peão desembainha antes e guarda depois): todos menos a
+ * meditação, que é com as mãos juntas. */
+function gestoComEspada(gesto: string): boolean {
+  return gesto !== 'GestoMeditar'
+}
+
 /** Chamado a cada quadro pra cada peça: parada a maior parte do tempo, de vez em quando (no
  * intervalo sorteado por peça) faz um dos gestos — só se estiver mesmo parada (sem andar, golpear
  * ou fazer um gesto amigável com outra peça naquele momento). O peão desembainha a espada, faz o
@@ -639,7 +647,7 @@ function atualizarGestoRPG(mesh: THREE.Object3D, agora: number) {
   const gestos = clipesRPGComPrefixo(mesh, 'Gesto')
   if (!gestos.length) return
   const gesto = gestos[Math.floor(Math.random() * gestos.length)]
-  if (!mesh.userData.espadaRPG) {
+  if (!mesh.userData.espadaRPG || !gestoComEspada(gesto)) {
     tocarClipeRPGUmaVez(mesh, gesto, { entrada: 0.5, saida: 0.6 })
     return
   }
@@ -746,6 +754,9 @@ const materialLaminaEspada = new THREE.MeshStandardMaterial({ color: 0xc9d1dc, m
 // marrom-couro claro (não escuro) de propósito — precisa contrastar tanto com a armadura clara
 // das brancas quanto com a armadura escura das pretas, senão some contra uma das duas facções
 const materialCaboEspada = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, metalness: 0, roughness: 0.75 })
+// katana do peão RPG: cabo (tsuka) e tsuba com a trama de seda escura, saya de laca preta brilhante
+const materialCaboKatana = new THREE.MeshStandardMaterial({ color: 0x1f2a44, metalness: 0.2, roughness: 0.7 })
+const materialSaya = new THREE.MeshStandardMaterial({ color: 0x0c0c10, metalness: 0.1, roughness: 0.22 })
 
 function criarEspadaDoPeao(): THREE.Group {
   const espada = new THREE.Group()
@@ -918,12 +929,6 @@ function pixelRatioParaFullHD(larguraCss: number, alturaCss: number): number {
   return Math.min(Math.max(dpr, fatorParaFullHD), 3)
 }
 
-/**
- * Anima a posição x/z (ease-in-out) e, se a peça tiver braços/pernas, balança os membros como uma
- * caminhada durante o trajeto — voltando à pose de descanso da peça (guarda, no caso do peão) ao
- * terminar. Duração e número de passadas escalam com a distância percorrida, então o ritmo do
- * "passo" fica igual não importa se a peça andou uma casa ou atravessou o tabuleiro inteiro.
- */
 /** Ângulo de `de` até `para` pelo caminho mais curto (entre -π e π). */
 function diferencaAngular(de: number, para: number): number {
   return Math.atan2(Math.sin(para - de), Math.cos(para - de))
@@ -934,150 +939,198 @@ function rumoDeDescanso(mesh: THREE.Object3D): number {
   return mesh.userData.cor === 'w' ? Math.PI : 0
 }
 
+/** Rumo (rotation.y) de quem olha de `de` pra `para`. */
+function rumoEntre(de: { x: number; z: number }, para: { x: number; z: number }): number {
+  return Math.atan2(para.x - de.x, para.z - de.z)
+}
+
+/** Chance de o peão capturado por outro peão se render com a honra de um samurai (em vez de lutar). */
+const CHANCE_HONRA_SAMURAI = 0.5
+/** A que distância do derrotado o vencedor para pra se curvar (em casas, no tamanho do modelo). */
+const DISTANCIA_REVERENCIA = 0.75
+
+/** Até onde vai o golpe corpo a corpo (em casas, no tamanho do modelo): a peça para a essa
+ * distância da vítima pra golpear — o peão com a espada alcança mais longe que a torre com o punho/pé. */
+const ALCANCE_GOLPE: Record<string, number> = { p: 0.62, r: 0.5 }
+
 /** Acima disso (em casas, no tamanho do modelo) a peça corre em vez de andar. */
 const DISTANCIA_PRA_CORRER = 2.2
 /** Tempo pra acelerar até a velocidade do passo (e pra frear no fim). */
 const TEMPO_ACELERACAO_S = 0.35
 
+/** Peça RPG dando passos no lugar enquanto gira até o rumo `alvo` (sem girar parada feito um
+ * pião); `depois` roda ao terminar. */
+function virarRPG(mesh: THREE.Object3D, alvo: number, depois: () => void) {
+  const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction>
+  const caminhada = acoes.Walk
+  const inicial = mesh.rotation.y
+  const giro = diferencaAngular(inicial, alvo)
+  if (Math.abs(giro) < 0.05) {
+    mesh.rotation.y = alvo
+    depois()
+    return
+  }
+  const duracao = Math.max(0.2, (Math.abs(giro) / Math.PI) * 0.6)
+  if (caminhada) {
+    desligarClipesRPG(acoes, caminhada, 0.15)
+    if (!caminhada.isRunning()) caminhada.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.15).play()
+    caminhada.setEffectiveTimeScale(0.7)
+  }
+  const inicio = performance.now()
+  function passo(agora: number) {
+    const t = Math.min(1, (agora - inicio) / 1000 / duracao)
+    const suave = t * t * (3 - 2 * t)
+    mesh.rotation.y = inicial + giro * suave
+    if (t < 1) requestAnimationFrame(passo)
+    else depois()
+  }
+  requestAnimationFrame(passo)
+}
+
+/** Volta suave pro "Parado" (e o ritmo normal de todos os clipes). */
+function pararRPG(mesh: THREE.Object3D) {
+  const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction>
+  const parado = acoes.Parado
+  if (parado) {
+    desligarClipesRPG(acoes, parado, 0.25)
+    parado.reset().fadeIn(0.25).play()
+  }
+  for (const acao of Object.values(acoes)) acao.setEffectiveTimeScale(1)
+}
+
 /**
- * Peça RPG indo de uma casa a outra, como um personagem de verdade:
- * - vira pra onde vai (dando passos no lugar, sem girar parada feito um pião);
- * - anda (até ~2 casas) ou corre (mais longe) na velocidade do próprio passo — o corpo avança
- *   exatamente o que os pés pisam (velocidade medida no clipe, ver DadosRPG), acelerando no começo
- *   e freando no fim, com o ritmo dos passos acompanhando a velocidade;
- * - ao chegar, vira de volta de frente pro adversário e para.
- * O cavalo salta direto até a casa (o salto do clipe "Mortal"), como o cavalo do xadrez, que pula
- * por cima das outras peças: ele só se desloca enquanto está no ar.
+ * Peça RPG andando (até ~2 casas) ou correndo (mais longe) de `de` até `para`, na velocidade do
+ * próprio passo — o corpo avança exatamente o que os pés pisam (velocidade medida no clipe, ver
+ * DadosRPG) —, acelerando no começo e freando no fim (perfil trapezoidal), com o ritmo dos passos
+ * acompanhando a velocidade. Não vira nem para no fim (quem chama decide o que vem depois).
+ */
+function deslocarRPG(mesh: THREE.Object3D, de: { x: number; z: number }, para: { x: number; z: number }, depois: () => void) {
+  const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction>
+  const dados = mesh.userData.dadosRPG as DadosRPG
+  const dx = para.x - de.x
+  const dz = para.z - de.z
+  const distancia = Math.hypot(dx, dz)
+  const escala = mesh.scale.x
+  const corre = distancia / escala > DISTANCIA_PRA_CORRER && Boolean(acoes.Run)
+  const clipe = corre ? acoes.Run : acoes.Walk
+  const velocidade = (corre ? dados.velocidadeRun : dados.velocidadeWalk) * escala
+  if (!clipe || distancia < 1e-3) {
+    depois()
+    return
+  }
+  desligarClipesRPG(acoes, clipe, 0.2)
+  if (!clipe.isRunning()) clipe.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.2).play()
+  const aceleracao = Math.min(TEMPO_ACELERACAO_S, (0.5 * distancia) / velocidade)
+  const total = distancia / velocidade + aceleracao
+  const inicio = performance.now()
+  function passo(agora: number) {
+    const t = Math.min(total, (agora - inicio) / 1000)
+    let percorrido: number
+    let v: number
+    if (t < aceleracao) {
+      percorrido = (velocidade * t * t) / (2 * aceleracao)
+      v = (velocidade * t) / aceleracao
+    } else if (t < total - aceleracao) {
+      percorrido = (velocidade * aceleracao) / 2 + velocidade * (t - aceleracao)
+      v = velocidade
+    } else {
+      const falta = total - t
+      percorrido = distancia - (velocidade * falta * falta) / (2 * aceleracao)
+      v = (velocidade * falta) / aceleracao
+    }
+    const fracao = Math.min(1, percorrido / distancia)
+    mesh.position.x = de.x + dx * fracao
+    mesh.position.z = de.z + dz * fracao
+    // o ritmo dos passos acompanha a velocidade (nunca parado de todo, pra não "congelar" no
+    // meio de um passo enquanto ainda arranca/freia)
+    clipe!.setEffectiveTimeScale(Math.max(0.35, v / velocidade))
+    if (t < total) requestAnimationFrame(passo)
+    else depois()
+  }
+  requestAnimationFrame(passo)
+}
+
+/** Cavalo: salto de `de` até `para` (o salto do clipe "Mortal") — só se desloca entre a decolagem e
+ * o pouso; `aoPousar` roda no instante em que as patas tocam o chão, `depois` no fim do clipe. */
+function saltarRPG(
+  mesh: THREE.Object3D,
+  de: { x: number; z: number },
+  para: { x: number; z: number },
+  depois: () => void,
+  aoPousar?: () => void,
+) {
+  const dados = mesh.userData.dadosRPG as DadosRPG
+  const decola = dados.segundoDecola ?? 0.4
+  const pousa = dados.segundoPousa ?? 1.13
+  tocarClipeRPGUmaVez(mesh, 'Mortal', { entrada: 0.15, voltarAoParado: false, aoTerminar: depois })
+  const inicio = performance.now()
+  function passo(agora: number) {
+    const t = (agora - inicio) / 1000
+    const fracao = Math.min(1, Math.max(0, (t - decola) / (pousa - decola)))
+    mesh.position.x = de.x + (para.x - de.x) * fracao
+    mesh.position.z = de.z + (para.z - de.z) * fracao
+    if (fracao < 1) requestAnimationFrame(passo)
+    else aoPousar?.()
+  }
+  requestAnimationFrame(passo)
+}
+
+/** O cavalo RPG salta (em vez de andar) — só se o modelo trouxer o salto. */
+function pecaSaltaRPG(mesh: THREE.Object3D): boolean {
+  const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
+  const dados = mesh.userData.dadosRPG as DadosRPG | undefined
+  return mesh.userData.tipo === 'n' && Boolean(acoes?.Mortal) && dados?.segundoDecola !== undefined
+}
+
+/**
+ * Peça RPG indo de uma casa a outra, como um personagem de verdade: vira pra onde vai, anda ou
+ * corre (ver deslocarRPG) e, ao chegar, vira de volta de frente pro adversário e para. O cavalo
+ * salta direto até a casa, como o cavalo do xadrez, que pula por cima das outras peças.
+ * `aoPousar` (só o cavalo) roda no instante em que ele toca o chão — é quando ele atropela a peça
+ * capturada.
  */
 function animarPosicaoRPG(
   mesh: THREE.Object3D,
   de: { x: number; z: number },
   para: { x: number; z: number },
   aoTerminar: () => void,
+  aoPousar?: () => void,
 ) {
-  const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction>
-  const dados = mesh.userData.dadosRPG as DadosRPG
   // um lance interrompe o que a peça estava fazendo (gesto com a espada na mão, por exemplo): a
   // sequência em andamento é cancelada e a espada volta pra bainha
   novaSequenciaRPG(mesh)
   mostrarEspadaRPG(mesh, false)
-
-  const dx = para.x - de.x
-  const dz = para.z - de.z
-  const distancia = Math.hypot(dx, dz)
-  const escala = mesh.scale.x
-  const rumoIda = Math.atan2(dx, dz)
-  const caminhada = acoes.Walk
-
-  /** Passos no lugar enquanto gira até `alvo`; `depois` roda ao terminar. */
-  function virar(alvo: number, depois: () => void) {
-    const inicial = mesh.rotation.y
-    const giro = diferencaAngular(inicial, alvo)
-    if (Math.abs(giro) < 0.05) {
-      mesh.rotation.y = alvo
-      depois()
-      return
-    }
-    const duracao = Math.max(0.2, (Math.abs(giro) / Math.PI) * 0.6)
-    if (caminhada) {
-      desligarClipesRPG(acoes, caminhada, 0.15)
-      if (!caminhada.isRunning()) caminhada.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.15).play()
-      caminhada.setEffectiveTimeScale(0.7)
-    }
-    const inicio = performance.now()
-    function passo(agora: number) {
-      const t = Math.min(1, (agora - inicio) / 1000 / duracao)
-      const suave = t * t * (3 - 2 * t)
-      mesh.rotation.y = inicial + giro * suave
-      if (t < 1) requestAnimationFrame(passo)
-      else depois()
-    }
-    requestAnimationFrame(passo)
-  }
-
-  function parar() {
-    const parado = acoes.Parado
-    if (parado) {
-      desligarClipesRPG(acoes, parado, 0.25)
-      parado.reset().fadeIn(0.25).play()
-    }
-    for (const acao of Object.values(acoes)) acao.setEffectiveTimeScale(1)
+  const terminar = () => {
+    pararRPG(mesh)
     aoTerminar()
   }
-
-  /** Anda/corre de `de` até `para` com perfil de velocidade trapezoidal (acelera, mantém, freia). */
-  function deslocar(depois: () => void) {
-    const corre = distancia / escala > DISTANCIA_PRA_CORRER && Boolean(acoes.Run)
-    const clipe = corre ? acoes.Run : caminhada
-    const velocidade = (corre ? dados.velocidadeRun : dados.velocidadeWalk) * escala
-    if (!clipe || distancia < 1e-3) {
-      depois()
-      return
-    }
-    desligarClipesRPG(acoes, clipe, 0.2)
-    if (!clipe.isRunning()) clipe.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.2).play()
-    const aceleracao = Math.min(TEMPO_ACELERACAO_S, (0.5 * distancia) / velocidade)
-    const total = distancia / velocidade + aceleracao
-    const inicio = performance.now()
-    function passo(agora: number) {
-      const t = Math.min(total, (agora - inicio) / 1000)
-      let percorrido: number
-      let v: number
-      if (t < aceleracao) {
-        percorrido = (velocidade * t * t) / (2 * aceleracao)
-        v = (velocidade * t) / aceleracao
-      } else if (t < total - aceleracao) {
-        percorrido = (velocidade * aceleracao) / 2 + velocidade * (t - aceleracao)
-        v = velocidade
-      } else {
-        const falta = total - t
-        percorrido = distancia - (velocidade * falta * falta) / (2 * aceleracao)
-        v = (velocidade * falta) / aceleracao
-      }
-      const fracao = Math.min(1, percorrido / distancia)
-      mesh.position.x = de.x + dx * fracao
-      mesh.position.z = de.z + dz * fracao
-      // o ritmo dos passos acompanha a velocidade (nunca parado de todo, pra não "congelar" no
-      // meio de um passo enquanto ainda arranca/freia)
-      clipe!.setEffectiveTimeScale(Math.max(0.35, v / velocidade))
-      if (t < total) requestAnimationFrame(passo)
-      else depois()
-    }
-    requestAnimationFrame(passo)
+  const seguir = () => virarRPG(mesh, rumoDeDescanso(mesh), terminar)
+  if (Math.hypot(para.x - de.x, para.z - de.z) < 1e-3) {
+    seguir()
+    return
   }
-
-  /** Cavalo: salto até a casa — só se desloca entre a decolagem e o pouso do clipe. */
-  function saltar(depois: () => void) {
-    const decola = dados.segundoDecola ?? 0.4
-    const pousa = dados.segundoPousa ?? 1.13
-    tocarClipeRPGUmaVez(mesh, 'Mortal', { entrada: 0.15, voltarAoParado: false, aoTerminar: depois })
-    const inicio = performance.now()
-    function passo(agora: number) {
-      const t = (agora - inicio) / 1000
-      const fracao = Math.min(1, Math.max(0, (t - decola) / (pousa - decola)))
-      mesh.position.x = de.x + dx * fracao
-      mesh.position.z = de.z + dz * fracao
-      if (fracao < 1) requestAnimationFrame(passo)
-    }
-    requestAnimationFrame(passo)
-  }
-
-  const salta = mesh.userData.tipo === 'n' && Boolean(acoes.Mortal) && dados.segundoDecola !== undefined
-  virar(rumoIda, () => {
-    const seguir = () => virar(rumoDeDescanso(mesh), parar)
-    if (salta) saltar(seguir)
-    else deslocar(seguir)
+  virarRPG(mesh, rumoEntre(de, para), () => {
+    if (pecaSaltaRPG(mesh)) saltarRPG(mesh, de, para, seguir, aoPousar)
+    else deslocarRPG(mesh, de, para, seguir)
   })
 }
 
+/**
+ * Anima a posição x/z (ease-in-out) e, se a peça tiver braços/pernas, balança os membros como uma
+ * caminhada durante o trajeto — voltando à pose de descanso da peça (guarda, no caso do peão) ao
+ * terminar. Duração e número de passadas escalam com a distância percorrida, então o ritmo do
+ * "passo" fica igual não importa se a peça andou uma casa ou atravessou o tabuleiro inteiro. As
+ * peças RPG vão por animarPosicaoRPG.
+ */
 function animarPosicao(
   mesh: THREE.Object3D,
   de: { x: number; z: number },
   para: { x: number; z: number },
   aoTerminar: () => void,
+  aoPousar?: () => void,
 ) {
   if (mesh.userData.acoesRPG && mesh.userData.dadosRPG) {
-    animarPosicaoRPG(mesh, de, para, aoTerminar)
+    animarPosicaoRPG(mesh, de, para, aoTerminar, aoPousar)
     return
   }
   const membros = mesh.userData.membros as MembrosPersonagem | undefined
@@ -1238,7 +1291,8 @@ function animarGestoAmigavel(
   // verdade (um dos gestos dela), em vez de inclinar/afundar a peça inteira rígida
   if (ehRPG) {
     window.setTimeout(() => {
-      const gestos = clipesRPGComPrefixo(mesh, 'Gesto')
+      // as guardas de samurai do peão são com a katana na mão — no gesto amigável ele não desembainha
+      const gestos = clipesRPGComPrefixo(mesh, 'Gesto').filter((g) => g !== 'GestoKamae' && g !== 'GestoHasso')
       if (!gestos.length) return
       novaSequenciaRPG(mesh)
       mostrarEspadaRPG(mesh, false)
@@ -1493,21 +1547,7 @@ function animarQuedaEDesaparecimento(
   direcaoNocaute?: { x: number; z: number },
   direcaoGolpe?: { x: number; z: number },
 ) {
-  mesh.traverse((obj) => {
-    if (!(obj instanceof THREE.Mesh)) return
-    const mat = obj.material
-    if (Array.isArray(mat)) {
-      obj.material = mat.map((m) => {
-        const clone = m.clone()
-        clone.transparent = true
-        return clone
-      })
-    } else {
-      const clone = mat.clone()
-      clone.transparent = true
-      obj.material = clone
-    }
-  })
+  const definirOpacidade = prepararParaSumir(mesh)
 
   const yInicial = mesh.position.y
   const posOriginal = { x: mesh.position.x, z: mesh.position.z }
@@ -1515,15 +1555,6 @@ function animarQuedaEDesaparecimento(
   const sinalQueda = Math.random() < 0.5 ? 1 : -1
   const duracaoTotal = DURACAO_QUEDA_MS + DURACAO_SUMIR_MS
   const inicio = performance.now()
-
-  function definirOpacidade(valor: number) {
-    mesh.traverse((obj) => {
-      if (!(obj instanceof THREE.Mesh)) return
-      const mat = obj.material
-      if (Array.isArray(mat)) mat.forEach((m) => (m.opacity = valor))
-      else mat.opacity = valor
-    })
-  }
 
   // peça RPG: vira de frente pra quem golpeou (num instante — o golpe já acertou) e cai de verdade
   // com o clipe "Morte" (cai de costas, pra longe do atacante); só depois de estirada no chão é que
@@ -1832,6 +1863,495 @@ function lancarPoderDoBispo(cena: THREE.Object3D, bispo: THREE.Object3D, alvo: T
   requestAnimationFrame(passo)
 }
 
+/** Posição no mundo de um osso do Mixamo (o GLTFLoader tira o ":" do nome); sem ele, a altura do
+ * peito da peça. */
+function posicaoDoOsso(mesh: THREE.Object3D, nome: string): THREE.Vector3 {
+  const osso = mesh.getObjectByName(`mixamorig${nome}`) ?? mesh.getObjectByName(`mixamorig:${nome}`)
+  if (osso) return osso.getWorldPosition(new THREE.Vector3())
+  return mesh.position.clone().add(new THREE.Vector3(0, 0.5 * mesh.scale.y, 0))
+}
+
+// ---------------------------------------------------------------------------
+// Raio da dama — do cetro (mão direita) sai um raio que cintila em zigue-zague até a vítima,
+// redesenhado a cada poucos quadros, e explode nela. Ataque à distância como o do bispo, mas
+// instantâneo como um relâmpago.
+// ---------------------------------------------------------------------------
+const geoSegmentoRaio = new THREE.CylinderGeometry(1, 1, 1, 6, 1, true)
+
+function lancarRaioDaDama(cena: THREE.Object3D, dama: THREE.Object3D, alvo: THREE.Vector3, cor: THREE.ColorRepresentation, aoAcertar: () => void) {
+  const origem = posicaoDoOsso(dama, 'RightHand')
+  const grupo = new THREE.Group()
+  cena.add(grupo)
+  const materialNucleo = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false })
+  const materialHalo = new THREE.MeshBasicMaterial({ color: cor, transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false })
+  const brilhoMao = spriteDeBrilho(cor, 0.4)
+  brilhoMao.position.copy(origem)
+  cena.add(brilhoMao)
+  const luz = new THREE.PointLight(cor, 6, 4, 2)
+  luz.position.copy(alvo)
+  cena.add(luz)
+
+  const direcao = alvo.clone().sub(origem)
+  const lateral = new THREE.Vector3().crossVectors(direcao, new THREE.Vector3(0, 1, 0)).normalize()
+  const cima = new THREE.Vector3().crossVectors(lateral, direcao).normalize()
+  const eixoY = new THREE.Vector3(0, 1, 0)
+
+  function desenhar() {
+    for (const filho of [...grupo.children]) grupo.remove(filho)
+    const pontos: THREE.Vector3[] = []
+    const PARTES = 12
+    for (let i = 0; i <= PARTES; i++) {
+      const t = i / PARTES
+      const desvio = i === 0 || i === PARTES ? 0 : (0.06 + 0.1 * Math.sin(t * Math.PI)) * (Math.random() * 2 - 1)
+      const desvio2 = i === 0 || i === PARTES ? 0 : 0.06 * (Math.random() * 2 - 1)
+      pontos.push(origem.clone().addScaledVector(direcao, t).addScaledVector(lateral, desvio).addScaledVector(cima, desvio2))
+    }
+    for (let i = 0; i < PARTES; i++) {
+      const a = pontos[i]
+      const b = pontos[i + 1]
+      const comprimento = a.distanceTo(b)
+      const meio = a.clone().add(b).multiplyScalar(0.5)
+      const giro = new THREE.Quaternion().setFromUnitVectors(eixoY, b.clone().sub(a).normalize())
+      for (const [material, raio] of [
+        [materialNucleo, 0.01],
+        [materialHalo, 0.035],
+      ] as const) {
+        const segmento = new THREE.Mesh(geoSegmentoRaio, material)
+        segmento.position.copy(meio)
+        segmento.quaternion.copy(giro)
+        segmento.scale.set(raio, comprimento, raio)
+        grupo.add(segmento)
+      }
+    }
+  }
+
+  const DURACAO = 420
+  const ACERTO = 90
+  const inicio = performance.now()
+  let ultimoDesenho = -Infinity
+  let acertou = false
+  function passo(agora: number) {
+    const decorrido = agora - inicio
+    if (agora - ultimoDesenho > 55) {
+      ultimoDesenho = agora
+      desenhar()
+    }
+    const t = decorrido / DURACAO
+    const pisca = 0.75 + 0.25 * Math.sin(agora / 18)
+    materialNucleo.opacity = Math.max(0, 1 - t) * pisca
+    materialHalo.opacity = 0.55 * Math.max(0, 1 - t) * pisca
+    brilhoMao.material.opacity = Math.max(0, 1 - t)
+    luz.intensity = 6 * Math.max(0, 1 - t)
+    if (!acertou && decorrido >= ACERTO) {
+      acertou = true
+      explodirPoder(cena, alvo, cor)
+      aoAcertar()
+    }
+    if (decorrido < DURACAO) {
+      requestAnimationFrame(passo)
+      return
+    }
+    cena.remove(grupo)
+    cena.remove(brilhoMao)
+    cena.remove(luz)
+    materialNucleo.dispose()
+    materialHalo.dispose()
+    brilhoMao.material.dispose()
+  }
+  requestAnimationFrame(passo)
+}
+
+// ---------------------------------------------------------------------------
+// Onda do rei — ele bate o cajado e uma onda de choque dourada em meia-lua corre pelo chão até a
+// vítima, levantando faíscas pelo caminho, e explode nela.
+// ---------------------------------------------------------------------------
+const geoOndaRei = new THREE.RingGeometry(0.16, 0.3, 40, 1, -Math.PI / 3, (2 * Math.PI) / 3)
+
+function lancarOndaDoRei(cena: THREE.Object3D, rei: THREE.Object3D, alvo: THREE.Vector3, cor: THREE.ColorRepresentation, aoAcertar: () => void) {
+  const origem = new THREE.Vector3(rei.position.x, 0.04, rei.position.z)
+  const destino = new THREE.Vector3(alvo.x, 0.04, alvo.z)
+  const dx = destino.x - origem.x
+  const dz = destino.z - origem.z
+  const distancia = Math.hypot(dx, dz)
+  const grupo = new THREE.Group()
+  // a meia-lua (centrada no eixo +X do anel) virada pra direção da vítima
+  grupo.rotation.y = Math.atan2(-dz, dx)
+  const material = new THREE.MeshBasicMaterial({ color: cor, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide })
+  const onda = new THREE.Mesh(geoOndaRei, material)
+  onda.rotation.x = -Math.PI / 2
+  grupo.add(onda)
+  const brilho = spriteDeBrilho(cor, 0.7, 0.8)
+  brilho.position.set(0.22, 0.1, 0)
+  grupo.add(brilho)
+  const luz = new THREE.PointLight(cor, 5, 3, 2)
+  luz.position.set(0.2, 0.25, 0)
+  grupo.add(luz)
+  grupo.position.copy(origem)
+  cena.add(grupo)
+
+  const faiscas: Particula[] = []
+  let faiscasAnimando = false
+  const duracao = THREE.MathUtils.clamp(distancia / 5, 0.25, 0.6) * 1000
+  const inicio = performance.now()
+  let ultimaFaisca = 0
+  function passo(agora: number) {
+    const t = Math.min(1, (agora - inicio) / duracao)
+    grupo.position.lerpVectors(origem, destino, t)
+    grupo.scale.setScalar(1 + t * 1.2)
+    if (agora - ultimaFaisca > 20) {
+      ultimaFaisca = agora
+      const faisca = spriteDeBrilho(Math.random() < 0.3 ? 0xffffff : cor, 0.1)
+      faisca.position.copy(grupo.position).add(new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.02, (Math.random() - 0.5) * 0.4))
+      cena.add(faisca)
+      faiscas.push({
+        objeto: faisca,
+        nasceu: agora,
+        vida: 380,
+        velocidade: new THREE.Vector3((Math.random() - 0.5) * 0.6, 1.2 + Math.random(), (Math.random() - 0.5) * 0.6),
+        tamanho: 0.1,
+      })
+      if (!faiscasAnimando) {
+        faiscasAnimando = true
+        animarParticulas(cena, faiscas)
+      }
+    }
+    if (t < 1) {
+      requestAnimationFrame(passo)
+      return
+    }
+    cena.remove(grupo)
+    material.dispose()
+    brilho.material.dispose()
+    explodirPoder(cena, alvo, cor)
+    aoAcertar()
+  }
+  requestAnimationFrame(passo)
+}
+
+// ---------------------------------------------------------------------------
+// Pétalas de cerejeira (sakura) — caem devagar balançando em volta do peão que se rende com honra.
+// ---------------------------------------------------------------------------
+function criarTexturaPetala(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 64
+  canvas.height = 64
+  const ctx = canvas.getContext('2d')!
+  const gradiente = ctx.createRadialGradient(32, 40, 2, 32, 32, 30)
+  gradiente.addColorStop(0, '#fff3f7')
+  gradiente.addColorStop(0.6, '#f7b6cc')
+  gradiente.addColorStop(1, '#e98aab')
+  ctx.fillStyle = gradiente
+  ctx.beginPath()
+  // pétala: gota com um entalhe na ponta
+  ctx.moveTo(32, 60)
+  ctx.bezierCurveTo(6, 44, 10, 10, 26, 6)
+  ctx.lineTo(32, 13)
+  ctx.lineTo(38, 6)
+  ctx.bezierCurveTo(54, 10, 58, 44, 32, 60)
+  ctx.fill()
+  const textura = new THREE.CanvasTexture(canvas)
+  textura.colorSpace = THREE.SRGBColorSpace
+  return textura
+}
+const texturaPetala = criarTexturaPetala()
+
+/** Pétalas caindo em volta de `centro` durante `duracaoMs`. */
+function animarPetalas(cena: THREE.Object3D, centro: THREE.Vector3, duracaoMs: number) {
+  interface Petala {
+    sprite: THREE.Sprite
+    inicio: number
+    vida: number
+    x: number
+    z: number
+    altura: number
+    fase: number
+  }
+  const petalas: Petala[] = []
+  const inicio = performance.now()
+  let ultima = 0
+  function passo(agora: number) {
+    const decorrido = agora - inicio
+    if (decorrido < duracaoMs - 1200 && agora - ultima > 90) {
+      ultima = agora
+      const material = new THREE.SpriteMaterial({ map: texturaPetala, transparent: true, depthWrite: false })
+      const sprite = new THREE.Sprite(material)
+      sprite.scale.setScalar(0.07 + Math.random() * 0.04)
+      cena.add(sprite)
+      const angulo = Math.random() * Math.PI * 2
+      const raio = 0.2 + Math.random() * 0.7
+      petalas.push({
+        sprite,
+        inicio: agora,
+        vida: 2600 + Math.random() * 1200,
+        x: centro.x + Math.cos(angulo) * raio,
+        z: centro.z + Math.sin(angulo) * raio,
+        altura: 1.3 + Math.random() * 0.6,
+        fase: Math.random() * Math.PI * 2,
+      })
+    }
+    for (let i = petalas.length - 1; i >= 0; i--) {
+      const p = petalas[i]
+      const t = (agora - p.inicio) / p.vida
+      if (t >= 1) {
+        cena.remove(p.sprite)
+        p.sprite.material.dispose()
+        petalas.splice(i, 1)
+        continue
+      }
+      // cai devagar, balançando de um lado pro outro e girando
+      p.sprite.position.set(
+        p.x + Math.sin(t * 6 + p.fase) * 0.12,
+        Math.max(0.03, p.altura * (1 - t)),
+        p.z + Math.cos(t * 5 + p.fase) * 0.08,
+      )
+      p.sprite.material.rotation = p.fase + t * 4
+      p.sprite.material.opacity = t > 0.8 ? (1 - t) / 0.2 : 1
+    }
+    if (decorrido < duracaoMs || petalas.length) requestAnimationFrame(passo)
+  }
+  requestAnimationFrame(passo)
+}
+
+// ---------------------------------------------------------------------------
+// Ascensão do peão que chega ao outro lado (promoção): uma coluna de luz o envolve, anéis sobem
+// em volta e partículas sobem girando em espiral; ele levita girando devagar, um clarão e ele
+// vira a peça nova, que desce de volta pra casa enquanto a luz se desfaz.
+// ---------------------------------------------------------------------------
+function criarTexturaColuna(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 4
+  canvas.height = 256
+  const ctx = canvas.getContext('2d')!
+  const gradiente = ctx.createLinearGradient(0, 256, 0, 0)
+  gradiente.addColorStop(0, 'rgba(255,255,255,0.95)')
+  gradiente.addColorStop(0.35, 'rgba(255,255,255,0.45)')
+  gradiente.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = gradiente
+  ctx.fillRect(0, 0, 4, 256)
+  return new THREE.CanvasTexture(canvas)
+}
+const texturaColuna = criarTexturaColuna()
+const geoColunaAscensao = new THREE.CylinderGeometry(0.42, 0.42, 3.2, 40, 1, true)
+const geoAnelAscensao = new THREE.TorusGeometry(0.38, 0.014, 8, 64)
+
+const DURACAO_SUBIDA_ASCENSAO_MS = 1700
+const DURACAO_DESCIDA_ASCENSAO_MS = 900
+const ALTURA_ASCENSAO = 0.45
+
+/**
+ * `aoClarao` troca a peça (o peão vira a nova) e devolve a peça nova — que desce de volta pra casa;
+ * `aoTerminar` roda quando ela pousa.
+ */
+function animarAscensao(
+  cena: THREE.Object3D,
+  peao: THREE.Object3D,
+  cor: THREE.ColorRepresentation,
+  aoClarao: () => THREE.Object3D | undefined,
+  aoTerminar: () => void,
+) {
+  const base = new THREE.Vector3(peao.position.x, 0, peao.position.z)
+  const yPeca = peao.position.y
+  const efeito = new THREE.Group()
+  efeito.position.copy(base)
+  cena.add(efeito)
+  const materialColuna = new THREE.MeshBasicMaterial({
+    map: texturaColuna,
+    color: cor,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  })
+  const coluna = new THREE.Mesh(geoColunaAscensao, materialColuna)
+  coluna.position.y = 1.6
+  efeito.add(coluna)
+  const aneis = [0, 1, 2].map((i) => {
+    const anel = new THREE.Mesh(
+      geoAnelAscensao,
+      new THREE.MeshBasicMaterial({ color: i === 1 ? 0xffe08a : cor, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }),
+    )
+    anel.rotation.x = Math.PI / 2
+    efeito.add(anel)
+    return anel
+  })
+  const luz = new THREE.PointLight(cor, 0, 3.5, 2)
+  luz.position.y = 0.6
+  efeito.add(luz)
+
+  // partículas subindo em espiral
+  interface Faisca {
+    sprite: THREE.Sprite
+    inicio: number
+    angulo: number
+    raio: number
+  }
+  const faiscas: Faisca[] = []
+  let ultimaFaisca = 0
+
+  let pecaNova: THREE.Object3D | undefined
+  let fase: 'subindo' | 'descendo' = 'subindo'
+  let inicioFase = performance.now()
+  const rumoInicial = peao.rotation.y
+
+  function atualizarFaiscas(agora: number, criando: boolean) {
+    if (criando && agora - ultimaFaisca > 30) {
+      ultimaFaisca = agora
+      const sprite = spriteDeBrilho(Math.random() < 0.35 ? 0xffe08a : cor, 0.09)
+      efeito.add(sprite)
+      faiscas.push({ sprite, inicio: agora, angulo: Math.random() * Math.PI * 2, raio: 0.3 + Math.random() * 0.15 })
+    }
+    for (let i = faiscas.length - 1; i >= 0; i--) {
+      const f = faiscas[i]
+      const t = (agora - f.inicio) / 1400
+      if (t >= 1) {
+        efeito.remove(f.sprite)
+        f.sprite.material.dispose()
+        faiscas.splice(i, 1)
+        continue
+      }
+      const angulo = f.angulo + t * Math.PI * 3
+      const raio = f.raio * (1 - t * 0.5)
+      f.sprite.position.set(Math.cos(angulo) * raio, t * 1.8, Math.sin(angulo) * raio)
+      f.sprite.material.opacity = t < 0.15 ? t / 0.15 : 1 - t
+    }
+  }
+
+  function passo(agora: number) {
+    const t = Math.min(1, (agora - inicioFase) / (fase === 'subindo' ? DURACAO_SUBIDA_ASCENSAO_MS : DURACAO_DESCIDA_ASCENSAO_MS))
+    atualizarFaiscas(agora, fase === 'subindo')
+    if (fase === 'subindo') {
+      const suave = t * t * (3 - 2 * t)
+      peao.position.y = yPeca + ALTURA_ASCENSAO * suave
+      peao.rotation.y = rumoInicial + suave * Math.PI * 2
+      materialColuna.opacity = 0.85 * Math.min(1, t * 2)
+      coluna.scale.set(1 - 0.25 * t, Math.min(1, t * 1.5), 1 - 0.25 * t)
+      luz.intensity = 6 * t
+      aneis.forEach((anel, i) => {
+        const ti = (t * 1.4 + i * 0.25) % 1
+        anel.position.y = ti * 1.3
+        anel.scale.setScalar(1.1 - ti * 0.45)
+        ;(anel.material as THREE.MeshBasicMaterial).opacity = Math.sin(ti * Math.PI) * Math.min(1, t * 3)
+      })
+      if (t >= 1) {
+        // clarão: o peão vira a peça nova, que começa lá em cima e desce
+        explodirPoder(cena, new THREE.Vector3(base.x, yPeca + ALTURA_ASCENSAO + 0.45, base.z), cor)
+        pecaNova = aoClarao()
+        if (pecaNova) pecaNova.position.y = yPeca + ALTURA_ASCENSAO
+        fase = 'descendo'
+        inicioFase = agora
+      }
+    } else {
+      const suave = 1 - Math.pow(1 - t, 3)
+      if (pecaNova) pecaNova.position.y = yPeca + ALTURA_ASCENSAO * (1 - suave)
+      materialColuna.opacity = 0.85 * (1 - t)
+      luz.intensity = 6 * (1 - t)
+      aneis.forEach((anel) => {
+        ;(anel.material as THREE.MeshBasicMaterial).opacity *= 0.9
+      })
+      if (t >= 1) {
+        if (pecaNova) pecaNova.position.y = yPeca
+        cena.remove(efeito)
+        materialColuna.dispose()
+        aneis.forEach((anel) => (anel.material as THREE.Material).dispose())
+        for (const f of faiscas) f.sprite.material.dispose()
+        aoTerminar()
+        return
+      }
+    }
+    requestAnimationFrame(passo)
+  }
+  requestAnimationFrame(passo)
+}
+
+/** Clona os materiais da peça (compartilhados entre todas da mesma facção/tipo) pra ela poder
+ * sumir sozinha; devolve a função que muda a opacidade dela. */
+function prepararParaSumir(mesh: THREE.Object3D): (opacidade: number) => void {
+  mesh.traverse((obj) => {
+    if (!(obj instanceof THREE.Mesh)) return
+    const mat = obj.material
+    if (Array.isArray(mat)) {
+      obj.material = mat.map((m) => {
+        const clone = m.clone()
+        clone.transparent = true
+        return clone
+      })
+    } else {
+      const clone = mat.clone()
+      clone.transparent = true
+      obj.material = clone
+    }
+  })
+  return (valor: number) => {
+    mesh.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return
+      const mat = obj.material
+      if (Array.isArray(mat)) mat.forEach((m) => (m.opacity = valor))
+      else mat.opacity = valor
+    })
+  }
+}
+
+/** Distância (casas) e altura do arco de uma peça arremessada pelo cavalo. */
+const DISTANCIA_ARREMESSO = 2.6
+const ALTURA_ARREMESSO = 1.1
+const DURACAO_ARREMESSO_MS = 950
+
+/**
+ * A peça atropelada pelo cavalo sai voando pra longe na `direcao` do golpe: arco alto, girando de
+ * ponta-cabeça no ar (com o corpo "desmontando" pela animação de morte, se for RPG), quica ao bater
+ * no chão (ou na mesa, se cair fora do tabuleiro) e some aos poucos.
+ */
+function arremessarPeca(mesh: THREE.Object3D, direcao: { x: number; z: number }, aoTerminar: () => void) {
+  const definirOpacidade = prepararParaSumir(mesh)
+  const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
+  if (acoes?.Morte) {
+    novaSequenciaRPG(mesh)
+    mostrarEspadaRPG(mesh, false)
+    tocarClipeRPGUmaVez(mesh, 'Morte', { entrada: 0.08, voltarAoParado: false })
+  }
+  const tamanho = Math.hypot(direcao.x, direcao.z) || 1
+  const ux = direcao.x / tamanho
+  const uz = direcao.z / tamanho
+  const inicioPos = mesh.position.clone()
+  const distancia = DISTANCIA_ARREMESSO * (0.85 + Math.random() * 0.3)
+  const fim = new THREE.Vector3(inicioPos.x + ux * distancia, 0, inicioPos.z + uz * distancia)
+  // fora do tabuleiro (moldura incluída) cai na mesa, mais embaixo
+  const foraDoTabuleiro = Math.abs(fim.x) > 4.7 || Math.abs(fim.z) > 4.7
+  const chao = foraDoTabuleiro ? -0.36 : inicioPos.y
+  const eixoGiro = new THREE.Vector3(uz, 0, -ux)
+  const giroBase = mesh.quaternion.clone()
+  // uma volta inteira no ar; a peça RPG termina deitada pela própria animação de morte, a geométrica
+  // gira mais um quarto de volta pra cair deitada
+  const giroTotal = Math.PI * 2 + (acoes?.Morte ? 0 : Math.PI / 2)
+  const inicio = performance.now()
+  function passo(agora: number) {
+    const decorrido = agora - inicio
+    const t = Math.min(1, decorrido / DURACAO_ARREMESSO_MS)
+    mesh.position.x = inicioPos.x + (fim.x - inicioPos.x) * t
+    mesh.position.z = inicioPos.z + (fim.z - inicioPos.z) * t
+    // arco: sobe até ALTURA_ARREMESSO e desce até o chão de onde cair
+    mesh.position.y = inicioPos.y + (chao - inicioPos.y) * t + 4 * ALTURA_ARREMESSO * t * (1 - t)
+    const giro = new THREE.Quaternion().setFromAxisAngle(eixoGiro, -giroTotal * (1 - Math.pow(1 - t, 1.6)))
+    mesh.quaternion.copy(giro.multiply(giroBase))
+    if (t < 1) {
+      requestAnimationFrame(passo)
+      return
+    }
+    // no chão: um quique pequeno e some
+    const inicioChao = performance.now()
+    function noChao(agoraChao: number) {
+      const tc = Math.min(1, (agoraChao - inicioChao) / 900)
+      mesh.position.y = chao + Math.abs(Math.sin(Math.min(1, tc * 3) * Math.PI)) * 0.08 * (1 - Math.min(1, tc * 3)) - Math.max(0, tc - 0.4) * 0.2
+      if (tc > 0.35) definirOpacidade(1 - (tc - 0.35) / 0.65)
+      if (tc < 1) requestAnimationFrame(noChao)
+      else aoTerminar()
+    }
+    requestAnimationFrame(noChao)
+  }
+  requestAnimationFrame(passo)
+}
+
 export function ChessBoard3D({ jogador }: { jogador: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chessRef = useRef(new Chess())
@@ -2116,10 +2636,13 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     // as peças usam geometria/material compartilhados (cache por tipo/cor), então aqui só
     // desmonta o grupo — nunca chama dispose(), senão quebraria as peças que ainda usam o cache
     function sincronizarPecas() {
-      // reconstrói o tabuleiro inteiro a partir do estado do motor — mas se uma peça continua na
-      // mesma casa com o mesmo tipo/cor E está com um gesto amigável em andamento (meshesEmGesto),
-      // reaproveita o mesh como está em vez de recriar do zero: senão um lance acontecendo no meio
-      // de uma interação entre peças aliadas cortava/reiniciava a animação na hora
+      // ajusta o tabuleiro ao estado do motor reaproveitando a peça que continua na mesma casa
+      // (mesmo tipo e cor, e o mesmo tipo de modelo — geométrica ou RPG) — inclusive a que acabou de
+      // andar (o lance atualiza o mapa casa → peça quando ela chega). Antes o tabuleiro inteiro era
+      // recriado a cada lance: todas as peças voltavam de repente pra pose parada (cortando gestos,
+      // comemorações, a virada pra outra peça…) e o quadro engasgava recriando 32 personagens. Só
+      // cria peça nova quando muda de verdade (promoção, novo jogo, modelos RPG que acabaram de
+      // carregar).
       const meshesAntigos = new Map(pieceMeshBySquare)
       pieceMeshBySquare.clear()
       for (const linha of chessRef.current.board()) {
@@ -2128,9 +2651,9 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
           const existente = meshesAntigos.get(casa.square)
           if (
             existente &&
-            meshesEmGesto.has(existente) &&
             existente.userData.tipo === casa.type &&
-            existente.userData.cor === casa.color
+            existente.userData.cor === casa.color &&
+            Boolean(existente.userData.acoesRPG) === Boolean(modelosRPG[casa.type])
           ) {
             pieceMeshBySquare.set(casa.square, existente)
             meshesAntigos.delete(casa.square)
@@ -2315,9 +2838,9 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
 
     /**
      * Aplica um lance (SAN da máquina, ou {from,to} do clique do jogador) já animando a peça da
-     * posição de origem até o destino, removendo na hora quem for capturado (inclusive en passant).
-     * Peças de roque (a torre) e promoções só assumem a posição/forma final ao ressincronizar no
-     * fim da animação — não são animadas separadamente.
+     * posição de origem até o destino; numa captura, o golpe (corpo a corpo, à distância ou o
+     * atropelo do cavalo) vem antes, e a vítima cai e some (inclusive en passant). No roque a torre
+     * anda junto com o rei. A promoção só assume a forma final ao ressincronizar no fim.
      */
     function executarLanceComAnimacao(
       entrada: string | { from: Square; to: Square; promotion?: string },
@@ -2339,7 +2862,6 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       }
 
       const meshMovendo = origem ? pieceMeshBySquare.get(origem) : undefined
-      const meshCapturada = destino ? pieceMeshBySquare.get(destino) : undefined
 
       // chess.js (v1.x) lança exceção pra um lance que não é mais válido na posição atual (ex: um
       // lance calculado antes de outro já ter sido aplicado nesse meio-tempo) — sem isso, essa
@@ -2364,90 +2886,258 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       setHistorico(chess.history())
       salvarProgresso()
 
+      // daqui pra frente o lance e as casas não mudam mais (constantes pros callbacks das animações)
+      const lance = resultado
+      const casaOrigem = origem
+      const casaDestino = destino
+
+      /** A peça chegou: o mapa casa → peça passa a apontar pra ela na casa nova — ela é
+       * reaproveitada no fim do lance (ver sincronizarPecas), não recriada. */
+      function chegou(mesh: THREE.Group, de: Square, para: Square) {
+        if (pieceMeshBySquare.get(de) === mesh) pieceMeshBySquare.delete(de)
+        pieceMeshBySquare.set(para, mesh)
+      }
+
+      // roque: a torre também anda até a casa dela, junto com o rei
+      const linhaDoRoque = resultado.color === 'w' ? '1' : '8'
+      const torreDe = resultado.isKingsideCastle()
+        ? (`h${linhaDoRoque}` as Square)
+        : resultado.isQueensideCastle()
+          ? (`a${linhaDoRoque}` as Square)
+          : undefined
+      const torrePara = resultado.isKingsideCastle()
+        ? (`f${linhaDoRoque}` as Square)
+        : resultado.isQueensideCastle()
+          ? (`d${linhaDoRoque}` as Square)
+          : undefined
+
+      /** A peça (e, no roque, a torre) anda de onde está agora até a casa de destino; no fim, o
+       * tabuleiro se ajusta reaproveitando as peças. */
       function seguirParaDestino() {
-        if (meshMovendo && origem && destino) {
-          const de = squareToPosPeca(origem)
-          const para = squareToPosPeca(destino)
-          animarPosicao(meshMovendo, de, para, () => {
-            sincronizarPecas()
-            aoTerminar()
-          })
-        } else {
+        if (!meshMovendo || !casaOrigem || !casaDestino) {
           sincronizarPecas()
           aoTerminar()
+          return
+        }
+        let pendentes = 1
+        const terminouUma = () => {
+          pendentes--
+          if (pendentes === 0) {
+            sincronizarPecas()
+            aoTerminar()
+          }
+        }
+        // de onde a peça está agora — numa captura corpo a corpo ela já está perto da vítima
+        const de = { x: meshMovendo.position.x, z: meshMovendo.position.z }
+        animarPosicao(meshMovendo, de, squareToPosPeca(casaDestino), () => {
+          chegou(meshMovendo, casaOrigem, casaDestino)
+          if (!lance.isPromotion()) {
+            terminouUma()
+            return
+          }
+          // promoção: a ascensão — a luz envolve o peão, ele levita e vira a peça nova
+          animarAscensao(
+            scene,
+            meshMovendo,
+            materiaisPorFaccao[lance.color].brilho.color,
+            () => {
+              sincronizarPecas()
+              return pieceMeshBySquare.get(casaDestino)
+            },
+            terminouUma,
+          )
+        })
+        const torre = torreDe ? pieceMeshBySquare.get(torreDe) : undefined
+        if (torre && torreDe && torrePara) {
+          pendentes++
+          animarPosicao(torre, squareToPosPeca(torreDe), squareToPosPeca(torrePara), () => {
+            chegou(torre, torreDe, torrePara)
+            terminouUma()
+          })
         }
       }
 
       // captura: golpe primeiro, só depois a vítima cai e some — o peão (geométrico ou RPG) e
       // qualquer peça RPG golpeiam; uma peça geométrica de outro tipo mantém a remoção direta. O
       // golpe só acontece aqui, na hora da captura
-      const vitima = meshCapturada ?? (resultado.isEnPassant() && origem && destino
-        ? pieceMeshBySquare.get(`${destino[0]}${origem[1]}` as Square)
-        : undefined)
+      const casaDaVitima = (resultado.isEnPassant() && casaOrigem && casaDestino ? `${casaDestino[0]}${casaOrigem[1]}` : casaDestino) as
+        | Square
+        | undefined
+      const vitima = casaDaVitima ? pieceMeshBySquare.get(casaDaVitima) : undefined
       const golpeia = resultado.piece === 'p' || Boolean(meshMovendo?.userData.acoesRPG)
 
-      if (vitima && golpeia && meshMovendo && origem && destino) {
-        const deAtaque = squareToPosPeca(origem)
-        const paraAtaque = squareToPosPeca(destino)
-        const direcao = { x: paraAtaque.x - deAtaque.x, z: paraAtaque.z - deAtaque.z }
-        // sorteia o estilo do golpe a cada captura, pra não ser sempre a mesma animação
-        const estilo: EstiloAtaque = Math.random() < 0.5 ? 'corte' : 'derrubada'
-        // o peão RPG desembainha a espada primeiro, golpeia com ela e guarda de volta (a espada
-        // entra na bainha antes de a vítima terminar de sumir, então ele já anda com ela guardada);
-        // as outras peças golpeiam direto (sem espada)
+      if (vitima && golpeia && meshMovendo && casaOrigem && casaDestino) {
         const atacante = meshMovendo
-        const senha = novaSequenciaRPG(atacante)
-        // no instante em que o golpe acerta: a vítima cai (pra longe do atacante) e as aliadas
-        // por perto comemoram
-        const acertar = () => {
-          animarImpacto(scene, vitima.position.x, vitima.position.z)
-          const nocaute = estilo === 'derrubada' ? direcao : undefined
-          animarQuedaEDesaparecimento(
-            vitima,
-            () => {
-              piecesGroup.remove(vitima)
-              seguirParaDestino()
-            },
-            nocaute,
-            direcao,
-          )
+        const tipoAtacante = resultado.piece
+        const ehRPG = Boolean(atacante.userData.acoesRPG)
+        const corAtacante = resultado.color
+        const posVitima = { x: vitima.position.x, z: vitima.position.z }
 
-          // peças aliadas da atacante que estejam por perto comemoram junto, numa versão
-          // curta da comemoração de xeque-mate
-          const corAtacante = resultado.color
+        const removerVitima = () => {
+          piecesGroup.remove(vitima)
+          if (casaDaVitima && pieceMeshBySquare.get(casaDaVitima) === vitima) pieceMeshBySquare.delete(casaDaVitima)
+        }
+        // peças aliadas da atacante que estejam por perto comemoram junto, numa versão curta da
+        // comemoração de xeque-mate
+        const comemorarAliadas = () => {
           let atraso = 0
-          for (const aliada of pecasAliadasProximas(destino, corAtacante, 2.2)) {
+          for (const aliada of pecasAliadasProximas(casaDestino, corAtacante, 2.2)) {
+            if (aliada.mesh === atacante) continue
             animarComemoracao(aliada.mesh, atraso, 900)
             atraso += 80
           }
         }
-        // o bispo não encosta na vítima: no gesto da magia ele lança o poder, e o acerto só
-        // acontece quando a bola de energia chega nela
-        const bispoComPoder = resultado.piece === 'b' && Boolean(atacante.userData.acoesRPG)
-        const noGolpe = bispoComPoder
-          ? () => {
-              const alvo = vitima.position.clone().add(new THREE.Vector3(0, 0.45 * vitima.scale.y, 0))
-              lancarPoderDoBispo(scene, atacante, alvo, materiaisPorFaccao[resultado.color].brilho.color, acertar)
-            }
-          : acertar
-        sacarEspadaRPG(atacante, senha, () => {
+
+        // cavalo: salta até a casa e pousa com as patas em cima da vítima, que sai voando longe
+        if (tipoAtacante === 'n' && ehRPG && pecaSaltaRPG(atacante)) {
+          const de = { x: atacante.position.x, z: atacante.position.z }
+          animarPosicaoRPG(
+            atacante,
+            de,
+            squareToPosPeca(casaDestino),
+            () => {
+              chegou(atacante, casaOrigem, casaDestino)
+              sincronizarPecas()
+              aoTerminar()
+            },
+            () => {
+              animarImpacto(scene, posVitima.x, posVitima.z)
+              arremessarPeca(vitima, { x: posVitima.x - de.x, z: posVitima.z - de.z }, removerVitima)
+              comemorarAliadas()
+            },
+          )
+          return
+        }
+
+        // peão capturando peão: às vezes o derrotado se rende com a honra de um samurai — o vencedor
+        // vai até ele com a katana guardada e se curva em respeito; o derrotado vira de frente pra
+        // ele, ajoelha, faz uma reverência profunda e tomba pra frente, entre pétalas de cerejeira
+        const acoesVitima = vitima.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
+        const acoesAtacante = atacante.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
+        if (
+          tipoAtacante === 'p' &&
+          vitima.userData.tipo === 'p' &&
+          acoesVitima?.Sacrificio &&
+          acoesAtacante?.Reverencia &&
+          Math.random() < CHANCE_HONRA_SAMURAI
+        ) {
+          novaSequenciaRPG(atacante)
+          const de = { x: atacante.position.x, z: atacante.position.z }
+          const distancia = Math.hypot(posVitima.x - de.x, posVitima.z - de.z)
+          const parada = DISTANCIA_REVERENCIA * atacante.scale.x
+          const fracao = Math.max(0, (distancia - parada) / distancia)
+          const ate = { x: de.x + (posVitima.x - de.x) * fracao, z: de.z + (posVitima.z - de.z) * fracao }
+          virarRPG(atacante, rumoEntre(de, posVitima), () =>
+            deslocarRPG(atacante, de, ate, () => {
+              pararRPG(atacante)
+              tocarClipeRPGUmaVez(atacante, 'Reverencia', { entrada: 0.3, saida: 0.4 })
+              novaSequenciaRPG(vitima)
+              mostrarEspadaRPG(vitima, false)
+              animarPetalas(scene, vitima.position.clone(), 5200)
+              virarRPG(vitima, rumoEntre(vitima.position, atacante.position), () =>
+                tocarClipeRPGUmaVez(vitima, 'Sacrificio', {
+                  entrada: 0.3,
+                  voltarAoParado: false,
+                  aoTerminar: () => {
+                    // caído, imóvel — some aos poucos, e o vencedor entra na casa
+                    const definirOpacidade = prepararParaSumir(vitima)
+                    const inicioSumir = performance.now()
+                    const sumir = (agora: number) => {
+                      const t = Math.min(1, (agora - inicioSumir) / 900)
+                      definirOpacidade(1 - t)
+                      if (t < 1) {
+                        requestAnimationFrame(sumir)
+                        return
+                      }
+                      removerVitima()
+                      seguirParaDestino()
+                    }
+                    requestAnimationFrame(sumir)
+                  },
+                }),
+              )
+            }),
+          )
+          return
+        }
+
+        // sorteia o estilo do golpe a cada captura, pra não ser sempre a mesma animação
+        const estilo: EstiloAtaque = Math.random() < 0.5 ? 'corte' : 'derrubada'
+        const senha = novaSequenciaRPG(atacante)
+        // só rei, dama e bispo atacam à distância (cada um com o seu poder); peão e torre vão até a
+        // vítima e golpeiam com o corpo (o peão com a espada)
+        const aDistancia = ehRPG && (tipoAtacante === 'b' || tipoAtacante === 'q' || tipoAtacante === 'k')
+
+        // no instante em que o golpe acerta: a vítima cai (pra longe do atacante) e as aliadas
+        // por perto comemoram
+        const acertar = (direcaoGolpe: { x: number; z: number }) => {
+          animarImpacto(scene, posVitima.x, posVitima.z)
+          const nocaute = estilo === 'derrubada' ? direcaoGolpe : undefined
+          animarQuedaEDesaparecimento(
+            vitima,
+            () => {
+              removerVitima()
+              seguirParaDestino()
+            },
+            nocaute,
+            direcaoGolpe,
+          )
+          comemorarAliadas()
+        }
+        const golpear = () => {
+          const direcaoGolpe = { x: posVitima.x - atacante.position.x, z: posVitima.z - atacante.position.z }
+          const alvo = vitima.position.clone().add(new THREE.Vector3(0, 0.45 * vitima.scale.y, 0))
+          const corPoder = materiaisPorFaccao[corAtacante].brilho.color
+          const acerto = () => acertar(direcaoGolpe)
+          // o poder sai no instante do golpe; o acerto (a queda da vítima) só quando ele chega nela
+          const noGolpe = !aDistancia
+            ? acerto
+            : tipoAtacante === 'b'
+              ? () => lancarPoderDoBispo(scene, atacante, alvo, corPoder, acerto)
+              : tipoAtacante === 'q'
+                ? () => lancarRaioDaDama(scene, atacante, alvo, corPoder, acerto)
+                : () => lancarOndaDoRei(scene, atacante, alvo, materialCoroa.color, acerto)
           tocarGolpeRPG(atacante)
-          animarAtaqueEspada(atacante, direcao, estilo, noGolpe, () => {
+          animarAtaqueEspada(atacante, direcaoGolpe, estilo, noGolpe, () => {
             if (sequenciaRPGValida(atacante, senha)) guardarEspadaRPG(atacante, senha)
+          })
+        }
+        // o peão RPG desembainha a espada primeiro (e vai até a vítima com ela na mão), golpeia e
+        // guarda de volta — a espada entra na bainha antes de a vítima terminar de sumir
+        sacarEspadaRPG(atacante, senha, () => {
+          if (!ehRPG) {
+            golpear()
+            return
+          }
+          const rumo = rumoEntre(atacante.position, posVitima)
+          if (aDistancia) {
+            virarRPG(atacante, rumo, golpear)
+            return
+          }
+          // corpo a corpo: vira, vai até a vítima (para no alcance do golpe) e golpeia
+          const alcance = (ALCANCE_GOLPE[tipoAtacante] ?? 0.55) * atacante.scale.x
+          const de = { x: atacante.position.x, z: atacante.position.z }
+          const distancia = Math.hypot(posVitima.x - de.x, posVitima.z - de.z)
+          virarRPG(atacante, rumo, () => {
+            if (distancia <= alcance + 0.05) {
+              golpear()
+              return
+            }
+            const fracao = (distancia - alcance) / distancia
+            const ate = { x: de.x + (posVitima.x - de.x) * fracao, z: de.z + (posVitima.z - de.z) * fracao }
+            deslocarRPG(atacante, de, ate, golpear)
           })
         })
         return
       }
 
-      if (meshCapturada) {
-        piecesGroup.remove(meshCapturada)
-      } else if (resultado.isEnPassant() && origem && destino) {
-        const casaCapturada = `${destino[0]}${origem[1]}` as Square
-        const meshEnPassant = pieceMeshBySquare.get(casaCapturada)
-        if (meshEnPassant) piecesGroup.remove(meshEnPassant)
-      }
-
+      if (vitima) removerSemAnimacao(vitima)
       seguirParaDestino()
+
+      function removerSemAnimacao(mesh: THREE.Group) {
+        piecesGroup.remove(mesh)
+        if (casaDaVitima && pieceMeshBySquare.get(casaDaVitima) === mesh) pieceMeshBySquare.delete(casaDaVitima)
+      }
     }
 
     function jogarLanceDaMaquina() {
@@ -2478,27 +3168,60 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     // exibição/aprendizado. Para assim que uma partida de verdade começa.
     // ---------------------------------------------------------------------
     let demoTimeoutId: number | undefined
+    // "sessão" da demonstração: parar a demonstração (ex.: o jogador começou uma partida) troca o
+    // número, e um lance que a máquina ainda estava calculando pra demonstração é descartado quando
+    // ela termina de pensar — antes ele caía na partida nova do jogador e era salvo nela
+    let sessaoDemo = 0
+    // a partida de demonstração em andamento — guardada no servidor como demonstração (não aparece
+    // nas partidas do jogador); uma nova a cada vez que o tabuleiro recomeça
+    let partidaDemo: PartidaXadrez | null = null
 
-    function pararDemo() {
+    function cancelarAgendamentoDemo() {
       if (demoTimeoutId !== undefined) {
         window.clearTimeout(demoTimeoutId)
         demoTimeoutId = undefined
       }
     }
 
+    function pararDemo() {
+      cancelarAgendamentoDemo()
+      sessaoDemo++
+    }
+
     function agendarProximoLanceDemo() {
-      pararDemo()
+      cancelarAgendamentoDemo()
       demoTimeoutId = window.setTimeout(jogarLanceDemo, atrasoDemoAleatorio(chessRef.current))
+    }
+
+    /** Grava a partida de demonstração no servidor (PGN e, no fim, o resultado). */
+    function salvarDemo() {
+      const chess = chessRef.current
+      if (!partidaDemo) partidaDemo = novaPartidaDemonstracao()
+      partidaDemo.pgn = chess.pgn()
+      partidaDemo.atualizadaEm = Date.now()
+      if (chess.isGameOver()) {
+        partidaDemo.status = 'FINALIZADA'
+        partidaDemo.resultado = chess.isCheckmate()
+          ? chess.turn() === 'w'
+            ? 'Pretas venceram (xeque-mate)'
+            : 'Brancas venceram (xeque-mate)'
+          : 'Empate'
+      }
+      salvarPartida(partidaDemo).catch(() => {
+        // sem servidor — a demonstração segue mesmo assim
+      })
     }
 
     async function jogarLanceDemo() {
       if (partidaAtualRef.current) return // uma partida de verdade começou nesse meio-tempo
+      const sessao = sessaoDemo
       const chess = chessRef.current
       if (chess.isGameOver()) {
         // partida demonstrativa terminou — as duas cores aprendem com ela, já que as duas são a máquina
         registrarAprendizadoDaPartida(chess.history({ verbose: true }), resultadoAtual(chess), ['w', 'b'])
         demoTimeoutId = window.setTimeout(() => {
-          if (partidaAtualRef.current) return
+          if (partidaAtualRef.current || sessao !== sessaoDemo) return
+          partidaDemo = null
           chess.reset()
           sincronizarPecas()
           limparDestaques()
@@ -2508,14 +3231,19 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         return
       }
       const lance = await escolherJogadaDaMaquina(chess, livroRef.current)
+      // enquanto a máquina pensava, a demonstração pode ter parado (o jogador começou ou retomou
+      // uma partida dele) — esse lance era da demonstração, não entra na partida do jogador
+      if (partidaAtualRef.current || sessao !== sessaoDemo) return
       if (!lance) {
         agendarProximoLanceDemo()
         return
       }
       executarLanceComAnimacao(lance, () => {
         atualizarStatusTexto()
+        if (partidaAtualRef.current || sessao !== sessaoDemo) return
         agendarProximoLanceDemo()
       })
+      salvarDemo()
     }
 
     function tentarSelecionar(square: Square) {
@@ -2629,6 +3357,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       // clicar em "Novo jogo"
       entrarEmDemo() {
         partidaAtualRef.current = null
+        partidaDemo = null
         demoPausadaRef.current = false
         setEmDemo(true)
         setDemoPausado(false)

@@ -15,7 +15,8 @@ export function AdminGate({
   useEffect(() => {
     listPartidasXadrez()
       .then((partidas) => {
-        const nomes = Array.from(new Set(partidas.map((p) => p.jogador))).filter(
+        // partidas de demonstração não são de nenhum jogador
+        const nomes = Array.from(new Set(partidas.filter((p) => !p.demonstracao).map((p) => p.jogador))).filter(
           (nome) => !(ADMINS as string[]).includes(nome),
         )
         setJogadoresExistentes(nomes)

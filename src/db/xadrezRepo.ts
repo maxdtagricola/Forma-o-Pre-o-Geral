@@ -17,11 +17,22 @@ export interface PartidaXadrez {
   resultado?: string
   criadaEm: number
   atualizadaEm: number
+  /** Partida de demonstração (máquina x máquina, jogada sozinha no tabuleiro enquanto ninguém joga)
+   * — fica guardada no servidor, mas não é partida de ninguém: não aparece nas partidas do jogador
+   * nem como jogador na tela de entrada (em Configurações aparece como a pasta "Demonstração"). */
+  demonstracao?: boolean
 }
+
+/** "Jogador" das partidas de demonstração (o nome da pasta delas em Configurações). */
+export const JOGADOR_DEMONSTRACAO = 'Demonstração'
 
 export function novaPartida(jogador: string, corJogador: 'w' | 'b'): PartidaXadrez {
   const agora = Date.now()
   return { id: makeId(), jogador, corJogador, pgn: '', status: 'EM_ANDAMENTO', criadaEm: agora, atualizadaEm: agora }
+}
+
+export function novaPartidaDemonstracao(): PartidaXadrez {
+  return { ...novaPartida(JOGADOR_DEMONSTRACAO, 'w'), demonstracao: true }
 }
 
 export async function listPartidasXadrez(): Promise<PartidaXadrez[]> {
@@ -31,7 +42,7 @@ export async function listPartidasXadrez(): Promise<PartidaXadrez[]> {
 
 export async function listPartidasDoJogador(jogador: string): Promise<PartidaXadrez[]> {
   const todas = await listPartidasXadrez()
-  return todas.filter((p) => p.jogador === jogador)
+  return todas.filter((p) => p.jogador === jogador && !p.demonstracao)
 }
 
 export async function salvarPartida(partida: PartidaXadrez): Promise<void> {
@@ -44,6 +55,7 @@ export async function excluirPartida(id: string): Promise<void> {
 
 /** Exclui todas as partidas de um jogador — usado só em Configurações, com senha. */
 export async function excluirPastaDoJogador(jogador: string): Promise<void> {
-  const partidas = await listPartidasDoJogador(jogador)
+  // todas as da pasta — inclusive as de demonstração, que listPartidasDoJogador deixa de fora
+  const partidas = (await listPartidasXadrez()).filter((p) => p.jogador === jogador)
   await Promise.all(partidas.map((p) => excluirPartida(p.id)))
 }
