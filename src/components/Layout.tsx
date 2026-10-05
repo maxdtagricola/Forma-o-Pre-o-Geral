@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { aplicarTema, getTema, type Tema } from '../theme'
-import { ICONES_ABAS } from './IconesAbas'
+import { ICONE_MINHA_CONTA, ICONE_SAIR, ICONES_ABAS } from './IconesAbas'
 
 export type TabKey =
   | 'telaInicial'
@@ -96,15 +96,21 @@ export function Layout({
   active,
   onChangeTab,
   currentAdmin,
-  onSwitchAdmin,
+  nomeExibido,
+  onSair,
+  onMinhaConta,
   podeVoltar,
   onVoltar,
   children,
 }: {
   active: TabKey
   onChangeTab: (tab: TabKey) => void
+  /** Nome com que o app conhece o usuário — decide as abas exclusivas (ex.: "Max"). */
   currentAdmin: string
-  onSwitchAdmin: () => void
+  /** Nome de login, mostrado no rodapé (ex.: "MÁXIMUS"). */
+  nomeExibido: string
+  onSair: () => void
+  onMinhaConta: () => void
   podeVoltar: boolean
   onVoltar: () => void
   children: ReactNode
@@ -246,28 +252,45 @@ export function Layout({
           })}
         </nav>
 
-        {/* rodapé numa linha só: quem está usando (e trocar acesso) + tema claro/escuro */}
+        {/* rodapé numa linha só: quem está logado (minha conta, sair) + tema claro/escuro */}
         <div
           className={`border-t border-ink-100 px-2 py-2 ${
             recolhido ? 'flex flex-col items-center gap-1' : 'flex items-center gap-2 pl-3'
           }`}
         >
           {recolhido ? (
-            <button
-              type="button"
-              onClick={onSwitchAdmin}
-              title={`${currentAdmin} — trocar acesso`}
-              aria-label={`${currentAdmin} — trocar acesso`}
-              className="h-7 w-full rounded-lg text-xs text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
-            >
-              ⇄
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={onMinhaConta}
+                title={`${nomeExibido} — minha conta`}
+                aria-label={`${nomeExibido} — minha conta`}
+                className="flex h-7 w-full items-center justify-center rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
+              >
+                {ICONE_MINHA_CONTA}
+              </button>
+              <button
+                type="button"
+                onClick={onSair}
+                title={`${nomeExibido} — sair`}
+                aria-label={`${nomeExibido} — sair`}
+                className="flex h-7 w-full items-center justify-center rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
+              >
+                {ICONE_SAIR}
+              </button>
+            </>
           ) : (
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-medium leading-tight text-ink-700">{currentAdmin}</p>
-              <button type="button" onClick={onSwitchAdmin} className="text-xs leading-tight text-ink-400 hover:text-ink-600 transition">
-                Trocar acesso
-              </button>
+              <p className="truncate text-sm font-medium leading-tight text-ink-700">{nomeExibido}</p>
+              <p className="text-xs leading-tight text-ink-400">
+                <button type="button" onClick={onMinhaConta} className="hover:text-ink-600 transition">
+                  Minha conta
+                </button>
+                {' · '}
+                <button type="button" onClick={onSair} className="hover:text-ink-600 transition">
+                  Sair
+                </button>
+              </p>
             </div>
           )}
           <button

@@ -25,6 +25,8 @@ import type { Empresa, EstadoDestino } from '../types'
 import type { PricingGlobal } from '../db/configRepo'
 import { verificarSenhaAdmin } from '../db/db'
 import { avisar, pedirSenha } from '../dialogs'
+import { UsuariosCard } from '../components/UsuariosCard'
+import { useSessao } from '../sessaoUsuario'
 
 const estadoOptions = ESTADOS.map((e) => ({ value: e.uf, label: `${e.uf} — ${e.nome}` }))
 
@@ -38,6 +40,9 @@ export function ConfiguracoesPage({
   onSavePricingGlobal: (valores: PricingGlobal) => Promise<void>
 }) {
   // (o tema claro/escuro saiu daqui — agora é um botão fixo na barra lateral, ver Layout.tsx)
+
+  // a lista de usuários (definir função de quem se cadastrou) é só pro Max
+  const gerenciaUsuarios = useSessao()?.usuario.gestor ?? false
 
   // --- cores dos status -------------------------------------------------------
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
@@ -344,6 +349,8 @@ export function ConfiguracoesPage({
         <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Configurações</h2>
         <p className="text-sm text-ink-400">Ajustes gerais do site, válidos pra todos os admins.</p>
       </div>
+
+      {gerenciaUsuarios && <UsuariosCard />}
 
       <div className="card">
         <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Cores dos status de cotação</h3>

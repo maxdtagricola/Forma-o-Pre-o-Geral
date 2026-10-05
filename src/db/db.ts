@@ -12,14 +12,15 @@
 // 500...), só quando a conexão falha de verdade.
 //
 // Senhas: o servidor só responde com a SENHA DE ACESSO (pedida uma vez por
-// aparelho e guardada no localStorage). Algumas gravações (empresas,
-// planilhas de markup, excluir produto/partidas...) pedem também a SENHA DE
-// ADMIN, digitada na hora e conferida pelo próprio servidor. As duas são
-// definidas no celular do servidor (node definir-senhas.js).
+// aparelho e guardada no localStorage), e os dados só com um usuário logado
+// (o token da sessão, ver sessaoUsuario.ts/auth.ts). Algumas gravações
+// (empresas, planilhas de markup, excluir produto/partidas...) pedem também
+// a SENHA DE ADMIN, digitada na hora e conferida pelo próprio servidor. As
+// senhas de acesso e de admin são definidas no celular do servidor
+// (node definir-senhas.js).
 // -----------------------------------------------------------------------
-import { getCurrentAdmin } from '../currentAdmin'
-import { getCurrentPlayer } from '../currentPlayer'
 import { pedirSenha } from '../dialogs'
+import { getSessao, limparSessao } from '../sessaoUsuario'
 
 export const STORE_ANALISES = 'analises'
 
@@ -90,8 +91,8 @@ async function enviar(path: string, opcoes: OpcoesRequisicao, senhaAcesso: strin
   // URI-encoded: cabeçalho HTTP não aceita acento (nomes como "Gouvêa", senhas com "ç")
   if (senhaAcesso) headers['X-Senha-Acesso'] = encodeURIComponent(senhaAcesso)
   if (opcoes.senhaAdmin) headers['X-Senha-Admin'] = encodeURIComponent(opcoes.senhaAdmin)
-  const usuario = getCurrentAdmin() ?? getCurrentPlayer()
-  if (usuario) headers['X-Usuario'] = encodeURIComponent(usuario)
+  const sessao = getSessao()
+  if (sessao) headers['X-Sessao'] = sessao.token
   try {
     const controller = new AbortController()
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_REQUISICAO_MS)
@@ -117,16 +118,33 @@ async function enviar(path: string, opcoes: OpcoesRequisicao, senhaAcesso: strin
 
 const MENSAGEM_SEM_ACESSO =
   'Sem a senha de acesso, o app não consegue ler nem salvar dados no servidor. Recarregue a página para digitá-la.'
+const MENSAGEM_SESSAO_ENCERRADA = 'Sua sessão terminou. Entre de novo com seu usuário e senha.'
+
+/** Erro com o texto pronto do servidor e o código dele (ex.: 'primeiro-acesso'), pra quem precisa distinguir. */
+export class ErroDoServidor extends Error {
+  constructor(
+    mensagem: string,
+    readonly codigo?: string,
+  ) {
+    super(mensagem)
+  }
+}
+
+interface CorpoDeErro {
+  erro?: string
+  /** Texto pronto pra mostrar ao usuário (as rotas de login mandam). */
+  mensagem?: string
+  minutos?: number
+}
 
 async function tratarResposta<T>(res: Response): Promise<T> {
-  if (res.status === 404) {
-    throw new Error('not-found')
-  }
   if (res.status === 401) {
     throw new Error(MENSAGEM_SEM_ACESSO)
   }
-  if (res.status === 403 || res.status === 429 || res.status === 503) {
-    const corpo = (await res.json().catch(() => ({}))) as { erro?: string; minutos?: number }
+  if (!res.ok) {
+    const corpo = (await res.json().catch(() => ({}))) as CorpoDeErro
+    if (corpo.mensagem) throw new ErroDoServidor(corpo.mensagem, corpo.erro)
+    if (res.status === 404) throw new Error('not-found')
     if (corpo.erro === 'senha-admin') throw new Error('Senha incorreta.')
     if (corpo.erro === 'bloqueado') {
       throw new Error(
@@ -136,10 +154,8 @@ async function tratarResposta<T>(res: Response): Promise<T> {
     if (corpo.erro === 'sem-senhas') {
       throw new Error('O servidor ainda não tem senhas definidas. No celular do servidor, rode: node definir-senhas.js')
     }
-    throw new Error('O usuário não tem acesso ao servidor.')
-  }
-  if (!res.ok) {
-    throw new Error(`Erro do servidor (${res.status}): ${await res.text()}`)
+    if (res.status === 403) throw new Error('O usuário não tem acesso ao servidor.')
+    throw new Error(`Erro do servidor (${res.status}).`)
   }
   if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
@@ -187,14 +203,33 @@ function obterSenhaAcesso(): Promise<boolean> {
 async function request<T>(path: string, opcoes: OpcoesRequisicao = {}): Promise<T> {
   for (let tentativa = 0; ; tentativa++) {
     const senhaUsada = lerSenhaAcesso()
+    const sessaoUsada = getSessao()
     const res = await enviar(path, opcoes, senhaUsada)
-    if (res.status === 401 && tentativa < 3) {
-      // a senha guardada mudou enquanto esta esperava (outra requisição já perguntou)? só repete
-      if (lerSenhaAcesso() !== senhaUsada) continue
-      if (await obterSenhaAcesso()) continue
+    if (res.status === 401) {
+      const corpo = (await res.clone().json().catch(() => ({}))) as CorpoDeErro
+      if (corpo.erro === 'sessao') {
+        // sessão encerrada no servidor (saiu em outro lugar, senha trocada, usuário excluído...):
+        // volta pro login — a não ser que alguém já tenha entrado de novo enquanto esta esperava
+        if (getSessao() !== sessaoUsada) continue
+        if (sessaoUsada) limparSessao()
+        throw new Error(MENSAGEM_SESSAO_ENCERRADA)
+      }
+      if (tentativa < 3) {
+        // a senha guardada mudou enquanto esta esperava (outra requisição já perguntou)? só repete
+        if (lerSenhaAcesso() !== senhaUsada) continue
+        if (await obterSenhaAcesso()) continue
+      }
     }
     return tratarResposta<T>(res)
   }
+}
+
+/** Chamada direta a uma rota do servidor (login, usuários...) — com as mesmas senhas, sessão e mensagens de erro dos dados. */
+export function chamarServidor<T = void>(path: string, opcoes: { method?: string; corpo?: unknown } = {}): Promise<T> {
+  return request<T>(path, {
+    method: opcoes.method,
+    body: opcoes.corpo === undefined ? undefined : JSON.stringify(opcoes.corpo),
+  })
 }
 
 /** Confere a senha de admin no servidor antes de uma ação que pede senha. Lança 'Senha incorreta.' se não bater. */

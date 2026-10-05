@@ -4,7 +4,9 @@ import { makeId } from './utils'
 // Acessos — só servem pra identificar quem criou cada cotação, sem senha nem
 // permissões diferentes entre eles (todos têm acesso total ao app).
 // ---------------------------------------------------------------------------
-export type AdminName = 'Maicon' | 'Gouvêa' | 'Max'
+// nome com que o app conhece cada administrador (cotações, histórico) — os três iniciais, e quem o
+// Max promover a administrador (ver Configurações › Usuários)
+export type AdminName = string
 
 export const ADMINS: AdminName[] = ['Maicon', 'Gouvêa', 'Max']
 

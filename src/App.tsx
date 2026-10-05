@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Layout, type TabKey } from './components/Layout'
-import { AdminGate } from './components/AdminGate'
+import { LoginPage } from './components/LoginPage'
+import { MinhaContaModal } from './components/MinhaContaModal'
 import { TelaInicialPage } from './pages/TelaInicialPage'
 import { XadrezPage } from './pages/XadrezPage'
 import { CotacoesPage } from './pages/CotacoesPage'
@@ -33,9 +34,8 @@ import {
   type PricingGlobal,
 } from './db/configRepo'
 import { listEmpresas } from './db/empresasRepo'
-import { clearCurrentAdmin, getCurrentAdmin, setCurrentAdmin } from './currentAdmin'
-import { clearCurrentPlayer, getCurrentPlayer, setCurrentPlayer } from './currentPlayer'
-import { getModoSessao, limparModoSessao, setModoSessao } from './session'
+import { atualizarUsuarioLogado, listarUsuarios, sair } from './auth'
+import { getSessao, useSessao, type UsuarioLogado } from './sessaoUsuario'
 import { avisar, confirmar } from './dialogs'
 import { createQuoteItem } from './types'
 import type { ItemCotacaoImportado } from './quoteImport'
@@ -52,23 +52,95 @@ import type {
   TipoReferencia,
 } from './types'
 
+/** Entrada do app: sem usuário logado, a tela de login; com usuário, o site todo (administrador) ou
+ * só a Tela Inicial (quem se cadastrou e ainda não ganhou outra função do Max). */
 export default function App() {
-  const [currentAdmin, setCurrentAdminState] = useState<AdminName | null>(() =>
-    getModoSessao() === 'admin' ? getCurrentAdmin() : null,
+  const sessao = useSessao()
+
+  // a função do usuário pode ter mudado desde o último acesso (o Max define) — confere ao abrir;
+  // se a sessão não valer mais, db.ts limpa e esta tela volta pro login sozinha
+  useEffect(() => {
+    if (sessao) atualizarUsuarioLogado().catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessao?.token])
+
+  if (!sessao) {
+    return (
+      <>
+        <LoginPage />
+        <DialogHost />
+      </>
+    )
+  }
+  if (sessao.usuario.papel !== 'admin') return <AreaDoJogador usuario={sessao.usuario} />
+  // key: outro usuário entrando começa do zero (abas, cotação aberta...)
+  return <AppAdmin key={sessao.usuario.login} usuario={sessao.usuario} />
+}
+
+/** Quem só tem acesso ao xadrez: a Tela Inicial, sem a barra de abas. */
+function AreaDoJogador({ usuario }: { usuario: UsuarioLogado }) {
+  const [mostrarMinhaConta, setMostrarMinhaConta] = useState(false)
+  return (
+    <div className="min-h-screen bg-ink-50">
+      <header className="flex items-center justify-between gap-3 border-b border-ink-100 bg-surface px-4 py-3">
+        <p className="text-sm font-medium text-ink-700">
+          Olá, <span className="font-semibold">{usuario.exibicao}</span>
+        </p>
+        <div className="flex items-center gap-4">
+          <button type="button" onClick={() => setMostrarMinhaConta(true)} className="text-xs text-ink-500 hover:text-ink-700 underline">
+            Minha conta
+          </button>
+          <button type="button" onClick={() => void sair()} className="text-xs text-ink-500 hover:text-ink-700 underline">
+            Sair
+          </button>
+        </div>
+      </header>
+      <main className="max-w-3xl mx-auto px-4 py-6">
+        {usuario.pendente && (
+          <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            Seu cadastro está com o administrador, que vai definir sua função no site. Por enquanto, seu acesso é ao xadrez.
+          </p>
+        )}
+        <XadrezPage jogador={usuario.nome} />
+      </main>
+      {mostrarMinhaConta && <MinhaContaModal usuario={usuario} onFechar={() => setMostrarMinhaConta(false)} />}
+      <DialogHost />
+    </div>
   )
-  const [currentPlayer, setCurrentPlayerState] = useState<string | null>(() =>
-    getModoSessao() === 'jogador' ? getCurrentPlayer() : null,
-  )
+}
+
+function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
+  // o nome com que o app conhece o usuário (cotações, histórico, abas exclusivas) — MÁXIMUS é "Max"
+  const currentAdmin: AdminName = usuario.nome
+  const [mostrarMinhaConta, setMostrarMinhaConta] = useState(false)
   // o admin Max começa direto em "Acompanhamento de notas" — é a aba que ele mais usa
-  const [tab, setTab] = useState<TabKey>(() => {
-    const admin = getModoSessao() === 'admin' ? getCurrentAdmin() : null
-    return admin === 'Max' ? 'acompanhamentoNotas' : 'telaInicial'
-  })
+  const [tab, setTab] = useState<TabKey>(() => (currentAdmin === 'Max' ? 'acompanhamentoNotas' : 'telaInicial'))
   // atalhos "Nova cotação" / "Importar cotação" da Tela Inicial: a aba Cotações já abre no modo certo
   const [modoNovoCotacao, setModoNovoCotacao] = useState<'manual' | 'importar'>('manual')
   useEffect(() => {
     if (tab !== 'cotacoes') setModoNovoCotacao('manual')
   }, [tab])
+
+  // quem gerencia os usuários (o Max) é avisado, uma vez por sessão, de cadastros esperando função
+  useEffect(() => {
+    const sessao = getSessao()
+    if (!usuario.gestor || !sessao) return
+    const chave = `avisoCadastros:${sessao.token.slice(0, 12)}`
+    if (sessionStorage.getItem(chave)) return
+    // marcado antes de perguntar ao servidor: o efeito pode rodar duas vezes seguidas (StrictMode)
+    sessionStorage.setItem(chave, '1')
+    listarUsuarios()
+      .then((lista) => {
+        const pendentes = lista.filter((u) => u.pendente)
+        if (pendentes.length === 0) return
+        void avisar(
+          `${pendentes.map((u) => u.exibicao).join(', ')} se ${pendentes.length > 1 ? 'cadastraram' : 'cadastrou'} no site e ` +
+            `${pendentes.length > 1 ? 'esperam' : 'espera'} você definir a função. Veja em Configurações › Usuários.`,
+          { titulo: 'Novos usuários' },
+        )
+      })
+      .catch(() => {})
+  }, [usuario.gestor])
   // pilha de telas visitadas, pro botão "Voltar" — só empilha quando a aba realmente muda (evita
   // entradas repetidas se algo chamar changeTab pra aba em que já se está)
   const [tabHistory, setTabHistory] = useState<TabKey[]>([])
@@ -236,31 +308,6 @@ export default function App() {
     () => calculateItem(activeItem.product, activeItem.pricing),
     [activeItem, tabelasVersion],
   )
-
-  function handleSelectAdmin(admin: AdminName) {
-    setModoSessao('admin')
-    setCurrentAdmin(admin)
-    setCurrentAdminState(admin)
-    setTab(admin === 'Max' ? 'acompanhamentoNotas' : 'telaInicial')
-  }
-
-  function handleSwitchAdmin() {
-    clearCurrentAdmin()
-    limparModoSessao()
-    setCurrentAdminState(null)
-  }
-
-  function handleSelectPlayer(nome: string) {
-    setModoSessao('jogador')
-    setCurrentPlayer(nome)
-    setCurrentPlayerState(nome)
-  }
-
-  function handleSairJogador() {
-    clearCurrentPlayer()
-    limparModoSessao()
-    setCurrentPlayerState(null)
-  }
 
   function handleRecuperarRascunho() {
     if (!rascunhoDisponivel) return
@@ -559,46 +606,20 @@ export default function App() {
     handleLoad(registroFinal)
   }
 
-  if (currentPlayer) {
-    return (
-      <div className="min-h-screen bg-ink-50">
-        <header className="flex items-center justify-between gap-3 border-b border-ink-100 bg-surface px-4 py-3">
-          <p className="text-sm font-medium text-ink-700">
-            Olá, <span className="font-semibold">{currentPlayer}</span>
-          </p>
-          <button type="button" onClick={handleSairJogador} className="text-xs text-ink-400 hover:text-ink-600 underline">
-            Sair
-          </button>
-        </header>
-        <main className="max-w-3xl mx-auto px-4 py-6">
-          <XadrezPage jogador={currentPlayer} />
-        </main>
-        <DialogHost />
-      </div>
-    )
-  }
-
-  if (!currentAdmin) {
-    return (
-      <>
-        <AdminGate onSelect={handleSelectAdmin} onSelectPlayer={handleSelectPlayer} />
-        <DialogHost />
-      </>
-    )
-  }
-
   return (
     <Layout
       active={tab}
       onChangeTab={changeTab}
       currentAdmin={currentAdmin}
-      onSwitchAdmin={handleSwitchAdmin}
+      nomeExibido={usuario.exibicao}
+      onSair={() => void sair()}
+      onMinhaConta={() => setMostrarMinhaConta(true)}
       podeVoltar={tabHistory.length > 0}
       onVoltar={handleVoltar}
     >
       {tab === 'telaInicial' && (
         <TelaInicialPage
-          nomeExibido={currentAdmin}
+          nomeExibido={usuario.exibicao}
           currentAdmin={currentAdmin}
           cotacaoAberta={editingQuoteId ? { codigo: codigoCotacao, cliente } : undefined}
           onOpenQuote={handleLoad}
@@ -718,6 +739,8 @@ export default function App() {
           onDescartar={handleDescartarRascunho}
         />
       )}
+      {mostrarMinhaConta && <MinhaContaModal usuario={usuario} onFechar={() => setMostrarMinhaConta(false)} />}
+
       <DialogHost />
     </Layout>
   )

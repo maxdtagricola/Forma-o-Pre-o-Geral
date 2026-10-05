@@ -24,6 +24,21 @@ function Icone({ children }: { children: ReactNode }) {
   )
 }
 
+// rodapé da barra lateral recolhida: "minha conta" (pessoa) e "sair" (porta com seta)
+export const ICONE_MINHA_CONTA = (
+  <Icone>
+    <circle cx="12" cy="8" r="3.5" />
+    <path d="M5 20.5c.8-3.6 3.5-5.5 7-5.5s6.2 1.9 7 5.5" />
+  </Icone>
+)
+
+export const ICONE_SAIR = (
+  <Icone>
+    <path d="M10 4H6a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h4" />
+    <path d="M14 8l4 4-4 4M18 12H9" />
+  </Icone>
+)
+
 export const ICONES_ABAS: Record<TabKey, ReactNode> = {
   // peão do xadrez
   xadrez: (
