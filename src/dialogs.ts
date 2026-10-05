@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react'
 
 // -----------------------------------------------------------------------
-// Substitui window.confirm()/alert() por uma caixa própria, sempre centrada
+// Substitui window.confirm()/alert()/prompt() (de senha) por uma caixa própria, sempre centrada
 // na tela (os diálogos nativos do navegador, em vários celulares, aparecem
 // colados no topo — parecendo um popup de propaganda). A API imita a
 // original (confirmar() resolve true/false, avisar() resolve quando
@@ -32,12 +32,34 @@ export type PedidoDialog =
       okText: string
       resolver: () => void
     }
+  | {
+      tipo: 'senha'
+      /** Muda a cada pedido — a caixa usa pra começar com o campo vazio. */
+      id: number
+      mensagem: string
+      titulo?: string
+      confirmText: string
+      resolver: (valor: string | null) => void
+    }
 
 let pedidoAtual: PedidoDialog | null = null
+// pedidos que chegaram com outra caixa aberta — aparecem em seguida, na ordem (antes, um pedido novo
+// tomava o lugar do aberto e quem esperava por aquele nunca recebia resposta)
+let fila: PedidoDialog[] = []
 let ouvintes: Array<() => void> = []
+let proximoId = 0
 
 function notificarOuvintes() {
   for (const ouvinte of ouvintes) ouvinte()
+}
+
+function abrir(pedido: PedidoDialog) {
+  if (pedidoAtual) {
+    fila.push(pedido)
+    return
+  }
+  pedidoAtual = pedido
+  notificarOuvintes()
 }
 
 /** Substitui `confirm('texto')` — mesma ideia (resolve true/false), mas assíncrona e centrada. */
@@ -46,7 +68,7 @@ export function confirmar(
   opcoes?: { titulo?: string; confirmText?: string; cancelText?: string; tone?: 'default' | 'danger' },
 ): Promise<boolean> {
   return new Promise((resolve) => {
-    pedidoAtual = {
+    abrir({
       tipo: 'confirmar',
       mensagem,
       titulo: opcoes?.titulo,
@@ -54,22 +76,34 @@ export function confirmar(
       cancelText: opcoes?.cancelText ?? 'Cancelar',
       tone: opcoes?.tone ?? 'default',
       resolver: resolve,
-    }
-    notificarOuvintes()
+    })
   })
 }
 
 /** Substitui `alert('texto')` — mesma ideia (só avisa e fecha), mas assíncrona e centrada. */
 export function avisar(mensagem: string, opcoes?: { titulo?: string; okText?: string }): Promise<void> {
   return new Promise((resolve) => {
-    pedidoAtual = {
+    abrir({
       tipo: 'avisar',
       mensagem,
       titulo: opcoes?.titulo,
       okText: opcoes?.okText ?? 'OK',
       resolver: resolve,
-    }
-    notificarOuvintes()
+    })
+  })
+}
+
+/** Pede uma senha numa caixa (campo escondido). Resolve com o que foi digitado, ou null se cancelar. */
+export function pedirSenha(mensagem: string, opcoes?: { titulo?: string; confirmText?: string }): Promise<string | null> {
+  return new Promise((resolve) => {
+    abrir({
+      tipo: 'senha',
+      id: ++proximoId,
+      mensagem,
+      titulo: opcoes?.titulo,
+      confirmText: opcoes?.confirmText ?? 'Confirmar',
+      resolver: resolve,
+    })
   })
 }
 
@@ -88,12 +122,14 @@ export function usePedidoDialog(): PedidoDialog | null {
   return useSyncExternalStore(assinar, () => pedidoAtual)
 }
 
-/** Só o <DialogHost/> chama isso, ao clicar num botão (ou fechar) da caixa atual. */
-export function resolverPedidoAtual(valorConfirmar?: boolean) {
+/** Só o <DialogHost/> chama isso, ao clicar num botão (ou fechar) da caixa atual. `texto` é a senha
+ * digitada, numa caixa de pedirSenha(). */
+export function resolverPedidoAtual(valorConfirmar?: boolean, texto?: string) {
   const pedido = pedidoAtual
-  pedidoAtual = null
+  pedidoAtual = fila.shift() ?? null
   notificarOuvintes()
   if (!pedido) return
   if (pedido.tipo === 'confirmar') pedido.resolver(valorConfirmar ?? false)
+  else if (pedido.tipo === 'senha') pedido.resolver(valorConfirmar ? (texto ?? '') : null)
   else pedido.resolver()
 }

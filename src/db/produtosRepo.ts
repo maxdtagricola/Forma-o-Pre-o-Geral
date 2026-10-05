@@ -20,8 +20,9 @@ export async function updateProduto(
   return atualizado
 }
 
-export async function deleteProduto(id: string): Promise<void> {
-  await dbDelete(STORE_PRODUTOS, id)
+/** Pede a senha de admin (conferida pelo servidor). */
+export async function deleteProduto(id: string, senhaAdmin: string): Promise<void> {
+  await dbDelete(STORE_PRODUTOS, id, { senhaAdmin })
 }
 
 /** Acha o produto do catálogo pelo Interno (prioridade) ou por uma das Referências conhecidas —

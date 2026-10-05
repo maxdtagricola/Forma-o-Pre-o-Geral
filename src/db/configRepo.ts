@@ -76,11 +76,13 @@ export async function listPlanilhas(): Promise<PlanilhaImportada[]> {
   return all.sort((a, b) => b.importadoEm - a.importadoEm)
 }
 
+// salvar planilha e trocar a ativa pedem a senha de admin (conferida pelo servidor)
 export async function salvarPlanilha(
   dados: Omit<PlanilhaImportada, 'id' | 'importadoEm'>,
+  senhaAdmin: string,
 ): Promise<PlanilhaImportada> {
   const registro: PlanilhaImportada = { ...dados, id: makeId(), importadoEm: Date.now() }
-  await dbPut(STORE_PLANILHAS, registro)
+  await dbPut(STORE_PLANILHAS, registro, { senhaAdmin })
   return registro
 }
 
@@ -94,10 +96,10 @@ export async function getPlanilhaAtivaIds(): Promise<Partial<Record<EstadoDestin
   return doc?.porPerfil ?? {}
 }
 
-export async function setPlanilhaAtivaId(perfil: EstadoDestino, planilhaId: string): Promise<void> {
+export async function setPlanilhaAtivaId(perfil: EstadoDestino, planilhaId: string, senhaAdmin: string): Promise<void> {
   const atuais = await getPlanilhaAtivaIds()
   const porPerfil = { ...atuais, [perfil]: planilhaId }
-  await dbPut(STORE_CONFIG, { id: DOC_PLANILHA_ATIVA, porPerfil })
+  await dbPut(STORE_CONFIG, { id: DOC_PLANILHA_ATIVA, porPerfil }, { senhaAdmin })
 }
 
 // ---------------------------------------------------------------------------

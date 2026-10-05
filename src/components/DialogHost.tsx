@@ -1,8 +1,9 @@
+import { useState } from 'react'
 import { Button } from './ui/Basics'
-import { resolverPedidoAtual, usePedidoDialog } from '../dialogs'
+import { resolverPedidoAtual, usePedidoDialog, type PedidoDialog } from '../dialogs'
 
-/** Renderiza a caixa de confirmar()/avisar() atual (ver src/dialogs.ts) — sempre centrada na tela e
- * por cima de qualquer outro modal, com uma entrada animada. Montado uma vez, perto da raiz do app. */
+/** Renderiza a caixa de confirmar()/avisar()/pedirSenha() atual (ver src/dialogs.ts) — sempre centrada
+ * na tela e por cima de qualquer outro modal, com uma entrada animada. Montado uma vez, perto da raiz do app. */
 export function DialogHost() {
   const pedido = usePedidoDialog()
   if (!pedido) return null
@@ -18,27 +19,62 @@ export function DialogHost() {
       <div className="card max-w-sm w-full animate-[dialog-pop-in_0.18s_cubic-bezier(0.16,1,0.3,1)]">
         {pedido.titulo && <h3 className="font-display text-lg font-semibold text-ink-900 mb-1">{pedido.titulo}</h3>}
         <p className="text-sm text-ink-600 whitespace-pre-line">{pedido.mensagem}</p>
-        <div className="mt-5 flex gap-2 justify-end">
-          {pedido.tipo === 'confirmar' && (
-            <Button variant="secondary" onClick={() => resolverPedidoAtual(false)}>
-              {pedido.cancelText}
-            </Button>
-          )}
-          {pedido.tipo === 'confirmar' && pedido.tone === 'danger' ? (
-            <button
-              type="button"
-              onClick={() => resolverPedidoAtual(true)}
-              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-700"
-            >
-              {pedido.confirmText}
-            </button>
-          ) : (
-            <Button variant="primary" onClick={() => resolverPedidoAtual(true)}>
-              {pedido.tipo === 'confirmar' ? pedido.confirmText : pedido.okText}
-            </Button>
-          )}
-        </div>
+        {pedido.tipo === 'senha' ? (
+          <CampoSenha key={pedido.id} pedido={pedido} />
+        ) : (
+          <div className="mt-5 flex gap-2 justify-end">
+            {pedido.tipo === 'confirmar' && (
+              <Button variant="secondary" onClick={() => resolverPedidoAtual(false)}>
+                {pedido.cancelText}
+              </Button>
+            )}
+            {pedido.tipo === 'confirmar' && pedido.tone === 'danger' ? (
+              <button
+                type="button"
+                onClick={() => resolverPedidoAtual(true)}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-700"
+              >
+                {pedido.confirmText}
+              </button>
+            ) : (
+              <Button variant="primary" onClick={() => resolverPedidoAtual(true)}>
+                {pedido.tipo === 'confirmar' ? pedido.confirmText : pedido.okText}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
     </div>
+  )
+}
+
+function CampoSenha({ pedido }: { pedido: Extract<PedidoDialog, { tipo: 'senha' }> }) {
+  const [senha, setSenha] = useState('')
+  return (
+    <form
+      className="mt-3"
+      onSubmit={(e) => {
+        e.preventDefault()
+        resolverPedidoAtual(true, senha)
+      }}
+    >
+      <input
+        type="password"
+        className="field-input"
+        autoFocus
+        autoComplete="current-password"
+        placeholder="Senha"
+        value={senha}
+        onChange={(e) => setSenha(e.target.value)}
+      />
+      <div className="mt-5 flex gap-2 justify-end">
+        <Button type="button" variant="secondary" onClick={() => resolverPedidoAtual(false)}>
+          Cancelar
+        </Button>
+        <Button type="submit" variant="primary" disabled={!senha}>
+          {pedido.confirmText}
+        </Button>
+      </div>
+    </form>
   )
 }

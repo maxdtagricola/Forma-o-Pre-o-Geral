@@ -23,8 +23,8 @@ import { ESTADOS } from '../data/estados'
 import { DEFAULT_EMPRESA, ESTADOS_DESTINO, NOTA_FISCAL_STATUSES, QUOTE_STATUSES } from '../types'
 import type { Empresa, EstadoDestino } from '../types'
 import type { PricingGlobal } from '../db/configRepo'
-import { SENHA_PADRAO } from '../senhaPadrao'
-import { avisar, confirmar } from '../dialogs'
+import { verificarSenhaAdmin } from '../db/db'
+import { avisar, pedirSenha } from '../dialogs'
 
 const estadoOptions = ESTADOS.map((e) => ({ value: e.uf, label: `${e.uf} — ${e.nome}` }))
 
@@ -117,13 +117,9 @@ export function ConfiguracoesPage({
       void avisar('Informe pelo menos o nome da empresa.')
       return
     }
-    if (senhaEmpresa !== SENHA_PADRAO) {
-      void avisar('Senha incorreta.')
-      return
-    }
     setSalvandoEmpresa(true)
     try {
-      await saveEmpresa(formEmpresa, editingEmpresaId)
+      await saveEmpresa(formEmpresa, editingEmpresaId, senhaEmpresa)
       handleCancelEditEmpresa()
       await refreshEmpresas()
     } catch (err) {
@@ -149,9 +145,13 @@ export function ConfiguracoesPage({
   }
 
   async function handleDeleteEmpresa(id: string) {
-    if (!(await confirmar('Excluir esta empresa? Essa ação não pode ser desfeita.'))) return
+    const senha = await pedirSenha('Excluir esta empresa? Essa ação não pode ser desfeita.\nDigite a senha para confirmar.', {
+      titulo: 'Excluir empresa',
+      confirmText: 'Excluir',
+    })
+    if (senha === null) return
     try {
-      await deleteEmpresa(id)
+      await deleteEmpresa(id, senha)
       if (editingEmpresaId === id) handleCancelEditEmpresa()
       await refreshEmpresas()
     } catch (err) {
@@ -185,12 +185,10 @@ export function ConfiguracoesPage({
 
   async function handleConfirmarExcluirPastaXadrez() {
     if (!pastaXadrezParaExcluir) return
-    if (senhaExcluirPastaXadrez !== SENHA_PADRAO) {
-      void avisar('Senha incorreta.')
-      return
-    }
     try {
-      await excluirPastaDoJogador(pastaXadrezParaExcluir)
+      // confere antes: são várias exclusões, e a senha errada não deve deixar a pasta pela metade
+      await verificarSenhaAdmin(senhaExcluirPastaXadrez)
+      await excluirPastaDoJogador(pastaXadrezParaExcluir, senhaExcluirPastaXadrez)
       setPastaXadrezParaExcluir(null)
       setSenhaExcluirPastaXadrez('')
       await refreshPastasXadrez()
@@ -251,10 +249,6 @@ export function ConfiguracoesPage({
 
   async function handleImportar() {
     if (!habilitado) return
-    if (senhaImportar !== SENHA_PADRAO) {
-      void avisar('Senha incorreta.')
-      return
-    }
     if (!arquivo) {
       void avisar('Selecione o arquivo da planilha.')
       return
@@ -265,6 +259,7 @@ export function ConfiguracoesPage({
     }
     setImportando(true)
     try {
+      await verificarSenhaAdmin(senhaImportar)
       const resultado = await lerPlanilhaMarkup(arquivo)
       setPendente({
         nomeArquivo: arquivo.name,
@@ -283,10 +278,6 @@ export function ConfiguracoesPage({
 
   async function handleSalvarNovaPlanilha() {
     if (!pendente) return
-    if (senhaSalvar !== SENHA_PADRAO) {
-      void avisar('Senha incorreta.')
-      return
-    }
     setSalvandoPlanilha(true)
     try {
       const registro = await salvarPlanilha({
@@ -295,8 +286,8 @@ export function ConfiguracoesPage({
         importadoPor: currentAdmin,
         rbc: pendente.rbc,
         icmsSt: pendente.icmsSt,
-      })
-      await setPlanilhaAtivaId(perfilImportacao, registro.id)
+      }, senhaSalvar)
+      await setPlanilhaAtivaId(perfilImportacao, registro.id, senhaSalvar)
       definirTabelasCustomizadas(perfilImportacao, registro.rbc, registro.icmsSt)
       setPendente(undefined)
       setSenhaSalvar('')
@@ -327,19 +318,16 @@ export function ConfiguracoesPage({
 
   async function handleConfirmarAcaoPlanilha() {
     if (!acaoPlanilhaPendente) return
-    if (senhaAcaoPlanilha !== SENHA_PADRAO) {
-      void avisar('Senha incorreta.')
-      return
-    }
     const { tipo, planilha } = acaoPlanilhaPendente
     setExecutandoAcaoPlanilha(true)
     try {
       if (tipo === 'usar') {
-        await setPlanilhaAtivaId(planilha.perfil, planilha.id)
+        await setPlanilhaAtivaId(planilha.perfil, planilha.id, senhaAcaoPlanilha)
         definirTabelasCustomizadas(planilha.perfil, planilha.rbc, planilha.icmsSt)
         setPlanilhaAtivaIds((prev) => ({ ...prev, [planilha.perfil]: planilha.id }))
         void avisar(`Planilha "${planilha.nomeArquivo}" aplicada pro perfil ${planilha.perfil}.`)
       } else {
+        await verificarSenhaAdmin(senhaAcaoPlanilha)
         baixarWorkbookMarkup(planilha)
       }
       handleCancelarAcaoPlanilha()

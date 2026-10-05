@@ -49,13 +49,14 @@ export async function salvarPartida(partida: PartidaXadrez): Promise<void> {
   await dbPut(STORE_PARTIDAS, partida)
 }
 
-export async function excluirPartida(id: string): Promise<void> {
-  await dbDelete(STORE_PARTIDAS, id)
+/** Pede a senha de admin (conferida pelo servidor). */
+export async function excluirPartida(id: string, senhaAdmin: string): Promise<void> {
+  await dbDelete(STORE_PARTIDAS, id, { senhaAdmin })
 }
 
-/** Exclui todas as partidas de um jogador — usado só em Configurações, com senha. */
-export async function excluirPastaDoJogador(jogador: string): Promise<void> {
+/** Exclui todas as partidas de um jogador — usado só em Configurações, com a senha de admin. */
+export async function excluirPastaDoJogador(jogador: string, senhaAdmin: string): Promise<void> {
   // todas as da pasta — inclusive as de demonstração, que listPartidasDoJogador deixa de fora
   const partidas = (await listPartidasXadrez()).filter((p) => p.jogador === jogador)
-  await Promise.all(partidas.map((p) => excluirPartida(p.id)))
+  await Promise.all(partidas.map((p) => excluirPartida(p.id, senhaAdmin)))
 }

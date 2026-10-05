@@ -3,7 +3,7 @@ import { listQuotes, saveQuote, updateItensPreRegistro } from '../db/analysesRep
 import { deleteProduto, sincronizarProdutos, updateProduto } from '../db/produtosRepo'
 import { Button } from '../components/ui/Basics'
 import { formatCurrency, formatNumber } from '../utils'
-import { SENHA_PADRAO } from '../senhaPadrao'
+import { verificarSenhaAdmin } from '../db/db'
 import { avisar } from '../dialogs'
 import type { Produto, QuoteRecord } from '../types'
 
@@ -236,9 +236,13 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
     }
   }
 
-  function handleConfirmarSenha(produto: Produto) {
-    if (senhaEdicao !== SENHA_PADRAO) {
-      void avisar('Senha incorreta.')
+  // a gravação do produto em si não pede senha no servidor (a importação de cotações grava produtos
+  // sozinha), então a senha de admin é conferida aqui, antes de editar
+  async function handleConfirmarSenha(produto: Produto) {
+    try {
+      await verificarSenhaAdmin(senhaEdicao)
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao conferir a senha no servidor.')
       setSenhaEdicao('')
       return
     }
@@ -260,18 +264,14 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
   // remove só o produto do catálogo — não mexe nas cotações onde ele já apareceu, que mantêm o
   // histórico exatamente como estava
   async function handleConfirmarExclusao(produto: Produto) {
-    if (senhaExclusao !== SENHA_PADRAO) {
-      void avisar('Senha incorreta.')
-      setSenhaExclusao('')
-      return
-    }
     setSalvando(produto.id)
     try {
-      await deleteProduto(produto.id)
+      await deleteProduto(produto.id, senhaExclusao)
       handleCancelarExclusao()
       await refresh()
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao excluir o produto.')
+      setSenhaExclusao('')
     } finally {
       setSalvando(undefined)
     }
