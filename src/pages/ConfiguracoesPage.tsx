@@ -26,6 +26,7 @@ import type { PricingGlobal } from '../db/configRepo'
 import { verificarSenhaAdmin } from '../db/db'
 import { avisar, pedirSenha } from '../dialogs'
 import { UsuariosCard } from '../components/UsuariosCard'
+import { FeriadosCard } from '../components/FeriadosCard'
 import { useSessao } from '../sessaoUsuario'
 
 const estadoOptions = ESTADOS.map((e) => ({ value: e.uf, label: `${e.uf} — ${e.nome}` }))
@@ -351,6 +352,8 @@ export function ConfiguracoesPage({
       </div>
 
       {gerenciaUsuarios && <UsuariosCard />}
+
+      <FeriadosCard />
 
       <div className="card">
         <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Cores dos status de cotação</h3>

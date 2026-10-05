@@ -27,6 +27,7 @@ import { buscarQuote, listQuotes, saveQuote, setPlanilhaOriginal, updateQuoteSta
 import { sincronizarProdutos } from './db/produtosRepo'
 import {
   DEFAULT_PRICING_GLOBAL,
+  getFeriadosExtras,
   getPlanilhaAtivaIds,
   getPricingGlobal,
   listPlanilhas,
@@ -36,6 +37,8 @@ import {
 import { listEmpresas } from './db/empresasRepo'
 import { atualizarUsuarioLogado, listarUsuarios, sair } from './auth'
 import { getSessao, useSessao, type UsuarioLogado } from './sessaoUsuario'
+import { definirFeriadosExtras } from './diasUteis'
+import { DIAS_PARA_RETORNO, cotacoesEsperandoRetorno } from './retornoCotacao'
 import { avisar, confirmar } from './dialogs'
 import { createQuoteItem } from './types'
 import type { ItemCotacaoImportado } from './quoteImport'
@@ -120,6 +123,41 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   useEffect(() => {
     if (tab !== 'cotacoes') setModoNovoCotacao('manual')
   }, [tab])
+
+  // feriados locais (Configurações › Feriados) — entram na contagem de dias úteis das telas
+  useEffect(() => {
+    getFeriadosExtras()
+      .then(definirFeriadosExtras)
+      .catch(() => {
+        // sem servidor agora: contam só os nacionais e os fins de semana
+      })
+  }, [])
+
+  // cotação enviada há 7 dias ou mais e ainda em ENVIADO: quem enviou é avisado, uma vez por sessão,
+  // pra atualizar o status (fechou → pedido de compra; não fechou → arquivar com o motivo)
+  useEffect(() => {
+    const sessao = getSessao()
+    if (!sessao) return
+    const chave = `avisoRetorno:${sessao.token.slice(0, 12)}`
+    if (sessionStorage.getItem(chave)) return
+    // marcado antes de perguntar ao servidor: o efeito pode rodar duas vezes seguidas (StrictMode)
+    sessionStorage.setItem(chave, '1')
+    listQuotes()
+      .then(async (lista) => {
+        const esperando = cotacoesEsperandoRetorno(lista, currentAdmin)
+        if (esperando.length === 0) return
+        const codigos = esperando.map((r) => r.codigo || r.cliente).join(', ')
+        const ver = await confirmar(
+          `${esperando.length === 1 ? 'Uma cotação enviada' : `${esperando.length} cotações enviadas`} por você há ${DIAS_PARA_RETORNO} dias ou mais ` +
+            `${esperando.length === 1 ? 'ainda está' : 'ainda estão'} como ENVIADO (${codigos}).\n\n` +
+            'Atualize o status: se fechou, siga pro pedido de compra; se não fechou, arquive com o motivo.',
+          { titulo: 'Retorno do cliente', confirmText: 'Ver na Tela Inicial', cancelText: 'Depois' },
+        )
+        if (ver) changeTab('telaInicial')
+      })
+      .catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // quem gerencia os usuários (o Max) é avisado, uma vez por sessão, de cadastros esperando função
   useEffect(() => {

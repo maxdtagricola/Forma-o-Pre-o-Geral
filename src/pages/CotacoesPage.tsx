@@ -14,7 +14,8 @@ import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { QUOTE_STATUSES, VENDEDORES } from '../types'
 import type { PedidoCompraInfo, QuoteRecord, QuoteStatus, TipoReferencia } from '../types'
 import { useEstadoPersistente } from '../estadoPersistente'
-import { avisar, confirmar } from '../dialogs'
+import { diasUteisDesde, textoDiasUteis, useVersaoFeriados } from '../diasUteis'
+import { avisar, confirmar, pedirMotivoArquivamento } from '../dialogs'
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
 const NOVO = '__novo__'
@@ -127,6 +128,27 @@ function SeloResponsavel({ nome, ehVoce }: { nome: string; ehVoce: boolean }) {
   )
 }
 
+/** PENDENTE há mais dias úteis que isso fica em destaque. */
+const DIAS_PENDENTE_ALERTA = 2
+
+/** Há quanto tempo a cotação está pendente (desde que o cliente pediu), em dias úteis — fim de semana e
+ * feriado não contam. */
+function TempoPendente({ r }: { r: QuoteRecord }) {
+  useVersaoFeriados()
+  const dias = diasUteisDesde(r.dataSolicitacao ?? r.createdAt)
+  const atrasada = dias > DIAS_PENDENTE_ALERTA
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+        atrasada ? 'border-amber-300 bg-amber-50 text-amber-800' : 'border-ink-200 text-ink-500'
+      }`}
+      title="Tempo pendente em dias úteis — fins de semana e feriados não contam"
+    >
+      ⏱ {dias === 0 ? 'pendente desde hoje' : `pendente há ${textoDiasUteis(dias)}`}
+    </span>
+  )
+}
+
 function QuoteCard({
   r,
   corDoStatus,
@@ -187,6 +209,7 @@ function QuoteCard({
           >
             {r.status}
           </span>
+          {r.status === 'PENDENTE' && <TempoPendente r={r} />}
           <span className="ml-auto text-sm font-mono tabular-nums text-ink-800">
             {r.summary.precoVendaTotalGeral > 0 ? formatCurrency(r.summary.precoVendaTotalGeral) : '—'}
           </span>
@@ -243,6 +266,18 @@ function QuoteCard({
               </div>
             )}
           </div>
+          {r.status === 'ARQUIVO' && r.motivoArquivamento && (
+            <div className="rounded-lg border border-ink-200 bg-ink-50 px-3 py-2">
+              <p className="text-ink-400">Arquivada sem fechar — motivo</p>
+              <p className="font-medium text-ink-800">
+                {r.motivoArquivamento.motivo}
+                {r.motivoArquivamento.detalhe && <span className="font-normal text-ink-600"> — {r.motivoArquivamento.detalhe}</span>}
+              </p>
+              <p className="text-[11px] text-ink-400">
+                por {r.motivoArquivamento.por} em {formatDate(r.motivoArquivamento.em)}
+              </p>
+            </div>
+          )}
           <div>
             <p className="text-ink-400 mb-1">Alterar status</p>
             <div className="flex items-center gap-2">
@@ -541,8 +576,12 @@ export function CotacoesPage({
       setPedidoModalRecord(record)
       return
     }
+    // arquivar sempre pede o motivo de a cotação não ter fechado — sem motivo, não arquiva
+    const arquivamento =
+      novoStatus === 'ARQUIVO' ? await pedirMotivoArquivamento(`Por que a cotação ${record.codigo || ''} não foi fechada?`) : undefined
+    if (novoStatus === 'ARQUIVO' && !arquivamento) return
     try {
-      await updateQuoteStatus(record.id, novoStatus, currentAdmin)
+      await updateQuoteStatus(record.id, novoStatus, currentAdmin, undefined, arquivamento ?? undefined)
       refresh()
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from './ui/Basics'
-import type { DadosTransporte } from '../types'
+import { diasUteisAte, textoDiasUteis } from '../diasUteis'
+import type { DadosTransporte, QuoteRecord } from '../types'
 
 // -----------------------------------------------------------------------
 // Dados do envio de cada fornecedor do pedido (NF, cotação do frete,
@@ -8,13 +9,52 @@ import type { DadosTransporte } from '../types'
 // na aba Pedido de Compra e editáveis depois no cartão de cada fornecedor.
 // -----------------------------------------------------------------------
 
-export type DadosTransporteEditaveis = Omit<DadosTransporte, 'atualizadoEm' | 'atualizadoPor'>
+export type DadosTransporteEditaveis = Omit<DadosTransporte, 'atualizadoEm' | 'atualizadoPor' | 'previsaoEntrega'> & {
+  previsaoEntrega: string
+}
 
 export const TRANSPORTE_VAZIO: DadosTransporteEditaveis = {
   numeroNotaFiscal: '',
   numeroCotacaoFrete: '',
   transportadora: '',
   linkRastreio: '',
+  previsaoEntrega: '',
+}
+
+/** A previsão de entrega mais cedo entre os fornecedores da cotação ("AAAA-MM-DD"), se alguma foi informada. */
+export function previsaoDaCotacao(cotacao: Pick<QuoteRecord, 'transportePorFornecedor'>): string | undefined {
+  const datas = Object.values(cotacao.transportePorFornecedor ?? {})
+    .map((t) => t.previsaoEntrega ?? '')
+    .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    .sort()
+  return datas[0]
+}
+
+/** "chega 10/10 · em 3 dias úteis", "chega hoje" ou "atrasada 2 dias úteis (previsão 08/10)". */
+export function situacaoDaPrevisao(previsao: string, agora: number = Date.now()): { texto: string; atrasada: boolean } {
+  const [ano, mes, dia] = previsao.split('-').map(Number)
+  const data = new Date(ano, mes - 1, dia).getTime()
+  const dataBR = `${String(dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}`
+  const dias = diasUteisAte(data, agora)
+  if (dias === 0) return { texto: `chega hoje (${dataBR})`, atrasada: false }
+  if (dias > 0) return { texto: `chega ${dataBR} · em ${textoDiasUteis(dias)}`, atrasada: false }
+  // previsão passou: num fim de semana/feriado logo depois dela a contagem de dias úteis ainda é 0
+  return { texto: `atrasada ${textoDiasUteis(Math.max(1, -dias))} (previsão ${dataBR})`, atrasada: true }
+}
+
+/** Selo da previsão de entrega (cinza no prazo, vermelho atrasada). */
+export function SeloPrevisao({ previsao, agora }: { previsao: string; agora?: number }) {
+  const { texto, atrasada } = situacaoDaPrevisao(previsao, agora)
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
+        atrasada ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-sky-200 bg-sky-50 text-sky-800'
+      }`}
+      title="Previsão de entrega informada pela transportadora (dias úteis)"
+    >
+      {texto}
+    </span>
+  )
 }
 
 /** Link de rastreio pronto pra abrir: aceita sem o "https://" (ex.: "rastreio.transportadora.com.br/…").
@@ -62,6 +102,16 @@ function CamposTransporte({
       {campo('Nº da cotação do frete', 'numeroCotacaoFrete')}
       {campo('Transportadora', 'transportadora')}
       {campo('Link de rastreio', 'linkRastreio', { placeholder: 'https://… (página de acompanhamento)', inputMode: 'url' })}
+      <label className="block" htmlFor={`${idBase}-previsaoEntrega`}>
+        <span className="mb-1 block text-xs font-medium text-ink-600">Previsão de entrega (a que a transportadora informa)</span>
+        <input
+          id={`${idBase}-previsaoEntrega`}
+          type="date"
+          className="field-input py-1.5 text-sm"
+          value={valor.previsaoEntrega}
+          onChange={(e) => onChange({ previsaoEntrega: e.target.value })}
+        />
+      </label>
       {linkInvalido && <p className="text-xs text-rose-600 sm:col-span-2">O link de rastreio não parece um endereço de site — confira (ex.: https://…).</p>}
     </div>
   )
@@ -191,6 +241,7 @@ export function CartaoTransporte({
         </p>
         <div className="flex items-center gap-2">
           {salvo && <span className="text-xs text-emerald-600">Salvo!</span>}
+          {inicial.previsaoEntrega && <SeloPrevisao previsao={inicial.previsaoEntrega} />}
           <BotaoRastreio link={inicial.linkRastreio} compacto />
           <Button variant="secondary" onClick={() => void handleSalvar()} disabled={!alterado || salvando || linkInvalido}>
             {salvando ? 'Salvando…' : 'Salvar transporte'}

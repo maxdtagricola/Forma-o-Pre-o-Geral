@@ -1,4 +1,5 @@
 import { dbGet, dbGetAll, dbPut } from './db'
+import type { FeriadoExtra } from '../diasUteis'
 import { makeId } from '../utils'
 import type { RbcData, StInfo } from '../calc/calculator'
 import type { EstadoDestino } from '../types'
@@ -140,4 +141,24 @@ export async function setEmpresaPorTransportadora(transportadora: string, empres
   const atuais = await getEmpresaPorTransportadora()
   const porTransportadora = { ...atuais, [transportadora]: empresaId }
   await dbPut(STORE_CONFIG, { id: DOC_EMPRESA_POR_TRANSPORTADORA, porTransportadora })
+}
+
+// ---------------------------------------------------------------------------
+// Feriados locais (estaduais/municipais) — os nacionais já são calculados em
+// diasUteis.ts; estes entram junto na contagem de dias úteis.
+// ---------------------------------------------------------------------------
+const DOC_FERIADOS = 'feriados'
+
+interface FeriadosDoc {
+  id: string
+  lista: FeriadoExtra[]
+}
+
+export async function getFeriadosExtras(): Promise<FeriadoExtra[]> {
+  const doc = await dbGet<FeriadosDoc>(STORE_CONFIG, DOC_FERIADOS)
+  return doc?.lista ?? []
+}
+
+export async function salvarFeriadosExtras(lista: FeriadoExtra[]): Promise<void> {
+  await dbPut(STORE_CONFIG, { id: DOC_FERIADOS, lista })
 }

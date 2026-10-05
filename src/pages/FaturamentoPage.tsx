@@ -6,7 +6,7 @@ import { listQuotes, salvarFaturamento, updateQuoteStatus } from '../db/analyses
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency } from '../utils'
 import { formatarNumeroBR, formatarNumeroCurtoBR, parseNumeroFlexivel } from '../numeros'
-import { avisar } from '../dialogs'
+import { avisar, pedirMotivoArquivamento } from '../dialogs'
 import { QUOTE_STATUSES } from '../types'
 import type { ItemFaturado, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
 
@@ -34,6 +34,27 @@ function itensDoPedido(cotacao: QuoteRecord): QuoteItem[] {
   if (!ids) return cotacao.items
   const permitidos = new Set(ids)
   return cotacao.items.filter((item) => permitidos.has(item.id))
+}
+
+/** Valor final da peça (custo unitário, impostos e frete inclusos — a mesma conta da precificação) com o
+ * que realmente fechou com o fornecedor no Pedido de Compra; sem fechamento registrado, o da cotação. */
+function custoFinal(cotacao: QuoteRecord, item: QuoteItem): number {
+  const f = cotacao.itensFechados?.[item.id]
+  const product = f ? { ...item.product, valorUnt: f.valorUnt, freteRate: f.freteRate, qtd: f.qtd || item.product.qtd } : item.product
+  return calculateItem(product, item.pricing).custoUnitario
+}
+
+function percentual(valor: number, base: number): string {
+  return base > 0 ? `${formatarNumeroBR((valor / base) * 100, 1)}%` : '—'
+}
+
+/** Diferença venda − custo, verde quando sobra e vermelha quando a venda fica abaixo do custo. */
+function Margem({ valor, base }: { valor: number; base: number }) {
+  return (
+    <span className={valor >= 0 ? 'text-emerald-700 dark:text-emerald-300' : 'text-rose-700 dark:text-rose-300'}>
+      {formatCurrency(valor)} <span className="text-[11px]">({percentual(valor, base)})</span>
+    </span>
+  )
 }
 
 /** Preço de venda unitário que foi passado ao cliente na cotação. */
@@ -131,7 +152,8 @@ export function FaturamentoPage({ currentAdmin }: { currentAdmin: string }) {
   const cotacoesParaFaturar = useMemo(
     () =>
       quotes
-        .filter((q) => QUOTE_STATUSES.indexOf(q.status) >= INDICE_PARCIALMENTE_ENTREGUE)
+        // arquivada sem nunca ter virado pedido (não fechou) não tem o que faturar — continua na busca abaixo
+        .filter((q) => QUOTE_STATUSES.indexOf(q.status) >= INDICE_PARCIALMENTE_ENTREGUE && !(q.status === 'ARQUIVO' && !q.pedidoCompra))
         .sort((a, b) => b.updatedAt - a.updatedAt),
     [quotes],
   )
@@ -212,8 +234,12 @@ export function FaturamentoPage({ currentAdmin }: { currentAdmin: string }) {
 
   async function handleStatusChange(novoStatus: QuoteStatus) {
     if (!cotacao || novoStatus === cotacao.status) return
+    // arquivar sempre pede o motivo de a cotação não ter fechado — sem motivo, não arquiva
+    const arquivamento =
+      novoStatus === 'ARQUIVO' ? await pedirMotivoArquivamento(`Por que a cotação ${cotacao.codigo || ''} não foi fechada?`) : undefined
+    if (novoStatus === 'ARQUIVO' && !arquivamento) return
     try {
-      await updateQuoteStatus(cotacao.id, novoStatus, currentAdmin)
+      await updateQuoteStatus(cotacao.id, novoStatus, currentAdmin, undefined, arquivamento ?? undefined)
       await refresh()
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
@@ -377,6 +403,8 @@ export function FaturamentoPage({ currentAdmin }: { currentAdmin: string }) {
             )}
           </div>
 
+          <ComparativoCustoVenda cotacao={cotacao} itens={itens} faturadoDe={(item) => lerFaturado(edicao[item.id])} />
+
           <div className="card">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
               <label className="block">
@@ -521,6 +549,93 @@ export function FaturamentoPage({ currentAdmin }: { currentAdmin: string }) {
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/** Comparativo por item: o valor final da peça (custo, com o que fechou no Pedido de Compra), o preço de
+ * venda passado na cotação e o valor da venda concretizada (faturado) — e quanto sobrou entre venda e
+ * custo, no previsto (cotação) e no real (faturado). */
+function ComparativoCustoVenda({
+  cotacao,
+  itens,
+  faturadoDe,
+}: {
+  cotacao: QuoteRecord
+  itens: QuoteItem[]
+  faturadoDe: (item: QuoteItem) => { qtd: number; valorUnt: number } | undefined
+}) {
+  const linhas = itens.map((item) => {
+    const custo = custoFinal(cotacao, item)
+    const passado = precoPassado(item)
+    const f = faturadoDe(item)
+    return { item, custo, passado, f }
+  })
+  const qtdCotada = (item: QuoteItem) => item.product.qtd || 0
+  const custoTotal = linhas.reduce((s, l) => s + l.custo * qtdCotada(l.item), 0)
+  const vendaTotal = linhas.reduce((s, l) => s + l.passado * qtdCotada(l.item), 0)
+  const faturados = linhas.filter((l) => l.f)
+  const faturadoTotal = faturados.reduce((s, l) => s + l.f!.qtd * l.f!.valorUnt, 0)
+  const custoDosFaturados = faturados.reduce((s, l) => s + l.custo * l.f!.qtd, 0)
+
+  return (
+    <div className="card" aria-label="Custo × venda">
+      <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Custo × venda</h3>
+      <p className="text-sm text-ink-400 mb-3">
+        Valor final da peça (custo com o que fechou no Pedido de Compra, impostos e frete inclusos) comparado com o preço
+        de venda passado na cotação e com a venda concretizada (faturado).
+      </p>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+        <Indicador titulo="Valor final das peças (custo)" valor={formatCurrency(custoTotal)} />
+        <Indicador titulo="Venda passada na cotação" valor={formatCurrency(vendaTotal)} detalhe={<Margem valor={vendaTotal - custoTotal} base={vendaTotal} />} />
+        <Indicador
+          titulo="Venda concretizada (faturado)"
+          valor={formatCurrency(faturadoTotal)}
+          detalhe={
+            faturados.length > 0 ? (
+              <Margem valor={faturadoTotal - custoDosFaturados} base={faturadoTotal} />
+            ) : (
+              <span className="text-ink-400">nenhum item faturado</span>
+            )
+          }
+        />
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-ink-100">
+        <table className="w-full min-w-[48rem] text-sm border-collapse">
+          <thead>
+            <tr className="bg-ink-50 text-left text-ink-400">
+              <th className="py-2 px-2 font-medium">Produto</th>
+              <th className="py-2 px-2 font-medium w-28 text-right">Valor final (custo unt.)</th>
+              <th className="py-2 px-2 font-medium w-28 text-right">Venda passada (unt.)</th>
+              <th className="py-2 px-2 font-medium w-40 text-right">Venda − custo (cotação)</th>
+              <th className="py-2 px-2 font-medium w-28 text-right">Venda concretizada (unt.)</th>
+              <th className="py-2 px-2 font-medium w-40 text-right">Venda − custo (concretizada)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map(({ item, custo, passado, f }) => (
+              <tr key={item.id} className="border-t border-ink-100">
+                <td className="py-1.5 px-2 text-ink-800">
+                  <span className="block truncate max-w-[20rem]" title={item.product.descricao}>
+                    {item.product.descricao || item.product.referencia || 'Item sem descrição'}
+                  </span>
+                </td>
+                <td className="py-1.5 px-2 text-right font-mono tabular-nums text-ink-700">{formatCurrency(custo)}</td>
+                <td className="py-1.5 px-2 text-right font-mono tabular-nums text-ink-700">{formatCurrency(passado)}</td>
+                <td className="py-1.5 px-2 text-right font-mono text-xs tabular-nums">
+                  <Margem valor={passado - custo} base={passado} />
+                </td>
+                <td className="py-1.5 px-2 text-right font-mono tabular-nums text-ink-800">
+                  {f ? formatCurrency(f.valorUnt) : <span className="whitespace-nowrap text-ink-300">não faturado</span>}
+                </td>
+                <td className="py-1.5 px-2 text-right font-mono text-xs tabular-nums">
+                  {f ? <Margem valor={f.valorUnt - custo} base={f.valorUnt} /> : <span className="text-ink-300">—</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

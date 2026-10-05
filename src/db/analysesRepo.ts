@@ -192,6 +192,8 @@ export async function updateQuoteStatus(
   novoStatus: QuoteStatus,
   atorAdmin: string,
   pedidoCompra?: PedidoCompraInfo,
+  /** Justificativa de quem arquivou — obrigatória ao ir pra ARQUIVO (ver pedirMotivoArquivamento). */
+  arquivamento?: { motivo: string; detalhe: string },
 ): Promise<QuoteRecord> {
   const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
   if (!atual) throw new Error('Cotação não encontrada no servidor.')
@@ -214,6 +216,8 @@ export async function updateQuoteStatus(
     responsavelStatus: novoStatus === 'PENDENTE' ? '' : atorAdmin,
     statusHistory: [...normalizado.statusHistory, { status: novoStatus, changedAt: now }],
     pedidoCompra: novoStatus === 'PEDIDO DE COMPRA' ? pedidoCompra : normalizado.pedidoCompra,
+    motivoArquivamento:
+      novoStatus === 'ARQUIVO' && arquivamento ? { ...arquivamento, em: now, por: atorAdmin } : normalizado.motivoArquivamento,
     updatedAt: now,
   }
   await dbPut(STORE_ANALISES, atualizado)

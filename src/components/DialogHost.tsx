@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from './ui/Basics'
-import { resolverPedidoAtual, usePedidoDialog, type PedidoDialog } from '../dialogs'
+import { resolverArquivamento, resolverPedidoAtual, usePedidoDialog, type PedidoDialog } from '../dialogs'
+import { MOTIVOS_ARQUIVAMENTO } from '../types'
 
 /** Renderiza a caixa de confirmar()/avisar()/pedirSenha() atual (ver src/dialogs.ts) — sempre centrada
  * na tela e por cima de qualquer outro modal, com uma entrada animada. Montado uma vez, perto da raiz do app. */
@@ -21,6 +22,8 @@ export function DialogHost() {
         <p className="text-sm text-ink-600 whitespace-pre-line">{pedido.mensagem}</p>
         {pedido.tipo === 'senha' ? (
           <CampoSenha key={pedido.id} pedido={pedido} />
+        ) : pedido.tipo === 'arquivar' ? (
+          <CamposArquivar key={pedido.id} />
         ) : (
           <div className="mt-5 flex gap-2 justify-end">
             {pedido.tipo === 'confirmar' && (
@@ -45,6 +48,53 @@ export function DialogHost() {
         )}
       </div>
     </div>
+  )
+}
+
+/** Motivo de arquivar a cotação: um da lista (obrigatório) e o detalhe (obrigatório em "Outro"). */
+function CamposArquivar() {
+  const [motivo, setMotivo] = useState('')
+  const [detalhe, setDetalhe] = useState('')
+  const [erro, setErro] = useState<string | null>(null)
+  return (
+    <form
+      className="mt-3 space-y-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (!motivo) return setErro('Escolha o motivo.')
+        if (motivo === 'Outro' && !detalhe.trim()) return setErro('Em "Outro", escreva o motivo.')
+        resolverArquivamento({ motivo, detalhe: detalhe.trim() })
+      }}
+    >
+      <div className="space-y-1" role="radiogroup" aria-label="Motivo">
+        {MOTIVOS_ARQUIVAMENTO.map((m) => (
+          <label key={m} className="flex items-center gap-2 text-sm text-ink-700">
+            <input type="radio" name="motivo-arquivamento" value={m} checked={motivo === m} onChange={() => setMotivo(m)} />
+            {m}
+          </label>
+        ))}
+      </div>
+      <textarea
+        className="field-input min-h-[4.5rem] text-sm"
+        placeholder={motivo === 'Outro' ? 'Qual foi o motivo?' : 'Detalhe (opcional) — ex.: concorrente fez R$ 120,00'}
+        aria-label="Detalhe do motivo"
+        value={detalhe}
+        onChange={(e) => setDetalhe(e.target.value)}
+      />
+      {erro && (
+        <p role="alert" className="text-sm text-rose-600">
+          {erro}
+        </p>
+      )}
+      <div className="flex justify-end gap-2 pt-2">
+        <Button type="button" variant="secondary" onClick={() => resolverArquivamento(null)}>
+          Cancelar
+        </Button>
+        <Button type="submit" variant="primary">
+          Arquivar
+        </Button>
+      </div>
+    </form>
   )
 }
 

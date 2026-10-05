@@ -343,6 +343,23 @@ export const QUOTE_STATUSES: QuoteStatus[] = [
   'ARQUIVO',
 ]
 
+/** Por que a cotação foi arquivada sem fechar — pedido sempre que ela vai pra ARQUIVO. */
+export interface MotivoArquivamento {
+  motivo: string
+  detalhe: string
+  em: number
+  por: string
+}
+
+export const MOTIVOS_ARQUIVAMENTO = [
+  'Preço acima da concorrência',
+  'Prazo de entrega',
+  'Cliente desistiu da compra',
+  'Cliente não deu retorno',
+  'Item indisponível / sem fornecedor',
+  'Outro',
+] as const
+
 export interface StatusChange {
   status: QuoteStatus
   changedAt: number
@@ -451,6 +468,8 @@ export interface DadosTransporte {
   transportadora: string
   /** Página de acompanhamento da transportadora — abre numa aba nova. */
   linkRastreio: string
+  /** Previsão de entrega que a transportadora informa no rastreio ("AAAA-MM-DD"; vazio = sem previsão). */
+  previsaoEntrega?: string
   atualizadoEm: number
   atualizadoPor: string
 }
@@ -502,6 +521,8 @@ export interface QuoteRecord {
    * estado de onde ele despacha) tem as suas próprias cotações de frete. Registros de antes da
    * separação por UF têm a chave só com o nome. */
   fretePorFornecedor?: Record<string, Record<string, DadosFreteTransportadora>>
+  /** Por que foi arquivada sem fechar (a última vez que foi pra ARQUIVO). */
+  motivoArquivamento?: MotivoArquivamento
   /** Dados do envio (NF, cotação do frete, transportadora, rastreio) por fornecedor, informados ao
    * passar pra EM TRANSPORTE na aba Pedido de Compra — mesma chave do frete (ver chaveFornecedorFrete). */
   transportePorFornecedor?: Record<string, DadosTransporte>

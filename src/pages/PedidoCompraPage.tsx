@@ -5,9 +5,11 @@ import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { PedidoCompraFornecedorModal, type BasePedidoCompraFornecedor } from '../components/PedidoCompraFornecedorModal'
 import {
   CartaoTransporte,
+  SeloPrevisao,
   TRANSPORTE_VAZIO,
   TransporteModal,
   normalizarLinkRastreio,
+  previsaoDaCotacao,
   type DadosTransporteEditaveis,
 } from '../components/TransporteFornecedor'
 import {
@@ -22,8 +24,9 @@ import {
 } from '../db/analysesRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency } from '../utils'
+import { calculateItem } from '../calc/calculator'
 import { formatarNumeroBR, parseNumeroFlexivel } from '../numeros'
-import { avisar } from '../dialogs'
+import { avisar, pedirMotivoArquivamento } from '../dialogs'
 import { QUOTE_STATUSES } from '../types'
 import type { DadosFreteTransportadora, DadosTransporte, ItemFechado, PedidoCompraInfo, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
 
@@ -157,6 +160,26 @@ function estatisticasGrupo(items: QuoteItem[], fechados: Record<string, ItemFech
   }
 }
 
+/** Preço de venda unitário passado ao cliente na cotação (a mesma conta da precificação). */
+function precoDeVenda(item: QuoteItem): number {
+  return calculateItem(item.product, item.pricing).precoVendaUnitario
+}
+
+function valorDeVenda(items: QuoteItem[]): number {
+  return items.reduce((s, item) => s + precoDeVenda(item) * (item.product.qtd || 0), 0)
+}
+
+/** Valor de venda (não tem negociado × fechado — é o que foi passado ao cliente). */
+function StatVenda({ label, valor, detalhe }: { label: string; valor: number; detalhe?: string }) {
+  return (
+    <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-3">
+      <p className="text-xs text-ink-400 mb-1">{label}</p>
+      <p className="font-mono text-base font-semibold tabular-nums text-ink-900">{formatCurrency(valor)}</p>
+      {detalhe && <p className="text-xs text-ink-500">{detalhe}</p>}
+    </div>
+  )
+}
+
 function MiniStat({ label, negociado, fechado }: { label: string; negociado: number; fechado: number }) {
   const dif = fechado - negociado
   return (
@@ -220,7 +243,8 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
   const cotacoesEmPedido = useMemo(
     () =>
       quotes
-        .filter((q) => QUOTE_STATUSES.indexOf(q.status) >= indicePedidoDeCompra)
+        // arquivada sem nunca ter virado pedido (não fechou) não é pedido de compra — continua na busca abaixo
+        .filter((q) => QUOTE_STATUSES.indexOf(q.status) >= indicePedidoDeCompra && !(q.status === 'ARQUIVO' && !q.pedidoCompra))
         .sort((a, b) => b.updatedAt - a.updatedAt),
     [quotes, indicePedidoDeCompra],
   )
@@ -304,8 +328,12 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
       setTransporteModalAberto(true)
       return
     }
+    // arquivar sempre pede o motivo de a cotação não ter fechado — sem motivo, não arquiva
+    const arquivamento =
+      novoStatus === 'ARQUIVO' ? await pedirMotivoArquivamento(`Por que a cotação ${cotacao.codigo || ''} não foi fechada?`) : undefined
+    if (novoStatus === 'ARQUIVO' && !arquivamento) return
     try {
-      await updateQuoteStatus(cotacao.id, novoStatus, currentAdmin)
+      await updateQuoteStatus(cotacao.id, novoStatus, currentAdmin, undefined, arquivamento ?? undefined)
       await refresh()
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
@@ -323,6 +351,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
           numeroCotacaoFrete: d.numeroCotacaoFrete.trim(),
           transportadora: d.transportadora.trim(),
           linkRastreio: normalizarLinkRastreio(d.linkRastreio) ?? '',
+          previsaoEntrega: d.previsaoEntrega || '',
           atualizadoEm: agora,
           atualizadoPor: currentAdmin,
         },
@@ -492,6 +521,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                   >
                     {q.status}
                   </span>
+                  {previsaoDaCotacao(q) && <SeloPrevisao previsao={previsaoDaCotacao(q)!} />}
                 </span>
                 <span className="text-ink-400 shrink-0">{q.maquina}</span>
               </button>
@@ -563,7 +593,8 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                 {salvo && <span className="text-xs text-emerald-600">Salvo!</span>}
               </div>
             </div>
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+              <StatVenda label="Valor de venda (passado ao cliente)" valor={valorDeVenda(itensDoPedido)} />
               <MiniStat label="Valor dos produtos" negociado={totaisGerais.valorNegociado} fechado={totaisGerais.valorFechado} />
               <MiniStat label="Frete total" negociado={totaisGerais.freteNegociado} fechado={totaisGerais.freteFechado} />
               <MiniStat label="Frete unitário médio" negociado={totaisGerais.freteUnitNegociado} fechado={totaisGerais.freteUnitFechado} />
@@ -602,10 +633,11 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                     onSalvar={(dados) => handleSalvarTransporteGrupo(chaveTransporte(grupo.chave), dados)}
                   />
                 )}
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                   <MiniStat label="Frete total" negociado={est.freteNegociado} fechado={est.freteFechado} />
                   <MiniStat label="Frete unitário" negociado={est.freteUnitNegociado} fechado={est.freteUnitFechado} />
                   <MiniStat label="Valor dos produtos" negociado={est.valorNegociado} fechado={est.valorFechado} />
+                  <StatVenda label="Valor de venda" valor={valorDeVenda(grupo.items)} />
                 </div>
                 <AplicarFreteGrupo modo={modoFrete} valorProdutos={est.valorFechado} onAplicar={(taxa) => aplicarTaxaNoGrupo(grupo.items, taxa)} />
 
@@ -623,6 +655,8 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                         <th className="py-2 px-2 font-medium w-28 text-right">Total negociado</th>
                         <th className="py-2 px-2 font-medium w-28 text-right">Total fechado</th>
                         <th className="py-2 px-2 font-medium w-24 text-right">Diferença</th>
+                        <th className="py-2 px-2 font-medium w-24 text-right bg-sky-50/60">Venda unt.</th>
+                        <th className="py-2 px-2 font-medium w-28 text-right bg-sky-50/60">Venda total</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -707,6 +741,12 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                             >
                               {dif > 0 ? '+' : ''}
                               {formatCurrency(dif)}
+                            </td>
+                            <td className="py-1.5 px-2 text-right font-mono tabular-nums text-ink-800 bg-sky-50/40">
+                              {formatCurrency(precoDeVenda(item))}
+                            </td>
+                            <td className="py-1.5 px-2 text-right font-mono tabular-nums text-ink-800 bg-sky-50/40">
+                              {formatCurrency(precoDeVenda(item) * (item.product.qtd || 0))}
                             </td>
                           </tr>
                         )

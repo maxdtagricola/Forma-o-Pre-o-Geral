@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { listQuotes } from '../db/analysesRepo'
+import { listQuotes, updateQuoteStatus } from '../db/analysesRepo'
+import { PedidoCompraModal } from '../components/PedidoCompraModal'
+import { avisar, pedirMotivoArquivamento } from '../dialogs'
+import { DIAS_PARA_RETORNO, cotacoesEsperandoRetorno, diasDesdeOEnvio } from '../retornoCotacao'
+import { SeloPrevisao, previsaoDaCotacao } from '../components/TransporteFornecedor'
 import { getStatusColors } from '../db/configRepo'
 import { listNotasFiscais } from '../db/notasFiscaisRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { prejuizoAutomatico, valoresPorResultado } from '../notasFiscaisHelpers'
 import { formatCurrency } from '../utils'
+import { diasUteisDesde, textoDiasUteis, useVersaoFeriados } from '../diasUteis'
 import { NOTA_FISCAL_STATUSES, QUOTE_STATUSES } from '../types'
-import type { NotaFiscal, QuoteRecord, QuoteStatus } from '../types'
+import type { NotaFiscal, PedidoCompraInfo, QuoteRecord, QuoteStatus } from '../types'
 import type { TabKey } from '../components/Layout'
 
 // -----------------------------------------------------------------------
@@ -23,7 +28,7 @@ const STATUS_FINAIS: QuoteStatus[] = ['ENTREGUE', 'CONFERIDO', 'FATURADO', 'ARQU
 const STATUS_EM_ANDAMENTO: QuoteStatus[] = ['AGUARDANDO FORNECEDOR', 'ANALISANDO VALORES']
 /** Bloco EM TRANSPORTE: o que está a caminho — inclusive o que já chegou só em parte. */
 const STATUS_EM_TRANSPORTE: QuoteStatus[] = ['EM TRANSPORTE', 'PARCIALMENTE ENTREGUE']
-/** PENDENTE há mais dias que isso fica marcado como atrasado. */
+/** PENDENTE há mais dias úteis que isso fica marcado como atrasado. */
 const DIAS_PENDENTE_ALERTA = 2
 const ITENS_POR_BLOCO = 6
 
@@ -63,6 +68,12 @@ function dataDoPedido(r: QuoteRecord): number {
   return r.dataSolicitacao ?? r.createdAt
 }
 
+/** "há 3 dias úteis" / "hoje" — fim de semana e feriado não contam (ver diasUteis.ts). */
+function haDiasUteis(ms: number, agora: number): string {
+  const dias = diasUteisDesde(ms, agora)
+  return dias === 0 ? 'hoje' : `há ${textoDiasUteis(dias)}`
+}
+
 function saudacao(agora: number): string {
   const hora = new Date(agora).getHours()
   return hora < 12 ? 'Bom dia' : hora < 18 ? 'Boa tarde' : 'Boa noite'
@@ -97,11 +108,14 @@ export function TelaInicialPage({
   onIrPara: (tab: TabKey) => void
 }) {
   const [cotacoes, setCotacoes] = useState<QuoteRecord[]>([])
+  // "Fechou" no bloco de retorno do cliente: a mesma janela de sempre (pedido completo ou só alguns itens)
+  const [pedidoDoRetorno, setPedidoDoRetorno] = useState<QuoteRecord | undefined>(undefined)
   const [notas, setNotas] = useState<NotaFiscal[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState<string | null>(null)
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
   const [agora] = useState(() => Date.now())
+  useVersaoFeriados()
   const veTransferencias = currentAdmin === 'Max'
 
   useEffect(() => {
@@ -130,9 +144,16 @@ export function TelaInicialPage({
     const minhas = emAndamento
       .filter((r) => STATUS_EM_ANDAMENTO.includes(r.status) && r.responsavelStatus === currentAdmin)
       .sort((a, b) => QUOTE_STATUSES.indexOf(a.status) - QUOTE_STATUSES.indexOf(b.status) || desdeStatusAtual(a) - desdeStatusAtual(b))
+    // com previsão de entrega primeiro (a mais próxima/atrasada no topo), depois as sem previsão
     const emTransporte = cotacoes
       .filter((r) => STATUS_EM_TRANSPORTE.includes(r.status))
-      .sort((a, b) => desdeStatusAtual(a) - desdeStatusAtual(b))
+      .sort((a, b) => {
+        const pa = previsaoDaCotacao(a)
+        const pb = previsaoDaCotacao(b)
+        if (pa && pb) return pa.localeCompare(pb)
+        if (pa || pb) return pa ? -1 : 1
+        return desdeStatusAtual(a) - desdeStatusAtual(b)
+      })
 
     const eventos: Evento[] = []
     for (const r of cotacoes) {
@@ -147,6 +168,7 @@ export function TelaInicialPage({
 
     const algumaVez = (r: QuoteRecord, status: QuoteStatus, desde: number) => r.statusHistory.some((h) => h.status === status && h.changedAt >= desde)
     return {
+      retorno: cotacoesEsperandoRetorno(cotacoes, currentAdmin, agora),
       pendentes,
       minhas,
       emTransporte,
@@ -170,6 +192,38 @@ export function TelaInicialPage({
       notasEmPrejuizo: emPrejuizo.length,
     }
   }, [notas])
+
+  async function recarregar() {
+    try {
+      setCotacoes(await listQuotes())
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao carregar as cotações do servidor.')
+    }
+  }
+
+  async function handleNaoFechou(r: QuoteRecord) {
+    const arquivamento = await pedirMotivoArquivamento(`Por que a cotação ${r.codigo || ''} não foi fechada?`)
+    if (!arquivamento) return
+    try {
+      await updateQuoteStatus(r.id, 'ARQUIVO', currentAdmin, undefined, arquivamento)
+      await recarregar()
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao arquivar a cotação.')
+    }
+  }
+
+  async function handleFechouConfirmado(info: PedidoCompraInfo) {
+    const r = pedidoDoRetorno
+    if (!r) return
+    try {
+      await updateQuoteStatus(r.id, 'PEDIDO DE COMPRA', currentAdmin, info)
+      setPedidoDoRetorno(undefined)
+      await recarregar()
+      void avisar(`${r.codigo || 'A cotação'} seguiu para o Pedido de Compra.`)
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
+    }
+  }
 
   function corDoStatus(status: string, lista: readonly string[] = QUOTE_STATUSES): string {
     return coresStatus[status] || corPadraoDoStatus(status, lista)
@@ -218,6 +272,51 @@ export function TelaInicialPage({
         <div className="card text-center text-sm text-ink-400 py-10">Carregando…</div>
       ) : (
         <>
+          {blocos.retorno.length > 0 && (
+            <section className="card border-amber-300 bg-amber-50/60" aria-label="Retorno do cliente">
+              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">
+                Retorno do cliente
+                <span className="ml-2 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-900">{blocos.retorno.length}</span>
+              </h3>
+              <p className="mb-3 text-sm text-ink-600">
+                Enviadas por você há {DIAS_PARA_RETORNO} dias ou mais — atualize: se fechou, siga pro pedido de compra; se não
+                fechou, arquive com o motivo.
+              </p>
+              <div className="space-y-1">
+                {blocos.retorno.map((r) => (
+                  <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-surface px-2 py-2">
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuote(r)}
+                      title="Abrir na Precificação"
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <span className="block truncate text-sm text-ink-900">
+                        <span className="font-mono text-xs text-ink-500">{r.codigo || '—'}</span>{' '}
+                        <span className="font-medium">{r.cliente || '(sem cliente)'}</span>
+                      </span>
+                      <span className="block text-[11px] font-semibold text-amber-800">enviada há {diasDesdeOEnvio(r, agora)} dias</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPedidoDoRetorno(r)}
+                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                    >
+                      Fechou
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleNaoFechou(r)}
+                      className="rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-xs font-semibold text-ink-700 hover:bg-ink-50"
+                    >
+                      Não fechou
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Numero valor={blocos.novasHoje} rotulo={blocos.novasHoje === 1 ? 'cotação nova hoje' : 'cotações novas hoje'} />
             <Numero valor={blocos.enviadasHoje} rotulo={blocos.enviadasHoje === 1 ? 'enviada ao cliente hoje' : 'enviadas ao cliente hoje'} />
@@ -235,13 +334,13 @@ export function TelaInicialPage({
               onVerTodas={() => onIrPara('cotacoes')}
             >
               {blocos.pendentes.slice(0, ITENS_POR_BLOCO).map((r) => {
-                const dias = diasDesde(dataDoPedido(r), agora)
+                const dias = diasUteisDesde(dataDoPedido(r), agora)
                 return (
                   <LinhaCotacao
                     key={r.id}
                     r={r}
                     onClick={() => onOpenQuote(r)}
-                    direita={<Idade texto={dias === 0 ? 'pedida hoje' : `pedida ${haQuanto(dataDoPedido(r), agora)}`} alerta={dias > DIAS_PENDENTE_ALERTA} />}
+                    direita={<Idade texto={dias === 0 ? 'pedida hoje' : `pendente há ${textoDiasUteis(dias)}`} alerta={dias > DIAS_PENDENTE_ALERTA} />}
                   />
                 )
               })}
@@ -261,7 +360,7 @@ export function TelaInicialPage({
                   direita={
                     <span className="flex flex-col items-end gap-0.5">
                       <SeloStatus status={r.status} cor={corDoStatus(r.status)} />
-                      <span className="text-[11px] text-ink-400">{haQuanto(desdeStatusAtual(r), agora)}</span>
+                      <span className="text-[11px] text-ink-400">{haDiasUteis(desdeStatusAtual(r), agora)}</span>
                     </span>
                   }
                 />
@@ -274,19 +373,26 @@ export function TelaInicialPage({
               vazio="Nada em transporte."
               onVerTodas={() => onIrPara('cotacoes')}
             >
-              {blocos.emTransporte.slice(0, ITENS_POR_BLOCO).map((r) => (
-                <LinhaCotacao
-                  key={r.id}
-                  r={r}
-                  onClick={() => onOpenQuote(r)}
-                  direita={
-                    <span className="flex flex-col items-end gap-0.5">
-                      <SeloStatus status={r.status} cor={corDoStatus(r.status)} />
-                      <span className="text-[11px] text-ink-400">{haQuanto(desdeStatusAtual(r), agora)}</span>
-                    </span>
-                  }
-                />
-              ))}
+              {blocos.emTransporte.slice(0, ITENS_POR_BLOCO).map((r) => {
+                const previsao = previsaoDaCotacao(r)
+                return (
+                  <LinhaCotacao
+                    key={r.id}
+                    r={r}
+                    onClick={() => onOpenQuote(r)}
+                    direita={
+                      <span className="flex flex-col items-end gap-0.5">
+                        <SeloStatus status={r.status} cor={corDoStatus(r.status)} />
+                        {previsao ? (
+                          <SeloPrevisao previsao={previsao} agora={agora} />
+                        ) : (
+                          <span className="text-[11px] text-ink-400">sem previsão · {haDiasUteis(desdeStatusAtual(r), agora)}</span>
+                        )}
+                      </span>
+                    }
+                  />
+                )
+              })}
             </Bloco>
 
             <Bloco
@@ -341,6 +447,10 @@ export function TelaInicialPage({
             )}
           </div>
         </>
+      )}
+
+      {pedidoDoRetorno && (
+        <PedidoCompraModal quote={pedidoDoRetorno} onConfirm={handleFechouConfirmado} onCancel={() => setPedidoDoRetorno(undefined)} />
       )}
     </div>
   )
@@ -423,7 +533,7 @@ function Idade({ texto, alerta = false }: { texto: string; alerta?: boolean }) {
   return (
     <span
       className={`text-[11px] ${alerta ? 'font-semibold text-amber-700' : 'text-ink-400'}`}
-      title={alerta ? `Pedida há mais de ${DIAS_PENDENTE_ALERTA} dias` : undefined}
+      title={alerta ? `Pendente há mais de ${DIAS_PENDENTE_ALERTA} dias úteis` : undefined}
     >
       {alerta && '⚠ '}
       {texto}

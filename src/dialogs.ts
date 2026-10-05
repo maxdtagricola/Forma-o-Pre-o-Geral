@@ -33,6 +33,14 @@ export type PedidoDialog =
       resolver: () => void
     }
   | {
+      tipo: 'arquivar'
+      /** Muda a cada pedido — a caixa usa pra começar com os campos vazios. */
+      id: number
+      mensagem: string
+      titulo?: string
+      resolver: (valor: { motivo: string; detalhe: string } | null) => void
+    }
+  | {
       tipo: 'senha'
       /** Muda a cada pedido — a caixa usa pra começar com o campo vazio. */
       id: number
@@ -122,6 +130,22 @@ export function usePedidoDialog(): PedidoDialog | null {
   return useSyncExternalStore(assinar, () => pedidoAtual)
 }
 
+/** Pede o motivo de arquivar uma cotação (lista de motivos + detalhe). Resolve com a escolha, ou null
+ * se cancelar — e aí a cotação não deve ser arquivada. */
+export function pedirMotivoArquivamento(mensagem: string): Promise<{ motivo: string; detalhe: string } | null> {
+  return new Promise((resolve) => {
+    abrir({ tipo: 'arquivar', id: ++proximoId, mensagem, titulo: 'Arquivar cotação', resolver: resolve })
+  })
+}
+
+/** Só o <DialogHost/> chama isso, na caixa de pedirMotivoArquivamento(). */
+export function resolverArquivamento(valor: { motivo: string; detalhe: string } | null) {
+  const pedido = pedidoAtual
+  pedidoAtual = fila.shift() ?? null
+  notificarOuvintes()
+  if (pedido?.tipo === 'arquivar') pedido.resolver(valor)
+}
+
 /** Só o <DialogHost/> chama isso, ao clicar num botão (ou fechar) da caixa atual. `texto` é a senha
  * digitada, numa caixa de pedirSenha(). */
 export function resolverPedidoAtual(valorConfirmar?: boolean, texto?: string) {
@@ -131,5 +155,6 @@ export function resolverPedidoAtual(valorConfirmar?: boolean, texto?: string) {
   if (!pedido) return
   if (pedido.tipo === 'confirmar') pedido.resolver(valorConfirmar ?? false)
   else if (pedido.tipo === 'senha') pedido.resolver(valorConfirmar ? (texto ?? '') : null)
+  else if (pedido.tipo === 'arquivar') pedido.resolver(null)
   else pedido.resolver()
 }
