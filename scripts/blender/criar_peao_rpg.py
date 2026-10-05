@@ -30,7 +30,7 @@ def limpar_cena():
             colecao.remove(item)
 
 
-def criar_malha():
+def criar_malha(lados=8):
     """Monta o corpo com primitivas simples e junta tudo num mesh só, marcando de qual "parte"
     cada pedaço é (pra depois virar grupo de vértice/osso). Silhueta de soldado esguio — ombros e
     botas marcando a figura, mas bem mais fina que a revisão "robusta" anterior (aquela chegava a
@@ -47,11 +47,12 @@ def criar_malha():
         partes.append(obj)
         return obj
 
-    # poucos lados (8) em vez do padrão do Blender (32) — faces bem maiores e mais planas, em vez
-    # de curvas quase lisas; combinado com o sombreamento "flat" logo abaixo, fica um facetado
-    # nítido (visual low-poly), que também combina melhor com o material toon (degradê em poucos
-    # tons) do que uma superfície arredondada suave
-    LADOS = 8
+    # poucos lados (8, o padrão) em vez do padrão do Blender (32) — faces bem maiores e mais planas,
+    # em vez de curvas quase lisas; combinado com o sombreamento "flat" logo abaixo, fica um
+    # facetado nítido (visual low-poly). As peças do jogo em HD (importar_animacoes_mixamo.py) pedem
+    # mais lados e suavizam o sombreamento depois.
+    LADOS = lados
+    ANEIS = max(5, lados // 2)
 
     # torso em leque: radius2 (topo/ombro) maior que radius1 (base/cintura)
     add_parte(
@@ -63,11 +64,11 @@ def criar_malha():
         depth=0.30,
         location=(0, 0, 0.46),
     )
-    add_parte("Cabeca", bpy.ops.mesh.primitive_uv_sphere_add, radius=0.07, location=(0, 0, 0.70), segments=LADOS, ring_count=5)
+    add_parte("Cabeca", bpy.ops.mesh.primitive_uv_sphere_add, radius=0.07, location=(0, 0, 0.70), segments=LADOS, ring_count=ANEIS)
     add_parte("Chapeu", bpy.ops.mesh.primitive_cone_add, vertices=LADOS, radius1=0.045, depth=0.11, location=(0, 0, 0.83))
     # ombreiras — bulto extra por cima do encontro braço/torso, mapeadas pro osso do braço
-    add_parte("Ombro_L", bpy.ops.mesh.primitive_uv_sphere_add, radius=0.045, location=(-0.11, 0, 0.57), segments=LADOS, ring_count=5)
-    add_parte("Ombro_R", bpy.ops.mesh.primitive_uv_sphere_add, radius=0.045, location=(0.11, 0, 0.57), segments=LADOS, ring_count=5)
+    add_parte("Ombro_L", bpy.ops.mesh.primitive_uv_sphere_add, radius=0.045, location=(-0.11, 0, 0.57), segments=LADOS, ring_count=ANEIS)
+    add_parte("Ombro_R", bpy.ops.mesh.primitive_uv_sphere_add, radius=0.045, location=(0.11, 0, 0.57), segments=LADOS, ring_count=ANEIS)
     # braço superior (ombro -> cotovelo) e antebraço (cotovelo -> pulso) — dois segmentos em vez de
     # uma haste única, pra existir um cotovelo de verdade pra dobrar; antebraço um pouco mais fino,
     # afunilando como um braço de verdade

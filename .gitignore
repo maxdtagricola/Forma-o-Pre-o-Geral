@@ -44,6 +44,8 @@ scripts/blender/*.fbx
 !scripts/blender/sword and shield power up.fbx
 !scripts/blender/sword and shield slash (4).fbx
 !scripts/blender/sword and shield attack (3).fbx
+!scripts/blender/sword and shield run.fbx
+!scripts/blender/sword and shield death.fbx
 !scripts/blender/sheath sword 1.fbx
 !scripts/blender/sheath sword 2.fbx
 scripts/blender/__pycache__/

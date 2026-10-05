@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js'
 import { clone as clonarComEsqueleto } from 'three/examples/jsm/utils/SkeletonUtils.js'
 import { Chess, type Square } from 'chess.js'
 import { Button } from './ui/Basics'
@@ -10,9 +12,6 @@ import { escolherJogadaDaMaquina } from '../chess/engine'
 import { listPartidasDoJogador, novaPartida, salvarPartida, type PartidaXadrez } from '../db/xadrezRepo'
 import { registrarAprendizadoDaPartida, type ResultadoPartida as ResultadoPartidaXadrez } from '../db/xadrezAprendizadoRepo'
 
-const COR_CASA_CLARA = 0xe8d9b8
-const COR_CASA_ESCURA = 0x8a5a3b
-const COR_BASE = 0x4a3323
 const COR_SELECIONADA = 0x2a9d5f
 const COR_DESTINO = 0x2a78d6
 
@@ -49,21 +48,10 @@ function squareToPosPeca(square: string): { x: number; z: number } {
 }
 
 // ---------------------------------------------------------------------------
-// Visual estilo desenho animado (cel-shading): sombreamento em degraus via
-// MeshToonMaterial + um "gradient map" de poucos tons, combinado com contorno
-// preto nas peças (a técnica clássica do "casco invertido" — um clone da
-// mesma peça, ligeiramente maior e renderizado só por dentro/atrás).
+// Contorno preto das peças geométricas (usadas só se o modelo RPG do tipo não carregar) — a
+// técnica clássica do "casco invertido": um clone da mesma peça, ligeiramente maior e renderizado
+// só por dentro/atrás. As peças RPG (o visual HD) não têm contorno.
 // ---------------------------------------------------------------------------
-function criarGradienteToon(): THREE.DataTexture {
-  const tons = new Uint8Array([70, 130, 190, 255])
-  const textura = new THREE.DataTexture(tons, tons.length, 1, THREE.RedFormat)
-  textura.needsUpdate = true
-  textura.magFilter = THREE.NearestFilter
-  textura.minFilter = THREE.NearestFilter
-  return textura
-}
-
-const gradienteToon = criarGradienteToon()
 const COR_CONTORNO = 0x1a1410
 const materialContorno = new THREE.MeshBasicMaterial({ color: COR_CONTORNO, side: THREE.BackSide })
 
@@ -73,20 +61,93 @@ function criarContorno(geo: THREE.BufferGeometry): THREE.Mesh {
   return mesh
 }
 
-/** Desenha um texto curto num canvas pra usar como textura — usado nas coordenadas (a-h, 1-8) ao redor do tabuleiro. */
+/** Desenha um texto curto num canvas pra usar como textura — usado nas coordenadas (a-h, 1-8) na
+ * moldura do tabuleiro: dourado com uma sombra leve, em alta resolução (nítido mesmo de perto). */
 function criarTexturaTexto(texto: string): THREE.CanvasTexture {
   const canvas = document.createElement('canvas')
-  canvas.width = 64
-  canvas.height = 64
+  canvas.width = 256
+  canvas.height = 256
   const ctx = canvas.getContext('2d')!
-  ctx.fillStyle = '#3a2a1a'
-  ctx.font = 'bold 42px system-ui, sans-serif'
+  ctx.font = 'bold 170px Georgia, "Times New Roman", serif'
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(texto, 32, 34)
+  ctx.fillStyle = 'rgba(0,0,0,0.45)'
+  ctx.fillText(texto, 134, 142)
+  const dourado = ctx.createLinearGradient(0, 40, 0, 220)
+  dourado.addColorStop(0, '#f7e3a1')
+  dourado.addColorStop(0.5, '#d9ae4a')
+  dourado.addColorStop(1, '#9c7428')
+  ctx.fillStyle = dourado
+  ctx.fillText(texto, 128, 136)
   const textura = new THREE.CanvasTexture(canvas)
+  textura.colorSpace = THREE.SRGBColorSpace
   textura.needsUpdate = true
   return textura
+}
+
+/**
+ * Madeira desenhada num canvas (sem imagem externa): veios ondulados ao longo de um eixo, com
+ * variação fina e um pouco de ruído — o mesmo desenho dá bordo claro, nogueira ou a mesa, só mudando
+ * as cores. `semente` muda o desenho dos veios.
+ */
+function criarTexturaMadeira(
+  corBase: [number, number, number],
+  corVeio: [number, number, number],
+  semente: number,
+  veios = 14,
+  tamanho = 512,
+): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = tamanho
+  canvas.height = tamanho
+  const ctx = canvas.getContext('2d')!
+  const imagem = ctx.createImageData(tamanho, tamanho)
+  const ruido = (x: number, y: number) => {
+    const v = Math.sin(x * 12.9898 + y * 78.233 + semente * 37.719) * 43758.5453
+    return v - Math.floor(v)
+  }
+  for (let y = 0; y < tamanho; y++) {
+    const v = y / tamanho
+    for (let x = 0; x < tamanho; x++) {
+      const u = x / tamanho
+      const onda =
+        u * veios +
+        0.45 * Math.sin(v * 6.283 + semente) +
+        0.18 * Math.sin(v * 18.85 + semente * 2.3) +
+        0.06 * Math.sin(u * 41 + v * 13 + semente * 5.1)
+      const anel = Math.pow(0.5 + 0.5 * Math.sin(onda * 6.283), 3)
+      const fibra = 0.5 + 0.5 * Math.sin(u * veios * 9.7 + 0.8 * Math.sin(v * 31 + semente))
+      // manchas largas e suaves (a madeira nunca tem a mesma cor de ponta a ponta)
+      const mancha = 0.5 + 0.5 * Math.sin(u * 3.1 + 1.7 * Math.sin(v * 2.3 + semente) + semente * 1.3)
+      const t = Math.max(0, Math.min(1, anel * 0.32 + fibra * 0.1 + mancha * 0.22 + (ruido(x, y) - 0.5) * 0.08))
+      const i = (y * tamanho + x) * 4
+      imagem.data[i] = corBase[0] + (corVeio[0] - corBase[0]) * t
+      imagem.data[i + 1] = corBase[1] + (corVeio[1] - corBase[1]) * t
+      imagem.data[i + 2] = corBase[2] + (corVeio[2] - corBase[2]) * t
+      imagem.data[i + 3] = 255
+    }
+  }
+  ctx.putImageData(imagem, 0, 0)
+  const textura = new THREE.CanvasTexture(canvas)
+  textura.colorSpace = THREE.SRGBColorSpace
+  textura.wrapS = THREE.RepeatWrapping
+  textura.wrapT = THREE.RepeatWrapping
+  return textura
+}
+
+/** Material de madeira envernizada (verniz brilhante por cima, refletindo o ambiente), a partir de
+ * uma textura base — cada casa usa um pedaço diferente dela (deslocamento/giro), pra não parecerem
+ * carimbadas. */
+function materialMadeira(base: THREE.Texture, anisotropia: number, deslocamento?: { x: number; y: number; giro: number }) {
+  const mapa = base.clone()
+  mapa.anisotropy = anisotropia
+  if (deslocamento) {
+    mapa.offset.set(deslocamento.x, deslocamento.y)
+    mapa.center.set(0.5, 0.5)
+    mapa.rotation = deslocamento.giro
+  }
+  mapa.needsUpdate = true
+  return new THREE.MeshPhysicalMaterial({ map: mapa, roughness: 0.42, clearcoat: 0.7, clearcoatRoughness: 0.12 })
 }
 
 const LETRAS_COLUNAS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']
@@ -344,9 +405,20 @@ function materialRPG(nome: string | undefined, cor: 'w' | 'b'): THREE.Material {
 }
 
 /** Espada do peão RPG: as malhas da espada na mão (aparecem só desembainhada) e do cabo que fica
- * pra fora da bainha (some enquanto ela está na mão), cada uma com o seu contorno, e os instantes
+ * pra fora da bainha (some enquanto ela está na mão) e os instantes
  * (em segundos) em que ela sai da bainha no clipe "Desembainhar" e entra no "Embainhar" — gravados
  * no próprio modelo pelo Blender (scripts/blender/importar_animacoes_mixamo.py). */
+/** Números que vêm do modelo (gravados pelo Blender): a velocidade com que o corpo avança no
+ * andar e na corrida (unidades por segundo, no tamanho do modelo — o jogo desloca a peça nessa
+ * velocidade, então os pés não escorregam) e, no cavalo, em que segundo do salto ele sai do chão
+ * e pousa. */
+interface DadosRPG {
+  velocidadeWalk: number
+  velocidadeRun: number
+  segundoDecola?: number
+  segundoPousa?: number
+}
+
 interface EspadaRPG {
   naMao: THREE.Object3D[]
   naBainha: THREE.Object3D[]
@@ -364,20 +436,19 @@ function buildPecaRPG(modelo: ModeloRPG, cor: 'w' | 'b'): THREE.Group {
   const grupo = new THREE.Group()
   const clone = clonarComEsqueleto(modelo.cena) as THREE.Object3D
 
-  // mesmo material toon (com o gradiente em degraus) das peças geométricas — reaproveitado, não
-  // clonado, igual ao resto do tabuleiro — pra não destoar visualmente das outras. O glTF divide a
-  // malha em uma primitiva por material, então cada uma vira um SkinnedMesh próprio aqui, e o nome
-  // do material original (antes de trocar) diz qual cor usar (ver materialRPG) — e, no peão, quais
-  // malhas são a espada na mão e o cabo na bainha.
+  // materiais PBR compartilhados (reaproveitados, não clonados, igual ao resto do tabuleiro). O
+  // glTF divide a malha em uma primitiva por material, então cada uma vira um SkinnedMesh próprio
+  // aqui, e o nome do material original (antes de trocar) diz qual material usar (ver materialRPG)
+  // — e, no peão, quais malhas são a espada na mão e o cabo na bainha. O Blender grava nos
+  // "extras" do esqueleto os números que o jogo precisa (velocidades do passo, tempos da espada e
+  // do salto do cavalo) — o GLTFLoader põe em userData.
   const naMao: THREE.Object3D[] = []
   const naBainha: THREE.Object3D[] = []
-  let segundoSaque: number | undefined
-  let segundoGuarda: number | undefined
+  const extras: Record<string, number> = {}
   const malhas: THREE.SkinnedMesh[] = []
   clone.traverse((filho) => {
-    if (typeof filho.userData.segundo_saque === 'number') {
-      segundoSaque = filho.userData.segundo_saque
-      segundoGuarda = filho.userData.segundo_guarda
+    for (const [chave, valor] of Object.entries(filho.userData)) {
+      if (typeof valor === 'number') extras[chave] = valor
     }
     if (filho instanceof THREE.SkinnedMesh) malhas.push(filho)
   })
@@ -386,20 +457,19 @@ function buildPecaRPG(modelo: ModeloRPG, cor: 'w' | 'b'): THREE.Group {
     malha.material = materialRPG(nomeOriginal, cor)
     malha.castShadow = true
     malha.receiveShadow = true
-
-    // contorno tipo desenho, igual ao resto das peças (casco invertido, maior, visto só por
-    // dentro/atrás) — preso no MESMO esqueleto da malha visível (mesmo bind), então acompanha a
-    // animação sozinho, sem precisar de outro mixer nem duplicar o cálculo de pose
-    const contorno = new THREE.SkinnedMesh(malha.geometry, materialContorno)
-    contorno.bind(malha.skeleton, malha.bindMatrix)
-    contorno.scale.setScalar(1.06)
-    contorno.castShadow = false
-    clone.add(contorno)
-
-    if (nomeOriginal === 'EspadaLamina' || nomeOriginal === 'EspadaCabo') naMao.push(malha, contorno)
-    if (nomeOriginal === 'CaboBainha') naBainha.push(malha, contorno)
+    if (nomeOriginal === 'EspadaLamina' || nomeOriginal === 'EspadaCabo') naMao.push(malha)
+    if (nomeOriginal === 'CaboBainha') naBainha.push(malha)
   }
   grupo.add(clone)
+  const dados: DadosRPG = {
+    velocidadeWalk: extras.velocidade_walk ?? 0.68,
+    velocidadeRun: extras.velocidade_run ?? 1.88,
+    segundoDecola: extras.segundo_decola,
+    segundoPousa: extras.segundo_pousa,
+  }
+  grupo.userData.dadosRPG = dados
+  const segundoSaque = extras.segundo_saque
+  const segundoGuarda = extras.segundo_guarda
 
   if (naMao.length && segundoSaque !== undefined && segundoGuarda !== undefined) {
     const espada: EspadaRPG = { naMao, naBainha, segundoSaque, segundoGuarda, fora: true }
@@ -633,27 +703,32 @@ interface PoseBaseMembros {
 const POSE_BASE_NEUTRA: PoseBaseMembros = { pernaEsq: 0, pernaDir: 0, bracoEsq: 0, bracoDir: 0 }
 
 interface MateriaisFaccao {
-  armadura: THREE.MeshToonMaterial
-  detalhe: THREE.MeshToonMaterial
-  brilho: THREE.MeshBasicMaterial
+  armadura: THREE.MeshStandardMaterial
+  detalhe: THREE.MeshStandardMaterial
+  brilho: THREE.MeshStandardMaterial
 }
 
-// Reino (brancas) — armadura clara, detalhes em azul-real, olhos ciano
-// Horda (pretas) — armadura escura, detalhes em vermelho-sangue, olhos vermelhos
+// Materiais "HD" (PBR, com o reflexo do ambiente — ver scene.environment): armadura de metal
+// polido, detalhes em tecido/couro foscos, brilho que emite luz própria (olhos, joias, orbe).
+// Reino (brancas) — armadura de aço claro, detalhes em azul-real, brilho ciano
+// Horda (pretas) — armadura de aço escuro, detalhes em vermelho-sangue, brilho vermelho
+function materialBrilho(cor: number): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ color: cor, emissive: cor, emissiveIntensity: 1.4, roughness: 0.4 })
+}
 const materiaisPorFaccao: Record<'w' | 'b', MateriaisFaccao> = {
   w: {
-    armadura: new THREE.MeshToonMaterial({ color: 0xe6e6ea, gradientMap: gradienteToon }),
-    detalhe: new THREE.MeshToonMaterial({ color: 0x2a4d8f, gradientMap: gradienteToon }),
-    brilho: new THREE.MeshBasicMaterial({ color: 0x8fe3ff }),
+    armadura: new THREE.MeshStandardMaterial({ color: 0xdfe3ea, metalness: 0.55, roughness: 0.3 }),
+    detalhe: new THREE.MeshStandardMaterial({ color: 0x2a4d8f, metalness: 0.1, roughness: 0.6 }),
+    brilho: materialBrilho(0x8fe3ff),
   },
   b: {
-    armadura: new THREE.MeshToonMaterial({ color: 0x3a3a42, gradientMap: gradienteToon }),
-    detalhe: new THREE.MeshToonMaterial({ color: 0x8a2222, gradientMap: gradienteToon }),
-    brilho: new THREE.MeshBasicMaterial({ color: 0xff7a5c }),
+    armadura: new THREE.MeshStandardMaterial({ color: 0x2c2d33, metalness: 0.6, roughness: 0.32 }),
+    detalhe: new THREE.MeshStandardMaterial({ color: 0x8a2222, metalness: 0.1, roughness: 0.6 }),
+    brilho: materialBrilho(0xff7a5c),
   },
 }
 
-const materialCoroa = new THREE.MeshToonMaterial({ color: 0xe0b93d, gradientMap: gradienteToon })
+const materialCoroa = new THREE.MeshStandardMaterial({ color: 0xe0b93d, metalness: 1, roughness: 0.22 })
 
 function materialDaParte(papel: Papel, cor: 'w' | 'b'): THREE.Material {
   return papel === 'coroa' ? materialCoroa : materiaisPorFaccao[cor][papel]
@@ -667,10 +742,10 @@ function materialDaParte(papel: Papel, cor: 'w' | 'b'): THREE.Material {
 const geoLaminaEspada = new THREE.BoxGeometry(0.032, 0.26, 0.065)
 const geoGuardaEspada = new THREE.BoxGeometry(0.1, 0.022, 0.022)
 const geoCaboEspada = new THREE.CylinderGeometry(0.014, 0.014, 0.075, 8)
-const materialLaminaEspada = new THREE.MeshToonMaterial({ color: 0x8a94a3, gradientMap: gradienteToon })
+const materialLaminaEspada = new THREE.MeshStandardMaterial({ color: 0xc9d1dc, metalness: 1, roughness: 0.18 })
 // marrom-couro claro (não escuro) de propósito — precisa contrastar tanto com a armadura clara
 // das brancas quanto com a armadura escura das pretas, senão some contra uma das duas facções
-const materialCaboEspada = new THREE.MeshToonMaterial({ color: 0x8b5a2b, gradientMap: gradienteToon })
+const materialCaboEspada = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, metalness: 0, roughness: 0.75 })
 
 function criarEspadaDoPeao(): THREE.Group {
   const espada = new THREE.Group()
@@ -849,31 +924,164 @@ function pixelRatioParaFullHD(larguraCss: number, alturaCss: number): number {
  * terminar. Duração e número de passadas escalam com a distância percorrida, então o ritmo do
  * "passo" fica igual não importa se a peça andou uma casa ou atravessou o tabuleiro inteiro.
  */
+/** Ângulo de `de` até `para` pelo caminho mais curto (entre -π e π). */
+function diferencaAngular(de: number, para: number): number {
+  return Math.atan2(Math.sin(para - de), Math.cos(para - de))
+}
+
+/** A frente de cada peça no tabuleiro: as brancas olham pras pretas (-Z) e as pretas pras brancas (+Z). */
+function rumoDeDescanso(mesh: THREE.Object3D): number {
+  return mesh.userData.cor === 'w' ? Math.PI : 0
+}
+
+/** Acima disso (em casas, no tamanho do modelo) a peça corre em vez de andar. */
+const DISTANCIA_PRA_CORRER = 2.2
+/** Tempo pra acelerar até a velocidade do passo (e pra frear no fim). */
+const TEMPO_ACELERACAO_S = 0.35
+
+/**
+ * Peça RPG indo de uma casa a outra, como um personagem de verdade:
+ * - vira pra onde vai (dando passos no lugar, sem girar parada feito um pião);
+ * - anda (até ~2 casas) ou corre (mais longe) na velocidade do próprio passo — o corpo avança
+ *   exatamente o que os pés pisam (velocidade medida no clipe, ver DadosRPG), acelerando no começo
+ *   e freando no fim, com o ritmo dos passos acompanhando a velocidade;
+ * - ao chegar, vira de volta de frente pro adversário e para.
+ * O cavalo salta direto até a casa (o salto do clipe "Mortal"), como o cavalo do xadrez, que pula
+ * por cima das outras peças: ele só se desloca enquanto está no ar.
+ */
+function animarPosicaoRPG(
+  mesh: THREE.Object3D,
+  de: { x: number; z: number },
+  para: { x: number; z: number },
+  aoTerminar: () => void,
+) {
+  const acoes = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction>
+  const dados = mesh.userData.dadosRPG as DadosRPG
+  // um lance interrompe o que a peça estava fazendo (gesto com a espada na mão, por exemplo): a
+  // sequência em andamento é cancelada e a espada volta pra bainha
+  novaSequenciaRPG(mesh)
+  mostrarEspadaRPG(mesh, false)
+
+  const dx = para.x - de.x
+  const dz = para.z - de.z
+  const distancia = Math.hypot(dx, dz)
+  const escala = mesh.scale.x
+  const rumoIda = Math.atan2(dx, dz)
+  const caminhada = acoes.Walk
+
+  /** Passos no lugar enquanto gira até `alvo`; `depois` roda ao terminar. */
+  function virar(alvo: number, depois: () => void) {
+    const inicial = mesh.rotation.y
+    const giro = diferencaAngular(inicial, alvo)
+    if (Math.abs(giro) < 0.05) {
+      mesh.rotation.y = alvo
+      depois()
+      return
+    }
+    const duracao = Math.max(0.2, (Math.abs(giro) / Math.PI) * 0.6)
+    if (caminhada) {
+      desligarClipesRPG(acoes, caminhada, 0.15)
+      if (!caminhada.isRunning()) caminhada.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.15).play()
+      caminhada.setEffectiveTimeScale(0.7)
+    }
+    const inicio = performance.now()
+    function passo(agora: number) {
+      const t = Math.min(1, (agora - inicio) / 1000 / duracao)
+      const suave = t * t * (3 - 2 * t)
+      mesh.rotation.y = inicial + giro * suave
+      if (t < 1) requestAnimationFrame(passo)
+      else depois()
+    }
+    requestAnimationFrame(passo)
+  }
+
+  function parar() {
+    const parado = acoes.Parado
+    if (parado) {
+      desligarClipesRPG(acoes, parado, 0.25)
+      parado.reset().fadeIn(0.25).play()
+    }
+    for (const acao of Object.values(acoes)) acao.setEffectiveTimeScale(1)
+    aoTerminar()
+  }
+
+  /** Anda/corre de `de` até `para` com perfil de velocidade trapezoidal (acelera, mantém, freia). */
+  function deslocar(depois: () => void) {
+    const corre = distancia / escala > DISTANCIA_PRA_CORRER && Boolean(acoes.Run)
+    const clipe = corre ? acoes.Run : caminhada
+    const velocidade = (corre ? dados.velocidadeRun : dados.velocidadeWalk) * escala
+    if (!clipe || distancia < 1e-3) {
+      depois()
+      return
+    }
+    desligarClipesRPG(acoes, clipe, 0.2)
+    if (!clipe.isRunning()) clipe.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.2).play()
+    const aceleracao = Math.min(TEMPO_ACELERACAO_S, (0.5 * distancia) / velocidade)
+    const total = distancia / velocidade + aceleracao
+    const inicio = performance.now()
+    function passo(agora: number) {
+      const t = Math.min(total, (agora - inicio) / 1000)
+      let percorrido: number
+      let v: number
+      if (t < aceleracao) {
+        percorrido = (velocidade * t * t) / (2 * aceleracao)
+        v = (velocidade * t) / aceleracao
+      } else if (t < total - aceleracao) {
+        percorrido = (velocidade * aceleracao) / 2 + velocidade * (t - aceleracao)
+        v = velocidade
+      } else {
+        const falta = total - t
+        percorrido = distancia - (velocidade * falta * falta) / (2 * aceleracao)
+        v = (velocidade * falta) / aceleracao
+      }
+      const fracao = Math.min(1, percorrido / distancia)
+      mesh.position.x = de.x + dx * fracao
+      mesh.position.z = de.z + dz * fracao
+      // o ritmo dos passos acompanha a velocidade (nunca parado de todo, pra não "congelar" no
+      // meio de um passo enquanto ainda arranca/freia)
+      clipe!.setEffectiveTimeScale(Math.max(0.35, v / velocidade))
+      if (t < total) requestAnimationFrame(passo)
+      else depois()
+    }
+    requestAnimationFrame(passo)
+  }
+
+  /** Cavalo: salto até a casa — só se desloca entre a decolagem e o pouso do clipe. */
+  function saltar(depois: () => void) {
+    const decola = dados.segundoDecola ?? 0.4
+    const pousa = dados.segundoPousa ?? 1.13
+    tocarClipeRPGUmaVez(mesh, 'Mortal', { entrada: 0.15, voltarAoParado: false, aoTerminar: depois })
+    const inicio = performance.now()
+    function passo(agora: number) {
+      const t = (agora - inicio) / 1000
+      const fracao = Math.min(1, Math.max(0, (t - decola) / (pousa - decola)))
+      mesh.position.x = de.x + dx * fracao
+      mesh.position.z = de.z + dz * fracao
+      if (fracao < 1) requestAnimationFrame(passo)
+    }
+    requestAnimationFrame(passo)
+  }
+
+  const salta = mesh.userData.tipo === 'n' && Boolean(acoes.Mortal) && dados.segundoDecola !== undefined
+  virar(rumoIda, () => {
+    const seguir = () => virar(rumoDeDescanso(mesh), parar)
+    if (salta) saltar(seguir)
+    else deslocar(seguir)
+  })
+}
+
 function animarPosicao(
   mesh: THREE.Object3D,
   de: { x: number; z: number },
   para: { x: number; z: number },
   aoTerminar: () => void,
 ) {
+  if (mesh.userData.acoesRPG && mesh.userData.dadosRPG) {
+    animarPosicaoRPG(mesh, de, para, aoTerminar)
+    return
+  }
   const membros = mesh.userData.membros as MembrosPersonagem | undefined
   const base = (mesh.userData.poseBase as PoseBaseMembros | undefined) ?? POSE_BASE_NEUTRA
-
-  // peça RPG: em vez de balançar membros manualmente (isso é só pras peças geométricas, que não
-  // têm esqueleto de verdade), troca pro clipe "Walk" do próprio modelo enquanto desliza — e volta
-  // pro "Parado" ao chegar. Sem crossFadeTo aqui de propósito (não assume qual ação está tocando no
-  // momento — numa captura a peça pode chegar direto de um golpe, ou estar no meio de um gesto —
-  // fadeIn/fadeOut mistura o peso a partir do que já estiver rodando, sem precisar saber a origem).
-  // um lance interrompe o que a peça estava fazendo (gesto com a espada na mão, por exemplo): a
-  // sequência em andamento é cancelada e a espada volta pra bainha
-  const acoesRPG = mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined
-  const caminhada = acoesRPG?.Walk
-  const paradaRPG = acoesRPG?.Parado
-  if (acoesRPG && caminhada && paradaRPG) {
-    novaSequenciaRPG(mesh)
-    mostrarEspadaRPG(mesh, false)
-    desligarClipesRPG(acoesRPG, caminhada, 0.15)
-    caminhada.reset().setLoop(THREE.LoopRepeat, Infinity).fadeIn(0.15).play()
-  }
 
   const distancia = Math.hypot(para.x - de.x, para.z - de.z)
   const duracaoMs = Math.min(
@@ -906,10 +1114,6 @@ function animarPosicao(
         membros.bracoEsq.rotation.x = base.bracoEsq
         membros.bracoDir.rotation.x = base.bracoDir
       }
-      if (caminhada && paradaRPG) {
-        paradaRPG.reset().fadeIn(0.15).play()
-        caminhada.fadeOut(0.15)
-      }
       aoTerminar()
     }
   }
@@ -925,6 +1129,17 @@ const DURACAO_COMEMORACAO_MS = 2400
  * captura de um companheiro de time.
  */
 function animarComemoracao(mesh: THREE.Object3D, atraso: number, duracaoMs: number = DURACAO_COMEMORACAO_MS) {
+  // peça RPG: o clipe "Comemorar" (pulos de verdade com os braços erguidos — no cavalo, ele empina
+  // com o cavaleiro de punho erguido), em vez de quicar a peça inteira rígida
+  if ((mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined)?.Comemorar) {
+    window.setTimeout(() => {
+      if (meshesEmGesto.has(mesh)) return
+      novaSequenciaRPG(mesh)
+      mostrarEspadaRPG(mesh, false)
+      tocarClipeRPGUmaVez(mesh, 'Comemorar', { entrada: 0.15, saida: 0.3 })
+    }, atraso)
+    return
+  }
   const membros = mesh.userData.membros as MembrosPersonagem | undefined
   const yBase = mesh.position.y
   const rotYBase = mesh.rotation.y // brancas ficam viradas 180° (Math.PI) — não pode resetar pra 0
@@ -1019,6 +1234,18 @@ function animarGestoAmigavel(
     return
   }
 
+  // peça RPG nos outros gestos: vira pra outra peça (abaixo) e faz um movimento de corpo de
+  // verdade (um dos gestos dela), em vez de inclinar/afundar a peça inteira rígida
+  if (ehRPG) {
+    window.setTimeout(() => {
+      const gestos = clipesRPGComPrefixo(mesh, 'Gesto')
+      if (!gestos.length) return
+      novaSequenciaRPG(mesh)
+      mostrarEspadaRPG(mesh, false)
+      tocarClipeRPGUmaVez(mesh, gestos[Math.floor(Math.random() * gestos.length)], { entrada: 0.4, saida: 0.5 })
+    }, atraso)
+  }
+
   function passo(agora: number) {
     if (agora < inicio) {
       requestAnimationFrame(passo)
@@ -1043,8 +1270,9 @@ function animarGestoAmigavel(
         break
       }
       case 'inclinacao': {
-        // uma reverência — o corpo inteiro curva pra frente e volta
-        mesh.rotation.x = rotXOriginal + Math.sin(t * Math.PI) * 0.5
+        // uma reverência — o corpo inteiro curva pra frente e volta (a peça RPG faz o gesto pelo
+        // esqueleto, ver acima)
+        if (!ehRPG) mesh.rotation.x = rotXOriginal + Math.sin(t * Math.PI) * 0.5
         break
       }
       case 'agachamento': {
@@ -1263,6 +1491,7 @@ function animarQuedaEDesaparecimento(
   mesh: THREE.Object3D,
   aoTerminar: () => void,
   direcaoNocaute?: { x: number; z: number },
+  direcaoGolpe?: { x: number; z: number },
 ) {
   mesh.traverse((obj) => {
     if (!(obj instanceof THREE.Mesh)) return
@@ -1294,6 +1523,39 @@ function animarQuedaEDesaparecimento(
       if (Array.isArray(mat)) mat.forEach((m) => (m.opacity = valor))
       else mat.opacity = valor
     })
+  }
+
+  // peça RPG: vira de frente pra quem golpeou (num instante — o golpe já acertou) e cai de verdade
+  // com o clipe "Morte" (cai de costas, pra longe do atacante); só depois de estirada no chão é que
+  // afunda e some aos poucos
+  const morte = (mesh.userData.acoesRPG as Record<string, THREE.AnimationAction> | undefined)?.Morte
+  if (morte) {
+    novaSequenciaRPG(mesh)
+    mostrarEspadaRPG(mesh, false)
+    const rumoInicial = mesh.rotation.y
+    const giro = direcaoGolpe ? diferencaAngular(rumoInicial, Math.atan2(-direcaoGolpe.x, -direcaoGolpe.z)) : 0
+    tocarClipeRPGUmaVez(mesh, 'Morte', { entrada: 0.12, voltarAoParado: false })
+    const duracaoClipeMs = morte.getClip().duration * 1000
+    const comecaASumir = duracaoClipeMs * 0.85
+    const yBase = mesh.position.y
+    const inicioMorte = performance.now()
+    function passoMorte(agora: number) {
+      const decorrido = agora - inicioMorte
+      const tGiro = Math.min(1, decorrido / 140)
+      mesh.rotation.y = rumoInicial + giro * tGiro * (2 - tGiro)
+      if (decorrido > comecaASumir) {
+        const tSumir = Math.min(1, (decorrido - comecaASumir) / DURACAO_SUMIR_MS)
+        mesh.position.y = yBase - tSumir * 0.15
+        definirOpacidade(1 - tSumir)
+        if (tSumir >= 1) {
+          aoTerminar()
+          return
+        }
+      }
+      requestAnimationFrame(passoMorte)
+    }
+    requestAnimationFrame(passoMorte)
+    return
   }
 
   function passo(agora: number) {
@@ -1373,6 +1635,199 @@ function animarImpacto(scene: THREE.Object3D, x: number, z: number) {
         if (obj instanceof THREE.Mesh) (obj.material as THREE.Material).dispose()
       })
     }
+  }
+  requestAnimationFrame(passo)
+}
+
+// ---------------------------------------------------------------------------
+// Poder do bispo — na captura ele lança uma bola de energia (na cor de brilho da facção) que sai
+// das mãos no gesto da magia, voa em arco até a peça atingida deixando um rastro de luz e explode
+// nela (clarão, onda de choque e faíscas). O golpe só "acerta" (a vítima cai) quando a bola chega.
+// ---------------------------------------------------------------------------
+function criarTexturaBrilho(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas')
+  canvas.width = 128
+  canvas.height = 128
+  const ctx = canvas.getContext('2d')!
+  const gradiente = ctx.createRadialGradient(64, 64, 0, 64, 64, 64)
+  gradiente.addColorStop(0, 'rgba(255,255,255,1)')
+  gradiente.addColorStop(0.25, 'rgba(255,255,255,0.75)')
+  gradiente.addColorStop(0.6, 'rgba(255,255,255,0.18)')
+  gradiente.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = gradiente
+  ctx.fillRect(0, 0, 128, 128)
+  const textura = new THREE.CanvasTexture(canvas)
+  textura.colorSpace = THREE.SRGBColorSpace
+  return textura
+}
+const texturaBrilho = criarTexturaBrilho()
+const geoNucleoPoder = new THREE.SphereGeometry(0.05, 20, 14)
+const geoOndaPoder = new THREE.RingGeometry(0.08, 0.13, 48)
+const geoCascaPoder = new THREE.SphereGeometry(0.1, 24, 16)
+
+function spriteDeBrilho(cor: THREE.ColorRepresentation, tamanho: number, opacidade = 1): THREE.Sprite {
+  const material = new THREE.SpriteMaterial({
+    map: texturaBrilho,
+    color: cor,
+    transparent: true,
+    opacity: opacidade,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  })
+  const sprite = new THREE.Sprite(material)
+  sprite.scale.setScalar(tamanho)
+  return sprite
+}
+
+/** Partículas soltas (rastro, faíscas): cada uma some/encolhe sozinha e é removida no fim. */
+interface Particula {
+  objeto: THREE.Sprite
+  nasceu: number
+  vida: number
+  velocidade?: THREE.Vector3
+  tamanho: number
+}
+
+function animarParticulas(cena: THREE.Object3D, particulas: Particula[]) {
+  let anterior = performance.now()
+  function passo(agora: number) {
+    const dt = (agora - anterior) / 1000
+    anterior = agora
+    for (let i = particulas.length - 1; i >= 0; i--) {
+      const p = particulas[i]
+      const t = (agora - p.nasceu) / p.vida
+      if (t >= 1) {
+        cena.remove(p.objeto)
+        p.objeto.material.dispose()
+        particulas.splice(i, 1)
+        continue
+      }
+      if (p.velocidade) {
+        p.velocidade.y -= 2.5 * dt
+        p.objeto.position.addScaledVector(p.velocidade, dt)
+      }
+      p.objeto.material.opacity = 1 - t
+      p.objeto.scale.setScalar(p.tamanho * (1 - t * 0.6))
+    }
+    if (particulas.length) requestAnimationFrame(passo)
+  }
+  requestAnimationFrame(passo)
+}
+
+/** Meio das duas mãos (os ossos do Mixamo) no mundo — de onde a magia sai. */
+function pontoDasMaos(mesh: THREE.Object3D): THREE.Vector3 {
+  const maos = ['mixamorigLeftHand', 'mixamorigRightHand', 'mixamorig:LeftHand', 'mixamorig:RightHand']
+    .map((nome) => mesh.getObjectByName(nome))
+    .filter((osso): osso is THREE.Object3D => Boolean(osso))
+  if (!maos.length) return mesh.position.clone().add(new THREE.Vector3(0, 0.5 * mesh.scale.y, 0))
+  const soma = new THREE.Vector3()
+  for (const mao of maos) soma.add(mao.getWorldPosition(new THREE.Vector3()))
+  return soma.divideScalar(maos.length)
+}
+
+/** Explosão da magia no ponto: clarão de luz, casca de energia se expandindo, onda no chão e faíscas. */
+function explodirPoder(cena: THREE.Object3D, ponto: THREE.Vector3, cor: THREE.ColorRepresentation) {
+  const grupo = new THREE.Group()
+  grupo.position.copy(ponto)
+  const luz = new THREE.PointLight(cor, 10, 4, 2)
+  grupo.add(luz)
+  const casca = new THREE.Mesh(
+    geoCascaPoder,
+    new THREE.MeshBasicMaterial({ color: cor, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }),
+  )
+  grupo.add(casca)
+  const clarao = spriteDeBrilho(cor, 1.1)
+  grupo.add(clarao)
+  cena.add(grupo)
+  const onda = new THREE.Mesh(
+    geoOndaPoder,
+    new THREE.MeshBasicMaterial({ color: cor, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }),
+  )
+  onda.rotation.x = -Math.PI / 2
+  onda.position.set(ponto.x, 0.03, ponto.z)
+  cena.add(onda)
+
+  const faiscas: Particula[] = []
+  const agora = performance.now()
+  for (let i = 0; i < 18; i++) {
+    const faisca = spriteDeBrilho(i % 3 === 0 ? 0xffffff : cor, 0.12)
+    faisca.position.copy(ponto)
+    cena.add(faisca)
+    const direcao = new THREE.Vector3(Math.random() - 0.5, Math.random() * 0.8 + 0.2, Math.random() - 0.5).normalize()
+    faiscas.push({ objeto: faisca, nasceu: agora, vida: 450 + Math.random() * 300, velocidade: direcao.multiplyScalar(1.4 + Math.random() * 1.6), tamanho: 0.12 })
+  }
+  animarParticulas(cena, faiscas)
+
+  const inicio = performance.now()
+  const DURACAO = 520
+  function passo(agoraPasso: number) {
+    const t = Math.min(1, (agoraPasso - inicio) / DURACAO)
+    const saida = 1 - Math.pow(1 - t, 3)
+    casca.scale.setScalar(1 + saida * 5)
+    ;(casca.material as THREE.MeshBasicMaterial).opacity = 0.8 * (1 - t)
+    clarao.material.opacity = 1 - t
+    clarao.scale.setScalar(1.1 + saida * 0.8)
+    luz.intensity = 10 * (1 - t) * (1 - t)
+    onda.scale.setScalar(1 + saida * 7)
+    ;(onda.material as THREE.MeshBasicMaterial).opacity = 0.9 * (1 - t)
+    if (t < 1) {
+      requestAnimationFrame(passo)
+    } else {
+      cena.remove(grupo)
+      cena.remove(onda)
+      ;(casca.material as THREE.Material).dispose()
+      clarao.material.dispose()
+      ;(onda.material as THREE.Material).dispose()
+    }
+  }
+  requestAnimationFrame(passo)
+}
+
+/** O bispo lança a bola de energia das mãos até `alvo`; `aoAcertar` roda quando ela chega. */
+function lancarPoderDoBispo(cena: THREE.Object3D, bispo: THREE.Object3D, alvo: THREE.Vector3, cor: THREE.ColorRepresentation, aoAcertar: () => void) {
+  const origem = pontoDasMaos(bispo)
+  const orbe = new THREE.Group()
+  const nucleo = new THREE.Mesh(geoNucleoPoder, new THREE.MeshBasicMaterial({ color: 0xffffff }))
+  orbe.add(nucleo, spriteDeBrilho(cor, 0.5), spriteDeBrilho(0xffffff, 0.2))
+  const luz = new THREE.PointLight(cor, 4, 3, 2)
+  orbe.add(luz)
+  orbe.position.copy(origem)
+  cena.add(orbe)
+
+  const distancia = origem.distanceTo(alvo)
+  const duracao = THREE.MathUtils.clamp(distancia / 6, 0.2, 0.55) * 1000
+  const alturaArco = 0.25 * Math.min(1, distancia / 3)
+  const rastro: Particula[] = []
+  let rastroAnimando = false
+  const inicio = performance.now()
+  let ultimaParticula = 0
+  function passo(agora: number) {
+    const t = Math.min(1, (agora - inicio) / duracao)
+    orbe.position.lerpVectors(origem, alvo, t)
+    orbe.position.y += Math.sin(t * Math.PI) * alturaArco
+    nucleo.scale.setScalar(1 + 0.2 * Math.sin(agora / 40))
+    if (agora - ultimaParticula > 14) {
+      ultimaParticula = agora
+      const particula = spriteDeBrilho(cor, 0.26, 0.9)
+      particula.position.copy(orbe.position)
+      cena.add(particula)
+      rastro.push({ objeto: particula, nasceu: agora, vida: 340, tamanho: 0.26 })
+      if (!rastroAnimando) {
+        rastroAnimando = true
+        animarParticulas(cena, rastro)
+      }
+    }
+    if (t < 1) {
+      requestAnimationFrame(passo)
+      return
+    }
+    cena.remove(orbe)
+    ;(nucleo.material as THREE.Material).dispose()
+    orbe.traverse((obj) => {
+      if (obj instanceof THREE.Sprite) obj.material.dispose()
+    })
+    explodirPoder(cena, alvo, cor)
+    aoAcertar()
   }
   requestAnimationFrame(passo)
 }
@@ -1481,12 +1936,23 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     renderer.setSize(container.clientWidth, container.clientHeight)
     renderer.setPixelRatio(pixelRatioParaFullHD(container.clientWidth, container.clientHeight))
     renderer.shadowMap.enabled = true
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    // sombras suaves de verdade (borda esfumada, como a de uma luz real), em alta resolução
+    renderer.shadowMap.type = THREE.VSMShadowMap
     renderer.outputColorSpace = THREE.SRGBColorSpace
-    // sem tone mapping cinematográfico — pro estilo desenho/toon as cores ficam mais
-    // vivas e chapadas sem o ACES "esmaecer" os tons como faria num render realista
-    renderer.toneMapping = THREE.NoToneMapping
+    // visual "HD": tons cinematográficos (ACES), que seguram o brilho do metal e do verniz sem
+    // estourar o branco
+    renderer.toneMapping = THREE.ACESFilmicToneMapping
+    renderer.toneMappingExposure = 1.05
     container.appendChild(renderer.domElement)
+    const anisotropia = renderer.capabilities.getMaxAnisotropy()
+
+    // reflexo de ambiente (um "estúdio" gerado na hora, sem imagem externa): é o que faz o metal das
+    // armaduras, o ouro das coroas e o verniz do tabuleiro brilharem de verdade
+    const geradorAmbiente = new THREE.PMREMGenerator(renderer)
+    const ambiente = geradorAmbiente.fromScene(new RoomEnvironment(), 0.04).texture
+    scene.environment = ambiente
+    scene.environmentIntensity = 0.55
+    geradorAmbiente.dispose()
 
     const controls = new OrbitControls(camera, renderer.domElement)
     // o alvo fica na altura do corpo das peças (torso), não no chão do tabuleiro — senão o zoom
@@ -1500,41 +1966,97 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     controls.maxDistance = 20
     controls.maxPolarAngle = Math.PI / 2 - 0.05
 
-    // luz mais direcional e menos ambiente do que num render realista — é o que faz o
-    // sombreamento em degraus do toon material aparecer, em vez de ficar tudo "lavado"
-    scene.add(new THREE.HemisphereLight(0xfff6e6, 0x3a2a1a, 0.35))
-    const dirLight = new THREE.DirectionalLight(0xfff3e0, 1.15)
+    // luz principal (com sombra suave), luz de preenchimento do lado oposto e uma luz de contorno
+    // por trás, que destaca a silhueta das peças contra o fundo
+    scene.add(new THREE.HemisphereLight(0xfff6e6, 0x3a2a1a, 0.3))
+    const dirLight = new THREE.DirectionalLight(0xfff1dc, 2.4)
     dirLight.position.set(4, 10, 6)
     dirLight.castShadow = true
     dirLight.shadow.mapSize.set(2048, 2048)
-    dirLight.shadow.camera.left = -6
-    dirLight.shadow.camera.right = 6
-    dirLight.shadow.camera.top = 6
-    dirLight.shadow.camera.bottom = -6
-    dirLight.shadow.bias = -0.0015
+    dirLight.shadow.camera.left = -6.5
+    dirLight.shadow.camera.right = 6.5
+    dirLight.shadow.camera.top = 6.5
+    dirLight.shadow.camera.bottom = -6.5
+    dirLight.shadow.camera.near = 1
+    dirLight.shadow.camera.far = 30
+    dirLight.shadow.radius = 5
+    dirLight.shadow.blurSamples = 12
+    dirLight.shadow.bias = -0.0004
+    dirLight.shadow.normalBias = 0.02
     scene.add(dirLight)
-    const fillLight = new THREE.DirectionalLight(0xffffff, 0.15)
+    const fillLight = new THREE.DirectionalLight(0xdfe8ff, 0.45)
     fillLight.position.set(-5, 6, -4)
     scene.add(fillLight)
+    const luzContorno = new THREE.DirectionalLight(0xffe2b8, 0.7)
+    luzContorno.position.set(0, 5, -9)
+    scene.add(luzContorno)
 
-    const base = new THREE.Mesh(
-      new THREE.BoxGeometry(8.6, 0.25, 8.6),
-      new THREE.MeshToonMaterial({ color: COR_BASE, gradientMap: gradienteToon }),
+    // madeiras: bordo claro (casas claras), nogueira (casas escuras), nogueira escura (moldura) e
+    // a mesa embaixo
+    const madeiraClara = criarTexturaMadeira([226, 201, 160], [190, 150, 102], 1.7)
+    const madeiraEscura = criarTexturaMadeira([104, 62, 36], [58, 31, 16], 4.3)
+    const madeiraMoldura = criarTexturaMadeira([70, 40, 22], [36, 19, 9], 7.9, 10)
+    const madeiraMesa = criarTexturaMadeira([60, 40, 28], [40, 26, 18], 2.2, 34)
+
+    // mesa embaixo do tabuleiro, recebendo a sombra dele e sumindo no fundo com a névoa
+    madeiraMesa.repeat.set(6, 6)
+    madeiraMesa.anisotropy = anisotropia
+    const mesa = new THREE.Mesh(
+      new THREE.PlaneGeometry(80, 80),
+      new THREE.MeshStandardMaterial({ map: madeiraMesa, roughness: 0.7, metalness: 0 }),
     )
-    base.position.y = -0.22
-    base.receiveShadow = true
-    scene.add(base)
+    mesa.rotation.x = -Math.PI / 2
+    mesa.position.y = -0.36
+    mesa.receiveShadow = true
+    scene.add(mesa)
 
+    // moldura: bloco de nogueira com quinas arredondadas embaixo das casas (aparece nos frisos entre
+    // elas) e uma borda levemente elevada em volta, com um filete dourado na beira de dentro
+    const materialMoldura = materialMadeira(madeiraMoldura, anisotropia)
+    const base = new THREE.Mesh(new RoundedBoxGeometry(9.4, 0.34, 9.4, 4, 0.06), materialMoldura)
+    base.position.y = -0.19
+    base.receiveShadow = true
+    base.castShadow = true
+    scene.add(base)
+    const bordaGeo = new RoundedBoxGeometry(9.4, 0.06, 0.7, 3, 0.02)
+    const bordaLadoGeo = new RoundedBoxGeometry(0.7, 0.06, 8.0, 3, 0.02)
+    const bordas: [THREE.BufferGeometry, number, number][] = [
+      [bordaGeo, 0, 4.35],
+      [bordaGeo, 0, -4.35],
+      [bordaLadoGeo, 4.35, 0],
+      [bordaLadoGeo, -4.35, 0],
+    ]
+    for (const [geo, x, z] of bordas) {
+      const borda = new THREE.Mesh(geo, materialMoldura)
+      borda.position.set(x, 0.01, z)
+      borda.receiveShadow = true
+      borda.castShadow = true
+      scene.add(borda)
+    }
+    const materialFilete = new THREE.MeshStandardMaterial({ color: 0xd9ae4a, metalness: 1, roughness: 0.25 })
+    const fileteGeo = new THREE.BoxGeometry(8.06, 0.012, 0.03)
+    for (let lado = 0; lado < 4; lado++) {
+      const filete = new THREE.Mesh(fileteGeo, materialFilete)
+      const angulo = (lado * Math.PI) / 2
+      filete.rotation.y = angulo
+      filete.position.set(Math.sin(angulo) * 4.03, 0.042, Math.cos(angulo) * 4.03)
+      scene.add(filete)
+    }
+
+    // casas: madeira de verdade com verniz e quinas levemente arredondadas — entre uma casa e outra
+    // fica um friso fino, como num tabuleiro de marchetaria. Cada casa usa um pedaço diferente da
+    // textura (e metade delas com o veio girado), pra não parecerem carimbadas.
     const boardGroup = new THREE.Group()
     const squareMeshes: THREE.Mesh[] = []
-    const squareGeo = new THREE.BoxGeometry(1, 0.1, 1)
+    const squareGeo = new RoundedBoxGeometry(0.985, 0.1, 0.985, 3, 0.012)
     for (let f = 0; f < 8; f++) {
       for (let r = 0; r < 8; r++) {
         const square = `${String.fromCharCode(97 + f)}${r + 1}`
         const clara = (f + r) % 2 === 1
-        const mat = new THREE.MeshToonMaterial({
-          color: clara ? COR_CASA_CLARA : COR_CASA_ESCURA,
-          gradientMap: gradienteToon,
+        const mat = materialMadeira(clara ? madeiraClara : madeiraEscura, anisotropia, {
+          x: Math.random(),
+          y: Math.random(),
+          giro: (f + r) % 4 < 2 ? 0 : Math.PI / 2,
         })
         const mesh = new THREE.Mesh(squareGeo, mat)
         const { x, z } = squareToPos(square)
@@ -1547,24 +2069,28 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     }
     scene.add(boardGroup)
 
-    // coordenadas padrão do xadrez — colunas a-h na borda de trás (lado das brancas) e
-    // linhas 1-8 na borda esquerda, deitadas no tabuleiro como os destaques de destino
+    // coordenadas padrão do xadrez — colunas a-h na borda de trás (lado das brancas) e linhas 1-8
+    // na borda esquerda, gravadas em dourado na moldura
     const labelsGroup = new THREE.Group()
-    const labelGeo = new THREE.PlaneGeometry(0.32, 0.32)
+    const labelGeo = new THREE.PlaneGeometry(0.36, 0.36)
     for (let f = 0; f < 8; f++) {
-      const mat = new THREE.MeshBasicMaterial({ map: criarTexturaTexto(LETRAS_COLUNAS[f]), transparent: true })
+      const textura = criarTexturaTexto(LETRAS_COLUNAS[f])
+      textura.anisotropy = anisotropia
+      const mat = new THREE.MeshBasicMaterial({ map: textura, transparent: true, toneMapped: false })
       const mesh = new THREE.Mesh(labelGeo, mat)
       mesh.rotation.x = -Math.PI / 2
       const { x } = squareToPos(`${LETRAS_COLUNAS[f]}1`)
-      mesh.position.set(x, 0.011, 4.15)
+      mesh.position.set(x, 0.045, 4.35)
       labelsGroup.add(mesh)
     }
     for (let r = 0; r < 8; r++) {
-      const mat = new THREE.MeshBasicMaterial({ map: criarTexturaTexto(String(r + 1)), transparent: true })
+      const textura = criarTexturaTexto(String(r + 1))
+      textura.anisotropy = anisotropia
+      const mat = new THREE.MeshBasicMaterial({ map: textura, transparent: true, toneMapped: false })
       const mesh = new THREE.Mesh(labelGeo, mat)
       mesh.rotation.x = -Math.PI / 2
       const { z } = squareToPos(`a${r + 1}`)
-      mesh.position.set(-4.15, 0.011, z)
+      mesh.position.set(-4.35, 0.045, z)
       labelsGroup.add(mesh)
     }
     scene.add(labelsGroup)
@@ -1871,38 +2397,44 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         // as outras peças golpeiam direto (sem espada)
         const atacante = meshMovendo
         const senha = novaSequenciaRPG(atacante)
+        // no instante em que o golpe acerta: a vítima cai (pra longe do atacante) e as aliadas
+        // por perto comemoram
+        const acertar = () => {
+          animarImpacto(scene, vitima.position.x, vitima.position.z)
+          const nocaute = estilo === 'derrubada' ? direcao : undefined
+          animarQuedaEDesaparecimento(
+            vitima,
+            () => {
+              piecesGroup.remove(vitima)
+              seguirParaDestino()
+            },
+            nocaute,
+            direcao,
+          )
+
+          // peças aliadas da atacante que estejam por perto comemoram junto, numa versão
+          // curta da comemoração de xeque-mate
+          const corAtacante = resultado.color
+          let atraso = 0
+          for (const aliada of pecasAliadasProximas(destino, corAtacante, 2.2)) {
+            animarComemoracao(aliada.mesh, atraso, 900)
+            atraso += 80
+          }
+        }
+        // o bispo não encosta na vítima: no gesto da magia ele lança o poder, e o acerto só
+        // acontece quando a bola de energia chega nela
+        const bispoComPoder = resultado.piece === 'b' && Boolean(atacante.userData.acoesRPG)
+        const noGolpe = bispoComPoder
+          ? () => {
+              const alvo = vitima.position.clone().add(new THREE.Vector3(0, 0.45 * vitima.scale.y, 0))
+              lancarPoderDoBispo(scene, atacante, alvo, materiaisPorFaccao[resultado.color].brilho.color, acertar)
+            }
+          : acertar
         sacarEspadaRPG(atacante, senha, () => {
           tocarGolpeRPG(atacante)
-          animarAtaqueEspada(
-            atacante,
-            direcao,
-            estilo,
-            () => {
-              // no instante exato do impacto — não espera a espada voltar pra guarda pra já cair
-              animarImpacto(scene, vitima.position.x, vitima.position.z)
-              const nocaute = estilo === 'derrubada' ? direcao : undefined
-              animarQuedaEDesaparecimento(
-                vitima,
-                () => {
-                  piecesGroup.remove(vitima)
-                  seguirParaDestino()
-                },
-                nocaute,
-              )
-
-              // peças aliadas da atacante que estejam por perto comemoram junto, numa versão
-              // curta da comemoração de xeque-mate
-              const corAtacante = resultado.color
-              let atraso = 0
-              for (const aliada of pecasAliadasProximas(destino, corAtacante, 2.2)) {
-                animarComemoracao(aliada.mesh, atraso, 900)
-                atraso += 80
-              }
-            },
-            () => {
-              if (sequenciaRPGValida(atacante, senha)) guardarEspadaRPG(atacante, senha)
-            },
-          )
+          animarAtaqueEspada(atacante, direcao, estilo, noGolpe, () => {
+            if (sequenciaRPGValida(atacante, senha)) guardarEspadaRPG(atacante, senha)
+          })
         })
         return
       }
@@ -2203,6 +2735,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       renderer.domElement.removeEventListener('click', onClick)
       cancelAnimationFrame(frameId)
       controls.dispose()
+      ambiente.dispose()
       renderer.dispose()
       container.removeChild(renderer.domElement)
     }

@@ -70,7 +70,18 @@ ANIMACOES = {
     "Gesto1": "sword and shield idle.fbx",
     "Gesto2": "sword and shield idle (2).fbx",
     "Walk": "sword and shield walk.fbx",
+    "Run": "sword and shield run.fbx",
+    # a peça capturada cai de costas (o jogo vira ela de frente pro atacante antes)
+    "Morte": "sword and shield death.fbx",
 }
+# andar e correr: o Mixamo anda pra frente de verdade; aqui ficam no lugar (quem leva a peça é o
+# jogo), e a velocidade com que o corpo avançava vai pro .glb ("velocidade_walk"/"velocidade_run",
+# em unidades por segundo) — o jogo desloca a peça nessa velocidade, então os pés não escorregam
+ANDAR_NO_LUGAR = ("Walk", "Run")
+
+# resolução das peças: 16 lados nos cilindros/cones/esferas (antes 8, facetado) e sombreado suave
+# com as quinas vivas (ver suavizar)
+LADOS_HD = 16
 
 # golpes de cada peça, sorteados pelo jogo a cada captura — nenhum se repete entre peças. Cada um:
 # (arquivo, quadro de início, quadro do impacto, quadro do fim, anda?). O golpe do jogo
@@ -274,12 +285,12 @@ def primitiva(nome, forma, medidas, posicao, giro, nome_material):
         bpy.context.object.scale = medidas
     elif forma in ("cilindro", "cone"):
         raio, raio_topo, altura = medidas
-        bpy.ops.mesh.primitive_cone_add(vertices=8, radius1=raio, radius2=raio_topo, depth=altura, location=posicao, rotation=giro)
+        bpy.ops.mesh.primitive_cone_add(vertices=LADOS_HD, radius1=raio, radius2=raio_topo, depth=altura, location=posicao, rotation=giro)
     elif forma == "esfera":
-        bpy.ops.mesh.primitive_uv_sphere_add(radius=medidas[0], segments=8, ring_count=5, location=posicao, rotation=giro)
+        bpy.ops.mesh.primitive_uv_sphere_add(radius=medidas[0], segments=LADOS_HD, ring_count=LADOS_HD // 2, location=posicao, rotation=giro)
     elif forma == "anel":
         raio, espessura = medidas
-        bpy.ops.mesh.primitive_torus_add(major_radius=raio, minor_radius=espessura, major_segments=12, minor_segments=6, location=posicao, rotation=giro)
+        bpy.ops.mesh.primitive_torus_add(major_radius=raio, minor_radius=espessura, major_segments=LADOS_HD * 2, minor_segments=LADOS_HD // 2, location=posicao, rotation=giro)
     objeto = bpy.context.object
     objeto.name = nome
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
@@ -299,7 +310,7 @@ def criar_acessorio(nome, forma, medidas, posicao, giro, nome_material, alvo):
 
 def montar_peca(tipo):
     """O corpo do peão (malha + esqueleto antigo do criar_peao_rpg.py) com os acessórios da peça."""
-    malha, contagens_vertices, contagens_faces = base.criar_malha()
+    malha, contagens_vertices, contagens_faces = base.criar_malha(lados=LADOS_HD)
     malha.name = f"Peca_{tipo}"
     base.criar_grupos_de_vertice(malha, contagens_vertices)
     for nome in MATERIAIS:
@@ -483,7 +494,7 @@ def peca_alinhada(nome, forma, medidas, centro, direcao, nome_material, osso):
         bpy.context.object.scale = medidas
     else:
         raio, comprimento = medidas
-        bpy.ops.mesh.primitive_cylinder_add(vertices=8, radius=raio, depth=comprimento)
+        bpy.ops.mesh.primitive_cylinder_add(vertices=12, radius=raio, depth=comprimento)
     objeto = bpy.context.object
     objeto.name = nome
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
@@ -621,7 +632,20 @@ def carregar_animacao(nome_clipe, arquivo, esqueleto, conversao, comprimentos):
 def ficar_no_lugar(esqueleto, acao):
     """Tira o avanço do quadril (o Mixamo anda pra frente de verdade no walk e em alguns golpes;
     no jogo quem leva a peça é o código) — fica só o sobe-e-desce e o balanço do corpo. Só os eixos
-    horizontais: o vertical do quadril (o eixo do osso que aponta pra cima) fica como está."""
+    horizontais: o vertical do quadril (o eixo do osso que aponta pra cima) fica como está.
+    Devolve a velocidade (unidades por segundo) com que o corpo avançava antes."""
+
+    def quadril_nas_pontas():
+        usar_acao(esqueleto, acao)
+        posicoes = []
+        # o golpe acelerado tem chaves em quadros fracionados: avalia exatamente no primeiro e no último
+        for quadro in acao.frame_range:
+            bpy.context.scene.frame_set(int(quadro), subframe=quadro - int(quadro))
+            posicoes.append(esqueleto.matrix_world @ esqueleto.pose.bones["mixamorig:Hips"].head)
+        return (posicoes[1] - posicoes[0]).xy.length
+
+    duracao = (acao.frame_range[1] - acao.frame_range[0]) / FPS
+    velocidade = quadril_nas_pontas() / duracao
     descanso = esqueleto.data.bones["mixamorig:Hips"].matrix_local
     vertical = max(range(3), key=lambda eixo: abs(descanso.col[eixo].z))
     for curva in curvas(acao):
@@ -635,14 +659,9 @@ def ficar_no_lugar(esqueleto, acao):
             ponto.co.y -= correcao
             ponto.handle_left.y -= correcao
             ponto.handle_right.y -= correcao
-    usar_acao(esqueleto, acao)
-    posicoes = []
-    # o golpe acelerado tem chaves em quadros fracionados: avalia exatamente no primeiro e no último
-    for quadro in acao.frame_range:
-        bpy.context.scene.frame_set(int(quadro), subframe=quadro - int(quadro))
-        posicoes.append(esqueleto.matrix_world @ esqueleto.pose.bones["mixamorig:Hips"].head)
-    deriva = (posicoes[1] - posicoes[0]).xy.length
+    deriva = quadril_nas_pontas()
     assert deriva < 0.005, f"{acao.name} ainda sai do lugar ({deriva:.3f} m)"
+    return velocidade
 
 
 def ajustar_golpe(acao, inicio, impacto, fim):
@@ -767,6 +786,38 @@ def mortal(tombo):
         }
     )
     return chaves
+
+
+def comemorar():
+    """Comemoração (xeque-mate, ou um aliado que capturou): dois pulos com os braços erguidos —
+    agacha, salta esticando o corpo, aterrissa dobrando os joelhos e salta de novo. Mesmos controles
+    do mortal (ver mortal)."""
+    chaves = {
+        1: dict(giro=0, tronco=0, cabeca=0, cabeca_lado=0, braco=0, cotovelo=0, coxa=0, joelho=0, pe=0, plantar=1, z=0),
+        6: dict(tronco=-15, cabeca=5, braco=25, cotovelo=20, coxa=50, joelho=-85, pe=28, plantar=1),
+        10: dict(tronco=5, cabeca=-15, braco=170, cotovelo=10, coxa=0, joelho=-5, pe=-20, plantar=1),
+        11: dict(plantar=0, z=0.02),
+        15: dict(braco=178, cotovelo=25, coxa=25, joelho=-45, pe=10, z=0.17),
+        19: dict(braco=160, cotovelo=15, coxa=10, joelho=-15, pe=0, z=0.03, plantar=0),
+        20: dict(plantar=1),
+        24: dict(tronco=-12, braco=140, cotovelo=30, coxa=48, joelho=-80, pe=26, cabeca=0),
+        28: dict(tronco=5, cabeca=-15, braco=175, cotovelo=10, coxa=0, joelho=-5, pe=-20, plantar=1),
+        29: dict(plantar=0, z=0.02),
+        33: dict(braco=178, cotovelo=25, coxa=25, joelho=-45, pe=10, z=0.15),
+        37: dict(braco=150, cotovelo=15, coxa=10, joelho=-15, pe=0, z=0.03, plantar=0),
+        38: dict(plantar=1),
+        42: dict(tronco=-10, braco=90, cotovelo=30, coxa=40, joelho=-65, pe=20, cabeca=0),
+        50: dict(tronco=0, braco=0, cotovelo=0, coxa=0, joelho=0, pe=0, plantar=1),
+        54: dict(giro=0, tronco=0, cabeca=0, cabeca_lado=0, braco=0, cotovelo=0, coxa=0, joelho=0, pe=0, plantar=1, z=0),
+    }
+    return chaves
+
+
+def suavizar(malha):
+    """Sombreado suave nas superfícies curvas (cilindros, esferas) e quinas vivas onde as faces se
+    encontram num ângulo forte (caixas, tampas) — o visual "HD" sem perder o recorte das peças."""
+    malha.data.shade_smooth()
+    malha.data.set_sharp_from_angle(angle=math.radians(40))
 
 
 def curva_suave(pontos, quadro):
@@ -1018,16 +1069,23 @@ for _pata, (_x, _y) in PATAS.items():
     ]
 # onde fica o quadril do cavaleiro sentado (a sela tem o topo em z=0,505)
 ASSENTO = Vector((0, -0.02, 0.56))
+# quina de baixo, à esquerda, do corpo do cavalo — o eixo em volta do qual ele tomba de lado
+PIVO_ROLO = Vector((-0.08, 0, 0.325))
+# no salto (o clipe Mortal do cavalo), o quadro em que ele sai do chão e o quadro em que pousa — vão
+# pro .glb ("segundo_decola"/"segundo_pousa"): o jogo usa o salto pra levar o cavalo de casa em
+# casa, deslocando ele só enquanto está no ar
+QUADROS_SALTO = (13, 35)
 
 # controles de cada quadro (graus, ou metros nos deslocamentos). Cavalo: cav_y/cav_z deslocam o
 # corpo; cav_giro inclina o corpo (+ = focinho pra cima) em volta do pivô (pivo 0 = patas
-# traseiras, 1 = dianteiras); pescoco (+ = cabeça pra cima), cauda; p<pata> balança a pata (+ = pra
+# traseiras, 1 = dianteiras); cav_rolo tomba o corpo de lado (+ = pra esquerda, em volta da quina
+# de baixo do corpo); pescoco (+ = cabeça pra cima), cauda; p<pata> balança a pata (+ = pra
 # frente, medido na vertical, não no corpo inclinado) e j<pata> dobra o joelho. Cavaleiro: sela_y/
 # sela_z deslocam ele na sela; inclina (+ = pra trás); tronco/cabeca (- = pra frente),
 # cabeca_lado; bd/be braço direito/esquerdo (+ = pra frente), bd_lado/be_lado (abrindo pro lado),
 # cd/ce cotovelos; coxa/abre/joelho = as pernas montadas (coxa pra frente, aberta pros lados).
 PADRAO_CAVALEIRO = dict(
-    cav_y=0, cav_z=0, cav_giro=0, pivo=0, pescoco=0, cauda=0,
+    cav_y=0, cav_z=0, cav_giro=0, pivo=0, cav_rolo=0, pescoco=0, cauda=0,
     pDE=0, pDD=0, pTE=0, pTD=0, jDE=0, jDD=0, jTE=0, jTD=0,
     sela_y=0, sela_z=0, inclina=0, tronco=-5, cabeca=0, cabeca_lado=0,
     bd=35, be=35, bd_lado=0, be_lado=0, cd=55, ce=55, coxa=45, abre=30, joelho=-60,
@@ -1049,8 +1107,9 @@ def andar_do_cavalo(quadro, v):
     v["inclina"] = -2 + 2 * math.sin(2 * fase + 0.6)
 
 
-# clipes do cavalo: (quadros, chaves {quadro: controles}, função extra por quadro). O golpe tem o
-# impacto no quadro 10 (0,3 s) e acaba no 16 (0,5 s), como os golpes das outras peças.
+# clipes do cavalo: (quadros, chaves {quadro: controles}, função extra por quadro[, volta ao padrão
+# no fim? — padrão sim; a morte termina caída]). O golpe tem o impacto no quadro 10 (0,3 s) e acaba
+# no 16 (0,5 s), como os golpes das outras peças.
 CLIPES_CAVALO = {
     "Parado": (31, {}, None),
     "Walk": (33, {}, andar_do_cavalo),
@@ -1107,6 +1166,25 @@ CLIPES_CAVALO = {
         46: dict(pescoco=12), 50.5: dict(pescoco=-8), 54: dict(pescoco=10), 58: dict(pescoco=0),
         80: dict(pivo=0),
     }, None),
+    # comemoração: empina com o cavaleiro de punho erguido
+    "Comemorar": (50, {
+        8: dict(cav_giro=22, pDE=60, jDE=-90, pDD=50, jDD=-80, pescoco=30, cauda=25, bd=170, bd_lado=20, cd=10, inclina=-5, cabeca=-10),
+        16: dict(cav_giro=26, bd=175, cd=30),
+        22: dict(bd=165, cd=5),
+        28: dict(cav_giro=0, pDE=0, jDE=0, pDD=0, jDD=0, pescoco=-10, bd=150),
+        36: dict(pescoco=10, bd=35, cd=55, bd_lado=0, cauda=0, inclina=0, cabeca=0),
+        44: dict(pescoco=0),
+    }, None),
+    # capturado: o golpe acerta, o cavalo empina um pouco, as patas da frente cedem e ele tomba de
+    # lado com o cavaleiro — e fica caído (o jogo some com ele em seguida)
+    "Morte": (48, {
+        6: dict(cav_giro=18, pescoco=25, inclina=12, bd=80, be=80, cabeca=15),
+        14: dict(cav_giro=-12, pivo=0, pDE=50, jDE=-120, pDD=50, jDD=-120, cav_z=-0.06, pescoco=-20, inclina=-15, tronco=-20),
+        24: dict(cav_rolo=45, cav_z=-0.14, cav_giro=-5, pTE=20, pTD=20, pescoco=-35, inclina=10, bd=40, be=110, be_lado=40),
+        32: dict(cav_rolo=88, cav_z=-0.32, cav_giro=0, pDE=20, jDE=-40, pDD=10, jDD=-30, pTE=30, pTD=15, pescoco=-10, cauda=-20, cabeca=-20, be=150, be_lado=60, bd=60),
+        40: dict(cav_rolo=84, cav_z=-0.315),
+        48: dict(cav_rolo=86, cav_z=-0.318),
+    }, None, False),
 }
 
 
@@ -1159,7 +1237,7 @@ def pose_cavaleiro(esqueleto, v, base):
     descanso = base["descanso"]
     posados = {}
     pivo = EIXO_TRASEIRO.lerp(EIXO_DIANTEIRO, v["pivo"])
-    corpo = Matrix.Translation((0, v["cav_y"], v["cav_z"])) @ giro_em_volta(pivo, rx(v["cav_giro"]))
+    corpo = Matrix.Translation((0, v["cav_y"], v["cav_z"])) @ giro_em_volta(pivo, rx(v["cav_giro"])) @ giro_em_volta(PIVO_ROLO, ry(-v["cav_rolo"]))
     posados["Cavalo"] = corpo @ descanso["Cavalo"]
     for pata in PATAS:
         quadril = OSSOS_CAVALO[f"Pata_{pata}"][0]
@@ -1229,8 +1307,9 @@ def clipes_do_cavalo(esqueleto, parado):
     }
     esqueleto.animation_data.action = None
     acoes = {}
-    for nome, (quadros, chaves, extra) in CLIPES_CAVALO.items():
-        pontos = {controle: {1: valor, quadros: valor} for controle, valor in PADRAO_CAVALEIRO.items()}
+    for nome, (quadros, chaves, extra, *opcoes) in CLIPES_CAVALO.items():
+        volta_ao_padrao = opcoes[0] if opcoes else True
+        pontos = {controle: ({1: valor, quadros: valor} if volta_ao_padrao else {1: valor}) for controle, valor in PADRAO_CAVALEIRO.items()}
         for quadro, valores in chaves.items():
             for controle, valor in valores.items():
                 pontos[controle][quadro] = valor
@@ -1245,13 +1324,15 @@ def clipes_do_cavalo(esqueleto, parado):
             chavear_pose(esqueleto, bases_locais(esqueleto, pose_cavaleiro(esqueleto, v, base), descanso), quadro, anteriores)
         acoes[nome] = acao
         log(f"cavalo {nome}: {quadros} quadros ({(quadros - 1) / FPS:.2f} s)")
+    esqueleto["segundo_decola"] = round((QUADROS_SALTO[0] - 1) / FPS, 3)
+    esqueleto["segundo_pousa"] = round((QUADROS_SALTO[1] - 1) / FPS, 3)
     return acoes
 
 
 def clipes_da_peca(acoes, tipo):
     """Nome do clipe no jogo → ação: os comuns e os golpes desta peça (Attack1, Attack2…); o peão
     tem também o Desembainhar/Embainhar."""
-    clipes = {nome: acoes[nome] for nome in ("Parado", "Mortal", "MortalTombo", *ANIMACOES)}
+    clipes = {nome: acoes[nome] for nome in ("Parado", "Mortal", "MortalTombo", "Comemorar", *ANIMACOES)}
     for numero in range(1, len(GOLPES[tipo]) + 1):
         clipes[f"Attack{numero}"] = acoes[f"Attack_{tipo}{numero}"]
     if tipo == "p":
@@ -1329,11 +1410,15 @@ def renderizar_conferencia(pecas):
 QUADROS_CONFERENCIA_MORTAL = {
     "Mortal": (1, 7, 12, 16, 20, 25, 30, 34, 37, 42, 50),
     "MortalTombo": (30, 33, 36, 40, 44, 52, 60, 68, 75, 82, 92),
+    "Comemorar": (1, 6, 10, 15, 20, 24, 28, 33, 38, 42, 50),
+    "Morte": (1, 8, 16, 24, 32, 40, 48, 56, 64, 70),
+    "Run": (1, 5, 9, 13, 17, 21),
 }
 QUADROS_CONFERENCIA_CAVALO = {
     "Parado": (1,), "Walk": (1, 9, 17, 25), "Gesto1": (16, 22), "Gesto2": (18, 24),
     "Attack1": (5, 10, 13), "Attack2": (5, 10),
     "Mortal": (8, 14, 22, 30, 35, 40), "MortalTombo": (13, 20, 27, 36, 50),
+    "Comemorar": (8, 16, 28), "Morte": (6, 14, 24, 32, 48),
 }
 
 
@@ -1457,9 +1542,13 @@ def main():
     acoes = {"Parado": criar_parado(esqueleto, malha_peao, juntas, em_pe)}
     acoes["Mortal"] = criar_mortal(esqueleto, acoes["Parado"], "Mortal", mortal(tombo=False))
     acoes["MortalTombo"] = criar_mortal(esqueleto, acoes["Parado"], "MortalTombo", mortal(tombo=True))
+    acoes["Comemorar"] = criar_mortal(esqueleto, acoes["Parado"], "Comemorar", comemorar())
     for nome_clipe, arquivo in ANIMACOES.items():
         acoes[nome_clipe] = carregar_animacao(nome_clipe, arquivo, esqueleto, conversao, comprimentos)
-    ficar_no_lugar(esqueleto, acoes["Walk"])
+    for nome_clipe in ANDAR_NO_LUGAR:
+        velocidade = ficar_no_lugar(esqueleto, acoes[nome_clipe])
+        esqueleto[f"velocidade_{nome_clipe.lower()}"] = round(velocidade, 3)
+        log(f"{nome_clipe}: o corpo avançava {velocidade:.2f} unidades por segundo (agora no lugar)")
     usados = set()
     for tipo, golpes in GOLPES.items():
         for numero, (arquivo, inicio, impacto, fim, anda) in enumerate(golpes, start=1):
@@ -1479,6 +1568,8 @@ def main():
             pecas[tipo] = {"malha": malha, "esqueleto": esqueleto_cavalo, "clipes": clipes}
         else:
             pecas[tipo] = {"malha": malha, "esqueleto": esqueleto, "clipes": clipes_da_peca(acoes, tipo)}
+    for peca in pecas.values():
+        suavizar(peca["malha"])
     renderizar_conferencia(pecas)
 
     # as peças foram montadas olhando pra +Y do Blender, que vira -Z no Three.js; todas as peças do
