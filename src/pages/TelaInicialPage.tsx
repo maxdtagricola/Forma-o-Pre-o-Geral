@@ -10,20 +10,16 @@ import type { NotaFiscal, QuoteRecord, QuoteStatus } from '../types'
 import type { TabKey } from '../components/Layout'
 
 // -----------------------------------------------------------------------
-// Tela Inicial — a fila de trabalho de quem cota: o que está esperando
-// alguém pegar, o que está com o usuário, o que está parado há tempo
-// demais, o que está pra chegar e o que a equipe fez por último. Os números
-// e gráficos do período ficam no Dashboard.
+// Tela Inicial — a fila de trabalho de quem cota: as pendentes (esperando
+// alguém pegar), as que estão em andamento com o usuário, as que estão em
+// transporte e o que a equipe fez por último. Os números e gráficos do
+// período ficam no Dashboard.
 // -----------------------------------------------------------------------
 
 /** Status em que a cotação já terminou — não aparece mais como trabalho em andamento. */
 const STATUS_FINAIS: QuoteStatus[] = ['ENTREGUE', 'CONFERIDO', 'FATURADO', 'ARQUIVO']
-const STATUS_A_RECEBER: QuoteStatus[] = ['EM TRANSPORTE', 'PARCIALMENTE ENTREGUE']
-/** Quantos dias cada status pode ficar parado antes de virar alerta (cobrar fornecedor / retornar ao cliente). */
-const LIMITE_PARADA_DIAS: Partial<Record<QuoteStatus, number>> = {
-  'AGUARDANDO FORNECEDOR': 3,
-  ENVIADO: 7,
-}
+/** Bloco EM TRANSPORTE: o que está a caminho — inclusive o que já chegou só em parte. */
+const STATUS_EM_TRANSPORTE: QuoteStatus[] = ['EM TRANSPORTE', 'PARCIALMENTE ENTREGUE']
 /** PENDENTE há mais dias que isso fica marcado como atrasado. */
 const DIAS_PENDENTE_ALERTA = 2
 const ITENS_POR_BLOCO = 6
@@ -131,13 +127,9 @@ export function TelaInicialPage({
     const minhas = emAndamento
       .filter((r) => r.status !== 'PENDENTE' && r.responsavelStatus === currentAdmin)
       .sort((a, b) => QUOTE_STATUSES.indexOf(a.status) - QUOTE_STATUSES.indexOf(b.status) || desdeStatusAtual(a) - desdeStatusAtual(b))
-    const paradas = emAndamento
-      .filter((r) => {
-        const limite = LIMITE_PARADA_DIAS[r.status]
-        return limite !== undefined && diasDesde(desdeStatusAtual(r), agora) > limite
-      })
+    const emTransporte = cotacoes
+      .filter((r) => STATUS_EM_TRANSPORTE.includes(r.status))
       .sort((a, b) => desdeStatusAtual(a) - desdeStatusAtual(b))
-    const aReceber = cotacoes.filter((r) => STATUS_A_RECEBER.includes(r.status)).sort((a, b) => desdeStatusAtual(a) - desdeStatusAtual(b))
 
     const eventos: Evento[] = []
     for (const r of cotacoes) {
@@ -154,8 +146,7 @@ export function TelaInicialPage({
     return {
       pendentes,
       minhas,
-      paradas,
-      aReceber,
+      emTransporte,
       atividade: eventos.slice(0, 8),
       novasHoje: cotacoes.filter((r) => r.createdAt >= hoje).length,
       enviadasHoje: cotacoes.filter((r) => algumaVez(r, 'ENVIADO', hoje)).length,
@@ -235,8 +226,7 @@ export function TelaInicialPage({
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             <Bloco
-              titulo="Aguardando alguém pegar"
-              descricao={`Em PENDENTE, das mais antigas para as mais novas — pedidas há mais de ${DIAS_PENDENTE_ALERTA} dias ficam marcadas.`}
+              titulo="Pendentes"
               total={blocos.pendentes.length}
               vazio="Nenhuma cotação esperando — tudo já tem responsável."
               onVerTodas={() => onIrPara('cotacoes')}
@@ -255,8 +245,7 @@ export function TelaInicialPage({
             </Bloco>
 
             <Bloco
-              titulo="Minhas cotações em andamento"
-              descricao="As que estão com você, por status."
+              titulo="EM ANDAMENTO"
               total={blocos.minhas.length}
               vazio="Nenhuma cotação com você agora."
               onVerTodas={() => onIrPara('cotacoes')}
@@ -277,35 +266,12 @@ export function TelaInicialPage({
             </Bloco>
 
             <Bloco
-              titulo="Paradas há muito tempo"
-              descricao={`AGUARDANDO FORNECEDOR há mais de ${LIMITE_PARADA_DIAS['AGUARDANDO FORNECEDOR']} dias (cobrar o fornecedor) ou ENVIADO há mais de ${LIMITE_PARADA_DIAS.ENVIADO} dias sem resposta (retornar ao cliente).`}
-              total={blocos.paradas.length}
-              vazio="Nada parado além do prazo."
+              titulo="EM TRANSPORTE"
+              total={blocos.emTransporte.length}
+              vazio="Nada em transporte."
               onVerTodas={() => onIrPara('cotacoes')}
             >
-              {blocos.paradas.slice(0, ITENS_POR_BLOCO).map((r) => (
-                <LinhaCotacao
-                  key={r.id}
-                  r={r}
-                  onClick={() => onOpenQuote(r)}
-                  direita={
-                    <span className="flex flex-col items-end gap-0.5">
-                      <SeloStatus status={r.status} cor={corDoStatus(r.status)} />
-                      <Idade texto={`${haQuanto(desdeStatusAtual(r), agora)}${r.responsavelStatus ? ` · ${r.responsavelStatus}` : ''}`} alerta />
-                    </span>
-                  }
-                />
-              ))}
-            </Bloco>
-
-            <Bloco
-              titulo="A receber"
-              descricao="Em transporte ou entregues em parte — acompanhar a chegada e a conferência."
-              total={blocos.aReceber.length}
-              vazio="Nada a caminho."
-              onVerTodas={() => onIrPara('cotacoes')}
-            >
-              {blocos.aReceber.slice(0, ITENS_POR_BLOCO).map((r) => (
+              {blocos.emTransporte.slice(0, ITENS_POR_BLOCO).map((r) => (
                 <LinhaCotacao
                   key={r.id}
                   r={r}
@@ -319,12 +285,9 @@ export function TelaInicialPage({
                 />
               ))}
             </Bloco>
-          </div>
 
-          <div className={`grid grid-cols-1 gap-6 items-start ${veTransferencias ? 'lg:grid-cols-2' : ''}`}>
             <Bloco
               titulo="Atividade recente da equipe"
-              descricao="Cotações criadas e mudanças de status, das mais recentes para as mais antigas."
               total={blocos.atividade.length}
               vazio="Nenhuma atividade ainda."
             >
@@ -354,7 +317,6 @@ export function TelaInicialPage({
             {veTransferencias && (
               <Bloco
                 titulo="Transferências fiscais"
-                descricao="Notas ainda em aberto e as que deram entrada e ainda não foram vendidas."
                 total={transferencias.abertas + transferencias.notasEmPrejuizo}
                 vazio="Nenhuma transferência em aberto."
                 onVerTodas={() => onIrPara('acompanhamentoNotas')}
@@ -394,7 +356,6 @@ function Numero({ valor, rotulo }: { valor: number; rotulo: string }) {
 
 function Bloco({
   titulo,
-  descricao,
   total,
   vazio,
   onVerTodas,
@@ -402,7 +363,6 @@ function Bloco({
   children,
 }: {
   titulo: string
-  descricao: string
   total: number
   vazio: string
   onVerTodas?: () => void
@@ -411,7 +371,7 @@ function Bloco({
 }) {
   return (
     <section className="card" aria-label={titulo}>
-      <div className="mb-1 flex items-baseline justify-between gap-2">
+      <div className="mb-3 flex items-baseline justify-between gap-2">
         <h3 className="font-display text-base font-semibold text-ink-900">
           {titulo}
           {total > 0 && <span className="ml-2 rounded-full bg-ink-100 px-2 py-0.5 text-xs font-semibold text-ink-600">{total}</span>}
@@ -422,7 +382,6 @@ function Bloco({
           </button>
         )}
       </div>
-      <p className="mb-3 text-xs text-ink-400">{descricao}</p>
       {total === 0 ? <p className="py-4 text-center text-sm text-ink-400">{vazio}</p> : <div className="space-y-1">{children}</div>}
     </section>
   )
@@ -459,7 +418,10 @@ function SeloStatus({ status, cor }: { status: string; cor: string }) {
 
 function Idade({ texto, alerta = false }: { texto: string; alerta?: boolean }) {
   return (
-    <span className={`text-[11px] ${alerta ? 'font-semibold text-amber-700' : 'text-ink-400'}`}>
+    <span
+      className={`text-[11px] ${alerta ? 'font-semibold text-amber-700' : 'text-ink-400'}`}
+      title={alerta ? `Pedida há mais de ${DIAS_PENDENTE_ALERTA} dias` : undefined}
+    >
       {alerta && '⚠ '}
       {texto}
     </span>

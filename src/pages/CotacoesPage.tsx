@@ -85,6 +85,48 @@ function ResumoDosItens({ r }: { r: QuoteRecord }) {
   )
 }
 
+// cor fixa por pessoa — dá pra reconhecer quem está com a cotação de relance, sem ler o nome
+const CORES_RESPONSAVEL: Record<string, string> = { Max: '#2a78d6', Gouvêa: '#eb6834', Maicon: '#1baf7a' }
+const CORES_OUTROS_RESPONSAVEIS = ['#4a3aa7', '#e87ba4', '#008300', '#eda100']
+
+function corDoResponsavel(nome: string): string {
+  if (CORES_RESPONSAVEL[nome]) return CORES_RESPONSAVEL[nome]
+  let hash = 0
+  for (const letra of nome) hash = (hash * 31 + letra.charCodeAt(0)) >>> 0
+  return CORES_OUTROS_RESPONSAVEIS[hash % CORES_OUTROS_RESPONSAVEIS.length]
+}
+
+/** Quem está com a cotação (quem a tirou de PENDENTE) — o primeiro que se vê na linha. */
+function SeloResponsavel({ nome, ehVoce }: { nome: string; ehVoce: boolean }) {
+  if (!nome) {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center rounded-full border border-dashed border-ink-300 px-2 py-0.5 text-[11px] text-ink-400"
+        title="Ninguém pegou essa cotação ainda"
+      >
+        sem responsável
+      </span>
+    )
+  }
+  const cor = corDoResponsavel(nome)
+  return (
+    <span
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-ink-200 bg-surface py-0.5 pl-0.5 pr-2 text-xs font-semibold text-ink-800"
+      title={`${nome} está com essa cotação`}
+    >
+      <span
+        aria-hidden
+        className="flex h-5 w-5 items-center justify-center rounded-full text-[11px] font-bold text-white"
+        style={{ backgroundColor: cor }}
+      >
+        {nome.charAt(0).toUpperCase()}
+      </span>
+      {nome}
+      {ehVoce && <span className="font-normal text-ink-400">(você)</span>}
+    </span>
+  )
+}
+
 function QuoteCard({
   r,
   corDoStatus,
@@ -133,6 +175,7 @@ function QuoteCard({
           title={expandido ? 'Recolher detalhes' : 'Ver detalhes'}
           className="flex-1 min-w-0 flex flex-wrap items-center gap-2 text-left py-1"
         >
+          <SeloResponsavel nome={r.status === 'PENDENTE' ? '' : r.responsavelStatus} ehVoce={!!r.responsavelStatus && r.responsavelStatus === currentAdmin} />
           <span className="font-mono text-sm text-ink-500">{r.codigo || '—'}</span>
           <span className="text-sm text-ink-800 truncate">
             {r.vendedor || '—'} | {r.cliente || '(sem cliente)'}
