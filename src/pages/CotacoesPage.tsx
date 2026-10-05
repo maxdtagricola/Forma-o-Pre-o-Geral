@@ -36,6 +36,55 @@ function encontrarCorrespondencias(valor: string, conhecidos: string[]): string[
   return resultado
 }
 
+/** O que a cotação pede, pra mostrar na frente do cliente: quando veio de uma planilha importada, só
+ * isso (e quantos itens); senão os dois primeiros itens — nomes repetidos se juntam ("×2") — e
+ * quantos outros ainda tem. */
+function resumoDosItens(r: QuoteRecord): { planilha?: string; primeiros: { nome: string; vezes: number }[]; resto: number; total: number } {
+  const nomesDosItens = r.items.map((i) => i.product.descricao.trim() || i.product.referencia.trim()).filter(Boolean)
+  // itens ainda só na lista "a cotar" (antes da precificação)
+  const nomes =
+    nomesDosItens.length > 0
+      ? nomesDosItens
+      : (r.itensPreRegistro ?? []).map((p) => (p.descricao ?? '').trim() || p.referencia.trim() || p.interno.trim()).filter(Boolean)
+  if (r.planilhaOriginal || r.tipoReferencia === 'planilha') {
+    return { planilha: r.planilhaOriginal?.nomeArquivo ?? '', primeiros: [], resto: 0, total: nomes.length }
+  }
+  const contagem = new Map<string, number>()
+  for (const nome of nomes) contagem.set(nome.toUpperCase(), (contagem.get(nome.toUpperCase()) ?? 0) + 1)
+  const primeiros = Array.from(contagem.entries())
+    .slice(0, 2)
+    .map(([chave, vezes]) => ({ nome: nomes.find((n) => n.toUpperCase() === chave) ?? chave, vezes }))
+  const mostrados = primeiros.reduce((s, p) => s + p.vezes, 0)
+  return { primeiros, resto: nomes.length - mostrados, total: nomes.length }
+}
+
+function ResumoDosItens({ r }: { r: QuoteRecord }) {
+  const resumo = resumoDosItens(r)
+  if (resumo.planilha !== undefined) {
+    return (
+      <span
+        className="inline-flex shrink-0 items-center gap-1 rounded-full border border-ink-200 bg-ink-50 px-2 py-0.5 text-[11px] font-semibold text-ink-600"
+        title={resumo.planilha ? `Importada da planilha ${resumo.planilha}` : 'Cotação de uma planilha'}
+      >
+        Planilha{resumo.total > 0 ? ` · ${resumo.total} ${resumo.total === 1 ? 'item' : 'itens'}` : ''}
+      </span>
+    )
+  }
+  if (resumo.primeiros.length === 0) return null
+  const texto = resumo.primeiros.map((p) => (p.vezes > 1 ? `${p.nome} ×${p.vezes}` : p.nome)).join(', ')
+  return (
+    <span className="min-w-0 truncate text-xs text-ink-500" title={`Itens: ${texto}${resumo.resto > 0 ? ` e mais ${resumo.resto}` : ''}`}>
+      {texto}
+      {resumo.resto > 0 && (
+        <>
+          {' '}
+          <span className="font-semibold text-ink-600">+{resumo.resto}</span>
+        </>
+      )}
+    </span>
+  )
+}
+
 function QuoteCard({
   r,
   corDoStatus,
@@ -88,6 +137,7 @@ function QuoteCard({
           <span className="text-sm text-ink-800 truncate">
             {r.vendedor || '—'} | {r.cliente || '(sem cliente)'}
           </span>
+          <ResumoDosItens r={r} />
           <span
             className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
             style={{ backgroundColor: corDoStatus(r.status), color: corTexto(corDoStatus(r.status)) }}
