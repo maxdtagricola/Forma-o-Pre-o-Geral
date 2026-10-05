@@ -2,6 +2,7 @@ import * as XLSX from 'xlsx'
 import { calculateItem } from './calc/calculator'
 import { abaComTabelaItens, cellTexto, cellValue, clearCellValue, localizarTabelaItens, normalizar, setCellValue } from './xlsxSheetUtil'
 import { mesmaReferencia } from './importacao/referencias'
+import { parseNumeroFlexivel } from './numeros'
 import { avisar } from './dialogs'
 import type { QuoteItem } from './types'
 
@@ -20,10 +21,31 @@ function base64ParaArrayBuffer(base64: string): ArrayBuffer {
   return bytes.buffer
 }
 
+/** Linha da planilha do cliente que já tinha valor — o site não escreve por cima, só avisa. */
+export interface ItemComValorNaPlanilha {
+  referencia: string
+  descricao: string
+  linha: number
+  /** O que já estava na planilha: o valor unitário (ou o total, se a linha só tinha o total). */
+  valorNaPlanilha: number
+  tipoDoValor: 'unitário' | 'total'
+  /** O que o site calculou pro mesmo campo — não foi escrito na planilha. */
+  valorDoSite: number
+}
+
 export interface PlanilhaAtualizada {
   workbook: XLSX.WorkBook
   htmlPreview: string
   itensAtualizados: number
+  itensComValorNaPlanilha: ItemComValorNaPlanilha[]
+}
+
+/** Valor já preenchido numa célula (número, ou texto tipo "R$ 12,50") — vazio, zero ou "-" não contam. */
+function valorNaCelula(ws: XLSX.WorkSheet, linha: number, coluna: number): number | undefined {
+  if (coluna < 1) return undefined
+  const bruto = cellValue(ws, linha, coluna)
+  const valor = typeof bruto === 'number' ? bruto : typeof bruto === 'string' ? parseNumeroFlexivel(bruto) : undefined
+  return valor !== undefined && Number.isFinite(valor) && valor > 0 ? valor : undefined
 }
 
 /**
@@ -31,6 +53,11 @@ export interface PlanilhaAtualizada {
  * Referência bate com algum item da cotação, o valor unitário, o valor
  * total e o prazo de entrega — e apaga a marcação "cotar" da linha, já que
  * o item foi precificado. Atualiza também o total geral, se achar o rótulo.
+ *
+ * O que já estava preenchido na planilha nunca é sobrescrito: linha que já
+ * tem valor (unitário ou total) fica como veio — e entra na lista
+ * itensComValorNaPlanilha, pra avisar quem está gerando; prazo que já
+ * estava preenchido também fica.
  */
 export function gerarPlanilhaAtualizada(conteudoBase64: string, items: QuoteItem[]): PlanilhaAtualizada {
   const buffer = base64ParaArrayBuffer(conteudoBase64)
@@ -41,6 +68,7 @@ export function gerarPlanilhaAtualizada(conteudoBase64: string, items: QuoteItem
   const tabela = localizarTabelaItens(ws)
   let itensAtualizados = 0
   let somaVlrTotal = 0
+  const itensComValorNaPlanilha: ItemComValorNaPlanilha[] = []
 
   for (let r = tabela.linhaCabecalho + 1; r <= tabela.maxRow; r++) {
     const referenciaTexto = cellTexto(ws, r, tabela.colReferencia)
@@ -49,25 +77,41 @@ export function gerarPlanilhaAtualizada(conteudoBase64: string, items: QuoteItem
       const item = items.find((it) => it.product.referencia.trim() && mesmaReferencia(it.product.referencia, referenciaTexto))
       if (item) {
         const resultado = calculateItem(item.product, item.pricing)
-        if (tabela.colVlrUnt > -1) {
-          setCellValue(ws, r, tabela.colVlrUnt, Number(resultado.precoVendaUnitario.toFixed(2)))
+        const unitarioNaPlanilha = valorNaCelula(ws, r, tabela.colVlrUnt)
+        const totalNaPlanilha = valorNaCelula(ws, r, tabela.colVlrTotal)
+        if (unitarioNaPlanilha !== undefined || totalNaPlanilha !== undefined) {
+          // a linha já tem valor na planilha do cliente: fica como está (valores, prazo e marcação)
+          const ehUnitario = unitarioNaPlanilha !== undefined
+          itensComValorNaPlanilha.push({
+            referencia: referenciaTexto,
+            descricao: item.product.descricao,
+            linha: r,
+            valorNaPlanilha: ehUnitario ? unitarioNaPlanilha : totalNaPlanilha!,
+            tipoDoValor: ehUnitario ? 'unitário' : 'total',
+            valorDoSite: Number((ehUnitario ? resultado.precoVendaUnitario : resultado.precoVendaTotal).toFixed(2)),
+          })
+        } else {
+          if (tabela.colVlrUnt > -1) {
+            setCellValue(ws, r, tabela.colVlrUnt, Number(resultado.precoVendaUnitario.toFixed(2)))
+          }
+          if (tabela.colVlrTotal > -1) {
+            setCellValue(ws, r, tabela.colVlrTotal, Number(resultado.precoVendaTotal.toFixed(2)))
+          }
+          // prazo que o cliente já tinha escrito fica
+          if (tabela.colEntrega > -1 && item.product.prazoEntrega.trim() && !cellTexto(ws, r, tabela.colEntrega)) {
+            setCellValue(ws, r, tabela.colEntrega, item.product.prazoEntrega.trim())
+          }
+          for (let c = 1; c <= tabela.maxCol; c++) {
+            if (/^(a\s+)?cotar[\s!.]*$/.test(normalizar(cellValue(ws, r, c)))) clearCellValue(ws, r, c)
+          }
+          itensAtualizados++
         }
-        if (tabela.colVlrTotal > -1) {
-          setCellValue(ws, r, tabela.colVlrTotal, Number(resultado.precoVendaTotal.toFixed(2)))
-        }
-        if (tabela.colEntrega > -1 && item.product.prazoEntrega.trim()) {
-          setCellValue(ws, r, tabela.colEntrega, item.product.prazoEntrega.trim())
-        }
-        for (let c = 1; c <= tabela.maxCol; c++) {
-          if (/^(a\s+)?cotar[\s!.]*$/.test(normalizar(cellValue(ws, r, c)))) clearCellValue(ws, r, c)
-        }
-        itensAtualizados++
       }
     }
 
     if (tabela.colVlrTotal > -1) {
-      const valor = cellValue(ws, r, tabela.colVlrTotal)
-      if (typeof valor === 'number') somaVlrTotal += valor
+      // número ou texto ("R$ 50,00") — o que o cliente já tinha escrito também entra no total geral
+      somaVlrTotal += valorNaCelula(ws, r, tabela.colVlrTotal) ?? 0
     }
   }
 
@@ -86,7 +130,7 @@ export function gerarPlanilhaAtualizada(conteudoBase64: string, items: QuoteItem
   }
 
   const htmlPreview = XLSX.utils.sheet_to_html(ws)
-  return { workbook, htmlPreview, itensAtualizados }
+  return { workbook, htmlPreview, itensAtualizados, itensComValorNaPlanilha }
 }
 
 export function baixarWorkbook(workbook: XLSX.WorkBook, nomeArquivo: string): void {

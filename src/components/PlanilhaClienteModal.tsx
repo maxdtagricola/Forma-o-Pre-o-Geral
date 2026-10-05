@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from './ui/Basics'
 import {
   abrirParaImpressao,
@@ -12,6 +12,7 @@ import {
   type PlanilhaAtualizada,
 } from '../planilhaCliente'
 import { avisar } from '../dialogs'
+import { formatCurrency } from '../utils'
 import type { QuoteItem } from '../types'
 
 export function PlanilhaClienteModal({
@@ -33,11 +34,29 @@ export function PlanilhaClienteModal({
   const [resultado, setResultado] = useState<PlanilhaAtualizada | undefined>(undefined)
   const [compartilhando, setCompartilhando] = useState(false)
   const podeCompartilharArquivo = useMemo(() => suportaCompartilharArquivo(), [])
+  // o aviso de "já tem valor na planilha" sai uma vez só por abertura
+  const jaAvisou = useRef(false)
 
   useEffect(() => {
     try {
-      setResultado(gerarPlanilhaAtualizada(conteudoBase64, items))
+      const gerado = gerarPlanilhaAtualizada(conteudoBase64, items)
+      setResultado(gerado)
       setErro(undefined)
+      // a planilha do cliente já tinha valor nessas linhas — o site não escreveu por cima; avisa na hora
+      const conflitos = gerado.itensComValorNaPlanilha
+      if (conflitos.length > 0 && !jaAvisou.current) {
+        jaAvisou.current = true
+        void avisar(
+          `${conflitos.length === 1 ? 'Um item já tem' : `${conflitos.length} itens já têm`} valor na planilha do cliente — ` +
+            'esses valores foram mantidos, o site não escreveu por cima:\n\n' +
+            conflitos
+              .slice(0, 12)
+              .map((c) => `• ${c.referencia}: ${formatCurrency(c.valorNaPlanilha)} na planilha (o site calculou ${formatCurrency(c.valorDoSite)})`)
+              .join('\n') +
+            (conflitos.length > 12 ? `\n… e mais ${conflitos.length - 12}.` : ''),
+          { titulo: 'Item já com valor na planilha' },
+        )
+      }
     } catch (err) {
       setResultado(undefined)
       setErro(err instanceof Error ? err.message : 'Erro ao ler a planilha original.')
@@ -112,8 +131,26 @@ export function PlanilhaClienteModal({
             <p className="text-xs text-ink-400 my-2">
               {resultado.itensAtualizados > 0
                 ? `${resultado.itensAtualizados} item(ns) atualizado(s) com valor e prazo.`
-                : 'Nenhum item da cotação bateu com a Referência de alguma linha dessa planilha.'}
+                : resultado.itensComValorNaPlanilha.length > 0
+                  ? 'Nenhum item preenchido pelo site — todos os que bateram já tinham valor na planilha.'
+                  : 'Nenhum item da cotação bateu com a Referência de alguma linha dessa planilha.'}
             </p>
+            {resultado.itensComValorNaPlanilha.length > 0 && (
+              <div role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                <p className="mb-1 font-semibold">
+                  {resultado.itensComValorNaPlanilha.length} item(ns) já com valor na planilha — mantidos como estavam:
+                </p>
+                <ul className="space-y-0.5">
+                  {resultado.itensComValorNaPlanilha.map((c) => (
+                    <li key={`${c.linha}-${c.referencia}`}>
+                      <span className="font-mono">{c.referencia}</span>
+                      {c.descricao ? ` — ${c.descricao}` : ''}: {formatCurrency(c.valorNaPlanilha)} ({c.tipoDoValor}) na planilha · o site
+                      calculou {formatCurrency(c.valorDoSite)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div
               className="planilha-preview flex-1 overflow-auto rounded-xl border border-ink-100 mb-4"
