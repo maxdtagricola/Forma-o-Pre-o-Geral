@@ -18,6 +18,9 @@ import type { TabKey } from '../components/Layout'
 
 /** Status em que a cotação já terminou — não aparece mais como trabalho em andamento. */
 const STATUS_FINAIS: QuoteStatus[] = ['ENTREGUE', 'CONFERIDO', 'FATURADO', 'ARQUIVO']
+/** Bloco EM ANDAMENTO: a cotação em si, até ANALISANDO VALORES — de ENVIADO em diante (resposta do
+ * cliente, pedido, transporte…) já é outro processo; PENDENTE tem o bloco dela. */
+const STATUS_EM_ANDAMENTO: QuoteStatus[] = ['AGUARDANDO FORNECEDOR', 'ANALISANDO VALORES']
 /** Bloco EM TRANSPORTE: o que está a caminho — inclusive o que já chegou só em parte. */
 const STATUS_EM_TRANSPORTE: QuoteStatus[] = ['EM TRANSPORTE', 'PARCIALMENTE ENTREGUE']
 /** PENDENTE há mais dias que isso fica marcado como atrasado. */
@@ -125,7 +128,7 @@ export function TelaInicialPage({
     const emAndamento = cotacoes.filter((r) => !STATUS_FINAIS.includes(r.status))
     const pendentes = emAndamento.filter((r) => r.status === 'PENDENTE').sort((a, b) => dataDoPedido(a) - dataDoPedido(b))
     const minhas = emAndamento
-      .filter((r) => r.status !== 'PENDENTE' && r.responsavelStatus === currentAdmin)
+      .filter((r) => STATUS_EM_ANDAMENTO.includes(r.status) && r.responsavelStatus === currentAdmin)
       .sort((a, b) => QUOTE_STATUSES.indexOf(a.status) - QUOTE_STATUSES.indexOf(b.status) || desdeStatusAtual(a) - desdeStatusAtual(b))
     const emTransporte = cotacoes
       .filter((r) => STATUS_EM_TRANSPORTE.includes(r.status))
