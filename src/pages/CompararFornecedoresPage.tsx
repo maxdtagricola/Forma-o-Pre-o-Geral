@@ -2,14 +2,22 @@ import { Fragment, useEffect, useMemo, useState, type KeyboardEvent } from 'reac
 import { Button } from '../components/ui/Basics'
 import { ImportarCotacaoFornecedorModal, type ItemImportadoConfirmado } from '../components/ImportarCotacaoFornecedorModal'
 import { listFornecedores } from '../db/fornecedoresRepo'
-import { formatCurrency, makeId, melhorCotacaoFornecedor, selecionarTudoAoFocar } from '../utils'
+import {
+  cotacaoAtende,
+  formatCurrency,
+  makeId,
+  melhorCotacaoFornecedor,
+  planoDeAtendimento,
+  quantidadeAtendida,
+  selecionarTudoAoFocar,
+} from '../utils'
 import { avisar, confirmar } from '../dialogs'
-import { parseNumeroFlexivel } from '../numeros'
+import { formatarNumeroCurtoBR, parseNumeroFlexivel } from '../numeros'
 import { normalizarNcm } from '../importacao/ncm'
 import type { CotacaoFornecedorItem, Fornecedor, ProductInput, QuoteItem, QuoteStatus } from '../types'
 
 const ID_LISTA_FORNECEDORES = 'comparar-fornecedores-sugestoes'
-const TOTAL_COLUNAS = 9
+const TOTAL_COLUNAS = 10
 
 /** Campo de NCM da cotação de um fornecedor: aceita com ou sem pontos e arruma (0000.00.00) ao sair;
  * inválido fica marcado em vermelho e não é usado no item. */
@@ -54,8 +62,53 @@ function numeroOuVazio(texto: string): number | undefined {
   return parseNumeroFlexivel(texto)
 }
 
+/** Quantidade com vírgula e sem casas sobrando ("2", "1,5"). */
+function qtdTexto(valor: number): string {
+  return formatarNumeroCurtoBR(valor, 3)
+}
+
+/** Campo "Qtd atende" de uma cotação: vazio = o fornecedor atende a quantidade toda; menor que a do
+ * item fica âmbar, com quanto falta; maior, azul, com quanto sobra. */
+function CampoQuantidade({
+  valor,
+  qtdItem,
+  onChange,
+  className,
+  disabled,
+}: {
+  valor: number | undefined
+  qtdItem: number
+  onChange: (valor: number | undefined) => void
+  className: string
+  disabled?: boolean
+}) {
+  const faltam = valor !== undefined && valor < qtdItem ? qtdItem - valor : 0
+  const aMais = valor !== undefined && valor > qtdItem ? valor - qtdItem : 0
+  return (
+    <>
+      <input
+        type="number"
+        min={0}
+        step="any"
+        className={`${className} text-right tabular-nums ${
+          faltam > 0 ? 'font-semibold text-amber-700 dark:text-amber-300' : aMais > 0 ? 'text-sky-700 dark:text-sky-300' : ''
+        }`}
+        placeholder={qtdTexto(qtdItem)}
+        title="Quanto o fornecedor tem desse item — vazio: atende a quantidade toda"
+        value={valor ?? ''}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.value.trim() === '' ? undefined : Math.max(0, Number(e.target.value) || 0))}
+        onFocus={selecionarTudoAoFocar}
+      />
+      {faltam > 0 && <p className="px-1.5 text-right text-[10px] font-medium text-amber-700">parcial · faltam {qtdTexto(faltam)}</p>}
+      {aMais > 0 && <p className="px-1.5 text-right text-[10px] font-medium text-sky-700">+{qtdTexto(aMais)} a mais</p>}
+    </>
+  )
+}
+
 /** Linha de uma cotação de fornecedor, editável direto na célula — igual às linhas de "Itens da
- * cotação". O valor total é opcional: vazio, mostra (em cinza) o unitário × quantidade do item. */
+ * cotação". O valor total é opcional: vazio, mostra (em cinza) o unitário × a quantidade que o
+ * fornecedor atende (a do item, se ele atende tudo). */
 function LinhaCotacao({
   cotacao,
   qtdItem,
@@ -71,7 +124,8 @@ function LinhaCotacao({
   onChange: (patch: Partial<CotacaoFornecedorItem>) => void
   onRemover: () => void
 }) {
-  const melhor = menorValor !== undefined && cotacao.valorUnitario === menorValor
+  const semQuantidade = cotacao.quantidadeDisponivel === 0
+  const melhor = !semQuantidade && menorValor !== undefined && cotacao.valorUnitario === menorValor
   const diferenca = menorValor !== undefined ? cotacao.valorUnitario - menorValor : 0
   const diferencaPct = menorValor ? (diferenca / menorValor) * 100 : 0
   return (
@@ -115,6 +169,15 @@ function LinhaCotacao({
         />
       </td>
       <td className={cellCls}>
+        <CampoQuantidade
+          className={inputCls}
+          valor={cotacao.quantidadeDisponivel}
+          qtdItem={qtdItem}
+          disabled={travadaPorOutro}
+          onChange={(quantidadeDisponivel) => onChange({ quantidadeDisponivel })}
+        />
+      </td>
+      <td className={cellCls}>
         <input
           type="number"
           min={0}
@@ -132,8 +195,12 @@ function LinhaCotacao({
           min={0}
           step={0.01}
           className={`${inputCls} text-right tabular-nums`}
-          placeholder={formatCurrency(cotacao.valorUnitario * qtdItem)}
-          title={cotacao.valorTotal === undefined ? 'Vazio: vale o valor unitário × quantidade do item' : 'Valor total informado pelo fornecedor'}
+          placeholder={formatCurrency(cotacao.valorUnitario * quantidadeAtendida(cotacao, qtdItem))}
+          title={
+            cotacao.valorTotal === undefined
+              ? 'Vazio: vale o valor unitário × a quantidade que o fornecedor atende'
+              : 'Valor total informado pelo fornecedor'
+          }
           value={cotacao.valorTotal ?? ''}
           disabled={travadaPorOutro}
           // campo type="number": o navegador já entrega com ponto decimal — Number() direto
@@ -144,6 +211,10 @@ function LinhaCotacao({
       <td className={`${cellCls} text-right text-xs tabular-nums pr-2`}>
         {melhor ? (
           <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">Melhor preço</span>
+        ) : semQuantidade ? (
+          <span className="text-ink-400" title="O fornecedor devolveu quantidade 0 — não entra na escolha do mais barato">
+            sem quantidade
+          </span>
         ) : menorValor !== undefined ? (
           <span className="text-rose-600">
             +{formatCurrency(diferenca)} <span className="text-rose-400">(+{diferencaPct.toFixed(1).replace('.', ',')}%)</span>
@@ -171,6 +242,7 @@ function LinhaNovaCotacao({ qtdItem, onAdicionar }: { qtdItem: number; onAdicion
   const [marca, setMarca] = useState('')
   const [prazo, setPrazo] = useState('')
   const [ncm, setNcm] = useState('')
+  const [quantidade, setQuantidade] = useState<number | undefined>(undefined)
   const [valorUnitario, setValorUnitario] = useState('')
   const [valorTotal, setValorTotal] = useState('')
 
@@ -197,11 +269,13 @@ function LinhaNovaCotacao({ qtdItem, onAdicionar }: { qtdItem: number; onAdicion
       ...(total !== undefined && total > 0 ? { valorTotal: total } : {}),
       ...(prazo.trim() ? { prazoEntrega: prazo.trim() } : {}),
       ...(ncmNormalizado ? { ncm: ncmNormalizado } : {}),
+      ...(quantidade !== undefined ? { quantidadeDisponivel: quantidade } : {}),
     })
     setFornecedor('')
     setMarca('')
     setPrazo('')
     setNcm('')
+    setQuantidade(undefined)
     setValorUnitario('')
     setValorTotal('')
   }
@@ -227,6 +301,9 @@ function LinhaNovaCotacao({ qtdItem, onAdicionar }: { qtdItem: number; onAdicion
       <td className={cellCls} onKeyDown={aoTeclar}>
         <CampoNcm className={novoCls} valor={ncm} onChange={setNcm} />
       </td>
+      <td className={cellCls} onKeyDown={aoTeclar}>
+        <CampoQuantidade className={novoCls} valor={quantidade} qtdItem={qtdItem} onChange={setQuantidade} />
+      </td>
       <td className={cellCls}>
         <input
           className={`${novoCls} text-right tabular-nums`}
@@ -241,7 +318,7 @@ function LinhaNovaCotacao({ qtdItem, onAdicionar }: { qtdItem: number; onAdicion
         <input
           className={`${novoCls} text-right tabular-nums`}
           inputMode="decimal"
-          placeholder={unitarioDigitado > 0 ? formatCurrency(unitarioDigitado * qtdItem) : 'R$ total'}
+          placeholder={unitarioDigitado > 0 ? formatCurrency(unitarioDigitado * quantidadeAtendida({ quantidadeDisponivel: quantidade }, qtdItem)) : 'R$ total'}
           value={valorTotal}
           onChange={(e) => setValorTotal(e.target.value)}
           onKeyDown={aoTeclar}
@@ -317,7 +394,8 @@ export function CompararFornecedoresPage({
   }, [items])
 
   function aplicarCotacoes(itemId: string, cotacoes: CotacaoFornecedorItem[]) {
-    const melhor = melhorCotacaoFornecedor(cotacoes.filter((c) => c.valorUnitario > 0))
+    // quem devolveu quantidade 0 não atende nada — não vira o fornecedor do item, por mais barato que seja
+    const melhor = melhorCotacaoFornecedor(cotacoes.filter(cotacaoAtende))
     // o NCM do item é o do fornecedor mais barato (quando ele informou um NCM válido) — cada
     // fornecedor guarda o seu na própria cotação; sem NCM no mais barato, o do item fica como está
     const ncmDoMelhor = melhor?.ncm ? normalizarNcm(melhor.ncm) : undefined
@@ -373,6 +451,7 @@ export function CompararFornecedoresPage({
         ...(c.valorTotal !== undefined ? { valorTotal: c.valorTotal } : {}),
         ...(c.prazoEntrega ? { prazoEntrega: c.prazoEntrega } : {}),
         ...(c.ncm ? { ncm: c.ncm } : {}),
+        ...(c.quantidadeDisponivel !== undefined ? { quantidadeDisponivel: c.quantidadeDisponivel } : {}),
       })
     }
   }
@@ -419,7 +498,8 @@ export function CompararFornecedoresPage({
             <h2 className="font-display text-lg font-semibold text-ink-900">Comparar fornecedores</h2>
             <p className="text-sm text-ink-400">
               Registre as cotações que os fornecedores devolverem — edite direto na tabela. A mais barata de cada item
-              (★) já atualiza o fornecedor, a marca, o valor unitário, o prazo e o NCM do item automaticamente.
+              (★) já atualiza o fornecedor, a marca, o valor unitário, o prazo e o NCM do item automaticamente. Em
+              "Qtd atende", quanto o fornecedor tem do item — vazio quer dizer que ele atende a quantidade toda.
             </p>
           </div>
           <div className="flex gap-2 shrink-0">
@@ -500,6 +580,7 @@ export function CompararFornecedoresPage({
                   <th className="py-2 px-2 font-medium min-w-[8rem]">Marca</th>
                   <th className="py-2 px-2 font-medium min-w-[7rem]">Prazo</th>
                   <th className="py-2 px-2 font-medium w-32">NCM</th>
+                  <th className="py-2 px-2 font-medium w-28 text-right">Qtd atende</th>
                   <th className="py-2 px-2 font-medium w-32 text-right">Valor unt.</th>
                   <th className="py-2 px-2 font-medium w-32 text-right">Valor total</th>
                   <th className="py-2 px-2 font-medium w-40 text-right">Dif. p/ melhor</th>
@@ -517,7 +598,7 @@ export function CompararFornecedoresPage({
                 {itensVisiveis.map(({ item, numero }) => {
                   const p = item.product
                   const todas = p.cotacoesFornecedores ?? []
-                  const validas = todas.filter((c) => c.valorUnitario > 0)
+                  const validas = todas.filter(cotacaoAtende)
                   const menorValor = validas.length > 0 ? Math.min(...validas.map((c) => c.valorUnitario)) : undefined
                   const melhor = melhorCotacaoFornecedor(validas)
                   // fornecedores que classificaram o item com NCMs diferentes — vale um aviso, porque o
@@ -526,6 +607,10 @@ export function CompararFornecedoresPage({
                     todas.map((c) => normalizarNcm(c.ncm ?? '')).filter((n): n is string => !!n),
                   )
                   const ncmDoMelhor = melhor?.ncm ? normalizarNcm(melhor.ncm) : undefined
+                  // o mais barato não tem a quantidade toda: quem completa (do mais barato pro mais caro)
+                  const qtdItem = p.qtd || 0
+                  const melhorParcial = !!melhor && quantidadeAtendida(melhor, qtdItem) < qtdItem
+                  const plano = melhorParcial ? planoDeAtendimento(validas, qtdItem) : undefined
                   const cotacoesVisiveis = filtroFornecedor
                     ? todas.filter((c) => c.fornecedor.trim().toUpperCase() === filtroFornecedor.toUpperCase())
                     : todas
@@ -567,13 +652,41 @@ export function CompararFornecedoresPage({
                                 Melhor: <strong className="font-mono tabular-nums">{formatCurrency(melhor.valorUnitario)}</strong>
                                 · {melhor.fornecedor}
                                 <span className="text-emerald-600">
-                                  (total {formatCurrency(melhor.valorTotal ?? melhor.valorUnitario * (p.qtd || 0))})
+                                  {melhorParcial
+                                    ? `(atende ${qtdTexto(quantidadeAtendida(melhor, qtdItem))} de ${qtdTexto(qtdItem)})`
+                                    : `(total ${formatCurrency(melhor.valorTotal ?? melhor.valorUnitario * qtdItem)})`}
                                 </span>
                               </span>
                             ) : (
                               <span className="text-xs text-amber-700">Sem cotação ainda</span>
                             )}
                           </div>
+                          {plano && (
+                            <p className="mt-1.5 text-xs text-amber-800">
+                              ⚠ O mais barato não tem a quantidade toda.{' '}
+                              {plano.partes.some((parte) => parte.cotacao !== melhor) ? (
+                                <>
+                                  Para completar os {qtdTexto(qtdItem)}:{' '}
+                                  {plano.partes.map((parte, indice) => (
+                                    <Fragment key={parte.cotacao.id}>
+                                      {indice > 0 && ' + '}
+                                      <strong>
+                                        {qtdTexto(parte.quantidade)} com {parte.cotacao.fornecedor || '(sem nome)'}
+                                      </strong>{' '}
+                                      ({formatCurrency(parte.cotacao.valorUnitario)} un.)
+                                    </Fragment>
+                                  ))}
+                                  {' '}= {formatCurrency(plano.partes.reduce((soma, parte) => soma + parte.cotacao.valorUnitario * parte.quantidade, 0))}
+                                </>
+                              ) : (
+                                'Nenhum outro fornecedor cotado tem o restante.'
+                              )}
+                              {plano.faltam > 0 &&
+                                (plano.partes.some((parte) => parte.cotacao !== melhor)
+                                  ? ` — ainda faltam ${qtdTexto(plano.faltam)}, nenhum fornecedor cotado tem.`
+                                  : ` Faltam ${qtdTexto(plano.faltam)}.`)}
+                            </p>
+                          )}
                         </td>
                       </tr>
                       {cotacoesVisiveis.map((c) => (

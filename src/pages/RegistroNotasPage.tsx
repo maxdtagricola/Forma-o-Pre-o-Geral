@@ -34,6 +34,8 @@ import {
   labelCurtoDoMes,
   labelDoMes,
   labelDoTipo,
+  prejuizoAutomatico,
+  resultadoDaNota,
   resultadoDoItem,
   valorDoItem,
   valoresPorResultado,
@@ -266,20 +268,31 @@ function SeletorResultado({
   )
 }
 
-function BadgeResultado({ valor, herdado = false }: { valor: ResultadoTransferencia | undefined; herdado?: boolean }) {
+function BadgeResultado({
+  valor,
+  herdado = false,
+  automatico = false,
+}: {
+  valor: ResultadoTransferencia | undefined
+  herdado?: boolean
+  /** Prejuízo que veio da regra (deu entrada e ninguém marcou que vendeu), não de uma marcação. */
+  automatico?: boolean
+}) {
   if (!valor) return null
   const faturado = valor === 'FATURADO'
   return (
     <span
       title={
-        herdado
-          ? 'Resultado da nota (vale pra esse produto)'
-          : faturado
-            ? 'Faturado — virou venda'
-            : 'Parado no estoque — não gerou o lucro esperado (prejuízo)'
+        automatico
+          ? 'Deu entrada e ainda não foi marcado como faturado — conta como prejuízo até vender'
+          : herdado
+            ? 'Resultado da nota (vale pra esse produto)'
+            : faturado
+              ? 'Faturado — virou venda'
+              : 'Parado no estoque — não gerou o lucro esperado (prejuízo)'
       }
       className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap ${
-        herdado ? 'border-dashed' : ''
+        herdado || automatico ? 'border-dashed' : ''
       } ${
         faturado
           ? 'border-[#2a78d6]/50 bg-[#2a78d6]/10 text-[#1d5fae] dark:text-[#8db8ee]'
@@ -287,7 +300,7 @@ function BadgeResultado({ valor, herdado = false }: { valor: ResultadoTransferen
       }`}
     >
       <span aria-hidden>{faturado ? '✓' : '▼'}</span>
-      {faturado ? 'Faturado' : 'Parado no estoque'}
+      {faturado ? 'Faturado' : automatico ? 'Prejuízo até vender' : 'Parado no estoque'}
     </span>
   )
 }
@@ -578,12 +591,14 @@ export type MarcarResultado = (n: NotaFiscal, alvo: { itemId?: string; resultado
  * resultados diferentes, quantos foram faturados e quantos ficaram parados. */
 function ResumoResultadoNota({ n }: { n: NotaFiscal }) {
   const itens = itensDaNota(n)
-  if (itens.length === 0) return <BadgeResultado valor={n.resultado} />
+  // prejuízo que veio só da regra da entrada — nem a nota nem os produtos foram marcados
+  const automatico = !n.resultado && prejuizoAutomatico(n) && itens.every((i) => !i.resultado)
+  if (itens.length === 0) return <BadgeResultado valor={resultadoDaNota(n)} automatico={automatico} />
   const efetivos = itens.map((i) => resultadoDoItem(i, n))
   const faturados = efetivos.filter((r) => r === 'FATURADO').length
   const parados = efetivos.filter((r) => r === 'ESTOQUE').length
   if (faturados === itens.length) return <BadgeResultado valor="FATURADO" />
-  if (parados === itens.length) return <BadgeResultado valor="ESTOQUE" />
+  if (parados === itens.length) return <BadgeResultado valor="ESTOQUE" automatico={automatico} />
   if (faturados === 0 && parados === 0) return null
   return (
     <span className="text-[11px] text-ink-500">
@@ -773,6 +788,11 @@ function NotaCard({
                 )
               })}
               {salvandoResultado && <span className="text-ink-400">salvando…</span>}
+              {!n.resultado && prejuizoAutomatico(n) && (
+                <span className="text-[#b52d2c] dark:text-[#f19c9b]">
+                  Deu entrada: o que não for marcado como faturado conta como prejuízo até ser vendido.
+                </span>
+              )}
             </div>
           )}
 
@@ -810,7 +830,13 @@ function NotaCard({
                             disabled={salvandoResultado}
                             valor={item.resultado ?? ''}
                             onChange={(v) => void marcar({ itemId: item.id, resultado: v })}
-                            rotuloVazio={n.resultado ? `(da nota: ${labelResultado(n.resultado, true)})` : '(mesmo da nota)'}
+                            rotuloVazio={
+                              n.resultado
+                                ? `(da nota: ${labelResultado(n.resultado, true)})`
+                                : prejuizoAutomatico(n)
+                                  ? '(prejuízo até vender)'
+                                  : '(mesmo da nota)'
+                            }
                             ariaLabel={`Resultado de ${item.descricao || item.codigo || 'produto'}`}
                           />
                         </td>
@@ -1508,7 +1534,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
     }
     // resultado: o da nota (sem produtos) ou o de algum produto dela
     if (filtroResultado) {
-      const passa = itens.length === 0 ? resultadoPassa(n.resultado ?? '') : itens.some((i) => resultadoPassa(resultadoDoItem(i, n)))
+      const passa = itens.length === 0 ? resultadoPassa(resultadoDaNota(n)) : itens.some((i) => resultadoPassa(resultadoDoItem(i, n)))
       if (!passa) return false
     }
     if (termos.length === 0) return true

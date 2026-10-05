@@ -6,8 +6,9 @@ import {
   type FornecedorConhecido,
   type ItemDetectadoFornecedor,
 } from '../cotacaoFornecedorImport'
-import { formatarNumeroBR, parseNumeroFlexivel } from '../numeros'
+import { formatarNumeroBR, formatarNumeroCurtoBR, parseNumeroFlexivel } from '../numeros'
 import { normalizarNcm } from '../importacao/ncm'
+import { avisar } from '../dialogs'
 import type { QuoteItem } from '../types'
 
 interface LinhaEditavel extends ItemDetectadoFornecedor {
@@ -17,6 +18,7 @@ interface LinhaEditavel extends ItemDetectadoFornecedor {
   marcaTexto: string
   prazoTexto: string
   ncmTexto: string
+  quantidadeTexto: string
 }
 
 /** NCM digitado/lido é válido? (vazio também vale — fica sem NCM) */
@@ -34,6 +36,21 @@ function valorParaTexto(valor: number | undefined): string {
   return valor !== undefined ? formatarNumeroBR(valor, 2) : ''
 }
 
+/** Quantidade que o fornecedor atende: vazio = a quantidade toda (undefined); texto que não é número
+ * (ou negativo) = inválido (null). */
+function textoParaQuantidade(texto: string): number | undefined | null {
+  if (!texto.trim()) return undefined
+  const valor = parseNumeroFlexivel(texto)
+  return valor !== undefined && valor >= 0 ? valor : null
+}
+
+/** "pedimos 5, o fornecedor devolveu 2 (faltam 3)" — pro aviso logo depois de ler o arquivo. */
+function textoDiferencaDeQuantidade(referencia: string, pedida: number, devolvida: number): string {
+  const diferenca = devolvida - pedida
+  const detalhe = diferenca < 0 ? `faltam ${formatarNumeroCurtoBR(-diferenca, 3)}` : `${formatarNumeroCurtoBR(diferenca, 3)} a mais`
+  return `• ${referencia}: pedimos ${formatarNumeroCurtoBR(pedida, 3)}, o fornecedor devolveu ${formatarNumeroCurtoBR(devolvida, 3)} (${detalhe})`
+}
+
 const ACEITA_ARQUIVOS = '.xlsx,.xlsm,.xls,.csv,.ods,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.gif,image/*'
 
 export interface ItemImportadoConfirmado {
@@ -44,6 +61,8 @@ export interface ItemImportadoConfirmado {
   prazoEntrega?: string
   /** NCM informado pelo fornecedor (0000.00.00). */
   ncm?: string
+  /** Quantas unidades o fornecedor atende (vazio: a quantidade toda). */
+  quantidadeDisponivel?: number
 }
 
 export function ImportarCotacaoFornecedorModal({
@@ -76,6 +95,23 @@ export function ImportarCotacaoFornecedorModal({
     setNomeArquivo(file.name)
     try {
       const resultado = await importarCotacaoFornecedor(file, items, fornecedores)
+      // quantidade devolvida diferente da pedida (menor ou maior): avisa já, antes de revisar a tabela
+      const diferencas = resultado.itens.flatMap((item) => {
+        const pedida = items.find((i) => i.id === item.itemId)?.product.qtd || 0
+        return item.quantidadeDetectada !== undefined && item.quantidadeDetectada !== pedida
+          ? [textoDiferencaDeQuantidade(item.referencia, pedida, item.quantidadeDetectada)]
+          : []
+      })
+      if (diferencas.length > 0) {
+        const LIMITE = 15
+        void avisar(
+          `${diferencas.length === 1 ? 'Um item veio' : `${diferencas.length} itens vieram`} com quantidade diferente da que pedimos:\n\n` +
+            diferencas.slice(0, LIMITE).join('\n') +
+            (diferencas.length > LIMITE ? `\n… e mais ${diferencas.length - LIMITE}.` : '') +
+            '\n\nConfira na coluna "Qtd que atende" antes de adicionar ao comparador.',
+          { titulo: 'Quantidade diferente da solicitada' },
+        )
+      }
       setFornecedorDetectado(resultado.fornecedorDetectado)
       setFornecedor(resultado.fornecedorDetectado ?? '')
       setAvisoLeituraFraca(resultado.avisoLeituraFraca)
@@ -88,6 +124,7 @@ export function ImportarCotacaoFornecedorModal({
           marcaTexto: item.marcaDetectada ?? '',
           prazoTexto: item.prazoDetectado ?? '',
           ncmTexto: item.ncmDetectado ?? '',
+          quantidadeTexto: item.quantidadeDetectada !== undefined ? formatarNumeroCurtoBR(item.quantidadeDetectada, 3) : '',
         })),
       )
     } catch (err) {
@@ -104,9 +141,21 @@ export function ImportarCotacaoFornecedorModal({
   const linhasProntas = (linhas ?? []).filter((l) => l.incluir && textoParaValor(l.valorUnitarioTexto) !== undefined)
   // NCM errado não entra: ele muda o cálculo de ICMS-ST/RBC do item — corrige ou apaga antes
   const linhasComNcmInvalido = linhasProntas.filter((l) => !ncmValidoOuVazio(l.ncmTexto))
-  const podeConfirmar = fornecedor.trim().length > 0 && linhasProntas.length > 0 && linhasComNcmInvalido.length === 0
+  const linhasComQuantidadeInvalida = linhasProntas.filter((l) => textoParaQuantidade(l.quantidadeTexto) === null)
+  const podeConfirmar =
+    fornecedor.trim().length > 0 && linhasProntas.length > 0 && linhasComNcmInvalido.length === 0 && linhasComQuantidadeInvalida.length === 0
   const temMarcaOuPrazo = (linhas ?? []).some((l) => l.marcaDetectada || l.prazoDetectado)
   const ncmsLidos = (linhas ?? []).filter((l) => l.ncmDetectado).length
+  const quantidadesLidas = (linhas ?? []).filter((l) => l.quantidadeDetectada !== undefined).length
+  /** Quantidade que o fornecedor atende menos a pedida: negativa = faltam, positiva = a mais, 0 = igual
+   * (ou não informada, que vale como a quantidade toda). */
+  function diferencaNaLinha(l: LinhaEditavel): number {
+    const quantidade = textoParaQuantidade(l.quantidadeTexto)
+    const qtdItem = items.find((i) => i.id === l.itemId)?.product.qtd || 0
+    return typeof quantidade === 'number' ? quantidade - qtdItem : 0
+  }
+  const linhasComMenos = (linhas ?? []).filter((l) => diferencaNaLinha(l) < 0).length
+  const linhasComMais = (linhas ?? []).filter((l) => diferencaNaLinha(l) > 0).length
 
   function handleConfirmar() {
     if (!podeConfirmar) return
@@ -115,8 +164,10 @@ export function ImportarCotacaoFornecedorModal({
       marca.trim(),
       linhasProntas.map((l) => {
         const ncm = normalizarNcm(l.ncmTexto)
+        const quantidade = textoParaQuantidade(l.quantidadeTexto)
         return {
           itemId: l.itemId,
+          ...(typeof quantidade === 'number' ? { quantidadeDisponivel: quantidade } : {}),
           valorUnitario: textoParaValor(l.valorUnitarioTexto)!,
           valorTotal: textoParaValor(l.valorTotalTexto),
           ...(l.marcaTexto.trim() ? { marca: l.marcaTexto.trim() } : {}),
@@ -183,6 +234,15 @@ export function ImportarCotacaoFornecedorModal({
                   : 'Não achei NCM no arquivo — dá pra digitar abaixo, se o fornecedor informou. '}
                 O NCM fica guardado na cotação desse fornecedor, e o do fornecedor mais barato vira o NCM do item.
               </p>
+              <p className="text-xs text-ink-500">
+                <strong className="font-medium text-ink-700">Qtd que atende</strong> é quanto o fornecedor tem do item
+                {quantidadesLidas > 0 ? ` (lida em ${quantidadesLidas} item(ns))` : ''} — vazio quer dizer que ele atende a
+                quantidade toda. Menor que a nossa, a cotação fica marcada como parcial no comparador.
+                {linhasComMenos > 0 && (
+                  <span className="font-medium text-amber-700"> {linhasComMenos} item(ns) com menos que o pedido.</span>
+                )}
+                {linhasComMais > 0 && <span className="font-medium text-sky-700"> {linhasComMais} item(ns) com mais que o pedido.</span>}
+              </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <AutocompleteField label="Fornecedor" value={fornecedor} onChange={setFornecedor} suggestions={fornecedorSuggestions} />
                 <TextField
@@ -201,6 +261,7 @@ export function ImportarCotacaoFornecedorModal({
                         <th className="py-2 px-2 font-medium">Item da cotação</th>
                         <th className="py-2 px-2 font-medium w-28 text-right">Valor unt.</th>
                         <th className="py-2 px-2 font-medium w-28 text-right">Valor total</th>
+                        <th className="py-2 px-2 font-medium w-24 text-right">Qtd que atende</th>
                         <th className="py-2 px-2 font-medium w-32">NCM</th>
                         {temMarcaOuPrazo && <th className="py-2 px-2 font-medium w-28">Marca</th>}
                         {temMarcaOuPrazo && <th className="py-2 px-2 font-medium w-24">Prazo</th>}
@@ -252,6 +313,37 @@ export function ImportarCotacaoFornecedorModal({
                                 onChange={(e) => patchLinha(l.itemId, { valorTotalTexto: e.target.value })}
                                 className={inputCls}
                               />
+                            </td>
+                            <td className="py-2 px-1">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                placeholder={item ? String(item.product.qtd) : 'todas'}
+                                value={l.quantidadeTexto}
+                                onChange={(e) => patchLinha(l.itemId, { quantidadeTexto: e.target.value })}
+                                aria-invalid={textoParaQuantidade(l.quantidadeTexto) === null}
+                                aria-label={`Quantidade que o fornecedor atende — ${l.referencia}`}
+                                title="Quanto o fornecedor tem desse item — vazio: atende a quantidade toda"
+                                className={`${inputCls} ${
+                                  textoParaQuantidade(l.quantidadeTexto) === null
+                                    ? 'border-rose-400 focus:border-rose-500 focus:ring-rose-100'
+                                    : diferencaNaLinha(l) < 0
+                                      ? 'border-amber-400 text-amber-800'
+                                      : diferencaNaLinha(l) > 0
+                                        ? 'border-sky-400 text-sky-800'
+                                        : ''
+                                }`}
+                              />
+                              {diferencaNaLinha(l) < 0 && (
+                                <p className="mt-0.5 text-right text-[10px] font-medium text-amber-700">
+                                  parcial · faltam {formatarNumeroCurtoBR(-diferencaNaLinha(l), 3)}
+                                </p>
+                              )}
+                              {diferencaNaLinha(l) > 0 && (
+                                <p className="mt-0.5 text-right text-[10px] font-medium text-sky-700">
+                                  +{formatarNumeroCurtoBR(diferencaNaLinha(l), 3)} a mais
+                                </p>
+                              )}
                             </td>
                             <td className="py-2 px-1">
                               <input
@@ -319,10 +411,14 @@ export function ImportarCotacaoFornecedorModal({
         </div>
 
         <div className="flex justify-between items-center gap-2 pt-3 border-t border-ink-100">
-          <p className={`text-xs ${linhasComNcmInvalido.length > 0 ? 'text-rose-600' : 'text-ink-400'}`}>
+          <p
+            className={`text-xs ${linhasComNcmInvalido.length > 0 || linhasComQuantidadeInvalida.length > 0 ? 'text-rose-600' : 'text-ink-400'}`}
+          >
             {linhasComNcmInvalido.length > 0
               ? `NCM inválido em ${linhasComNcmInvalido.length} item(ns) — precisa ter 8 dígitos; corrija ou apague.`
-              : linhasProntas.length > 0 && `${linhasProntas.length} item(ns) pronto(s) — confira os valores antes de confirmar.`}
+              : linhasComQuantidadeInvalida.length > 0
+                ? `Quantidade inválida em ${linhasComQuantidadeInvalida.length} item(ns) — use um número, ou deixe vazio se atende tudo.`
+                : linhasProntas.length > 0 && `${linhasProntas.length} item(ns) pronto(s) — confira os valores antes de confirmar.`}
           </p>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>

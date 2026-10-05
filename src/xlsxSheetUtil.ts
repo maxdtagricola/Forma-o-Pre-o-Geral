@@ -74,6 +74,16 @@ function textoCabecalho(valor: unknown): string {
 const CABECALHOS = {
   referencia: [/^referencia$/, /^referencias?\b/, /^ref\b/, /^cod(igo)? (do )?fabricante$/, /^part ?number$/, /^p ?n$/, /^codigo original$/, /^cod(igo)? fornecedor$/, /^codigo$/, /^cod$/],
   descricao: [/^descricao$/, /^descri/, /^produto$/, /^item descricao$/, /^nome do produto$/, /^material$/],
+  // antes de `quantidade`: "QTD DISPONÍVEL" é a quantidade que o fornecedor atende, não a pedida
+  quantidadeDisponivel: [
+    /^(qtd|qtde|qt|quant|quantidade) (disp|atend|em estoque|estoque|fornec|cotad|ofertad|confirmad)/,
+    /^disponivel$/,
+    /^disponibilidade$/,
+    /^(em )?estoque$/,
+    /^saldo( (em )?estoque)?$/,
+    /^atende$/,
+    /^atendid[ao]s?$/,
+  ],
   quantidade: [/^quant(idade)?$/, /^quant/, /^qtd[e]?$/, /^qtde?\b/, /^qt$/],
   entrega: [/^entrega$/, /^prazo( de)? entrega$/, /^prazo$/],
   valorUnitario: [/^vlr unt$/, /^vlr unt/, /^valor unt/, /^vlr unit/, /^valor unit/, /^v unit/, /^vl unit/, /^preco unit/, /^unitario$/, /^preco$/, /^valor$/],
@@ -89,6 +99,8 @@ export interface TabelaItensLocalizada {
   colReferencia: number
   colDescricao: number
   colQuant: number
+  /** Coluna da quantidade que o fornecedor atende (DISPONÍVEL, ESTOQUE, QTD ATENDIDA…), -1 se não tiver. */
+  colQuantDisponivel: number
   colEntrega: number
   colVlrUnt: number
   colVlrTotal: number
@@ -129,7 +141,9 @@ export function procurarTabelaItens(ws: XLSX.WorkSheet, linhasProcura = 60): Tab
     linhaCabecalho: melhor.linha,
     colReferencia: c.referencia ?? -1,
     colDescricao: c.descricao ?? -1,
-    colQuant: c.quantidade ?? -1,
+    // planilha que só tem a coluna de quantidade atendida: ela também serve de quantidade
+    colQuant: c.quantidade ?? c.quantidadeDisponivel ?? -1,
+    colQuantDisponivel: c.quantidadeDisponivel ?? -1,
     colEntrega: c.entrega ?? -1,
     colVlrUnt: c.valorUnitario ?? -1,
     colVlrTotal: c.valorTotal ?? -1,

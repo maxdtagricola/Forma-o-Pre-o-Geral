@@ -49,9 +49,37 @@ export function labelDoTipo(tipo: NotaFiscalTipo): string {
 export const COR_FATURADO = '#2a78d6'
 export const COR_PREJUIZO = '#e34948'
 
-/** Resultado que vale pro produto: o dele mesmo, ou (vazio) o da nota inteira. */
-export function resultadoDoItem(item: NotaFiscalItem, nota: { resultado?: ResultadoTransferencia }): ResultadoTransferencia {
-  return item.resultado || nota.resultado || ''
+// Prejuízo automático: assim que a nota dá entrada (passa pra CONCLUIDO), o que ainda não foi
+// marcado como faturado conta como parado no estoque (prejuízo) — e só vira faturado (lucro) quando
+// alguém marca que vendeu. Vale pras entradas a partir desta data: as notas que já tinham dado
+// entrada antes continuam "sem resultado" até alguém marcar (senão todo o histórico, que nunca foi
+// marcado, viraria prejuízo de uma vez).
+export const INICIO_PREJUIZO_AUTOMATICO = new Date(2026, 9, 5).getTime()
+
+type NotaParaResultado = Pick<NotaFiscal, 'resultado' | 'status' | 'statusHistory' | 'createdAt'>
+
+/** Quando a nota deu entrada (a última vez que passou pra CONCLUIDO) — undefined se ainda não deu. */
+export function dataDaEntrada(n: Pick<NotaFiscal, 'status' | 'statusHistory' | 'createdAt'>): number | undefined {
+  if (n.status !== 'CONCLUIDO') return undefined
+  const entradas = (n.statusHistory ?? []).filter((h) => h.status === 'CONCLUIDO')
+  return entradas.length > 0 ? entradas[entradas.length - 1].changedAt : n.createdAt
+}
+
+/** A nota deu entrada e cai na regra do prejuízo automático (ver INICIO_PREJUIZO_AUTOMATICO). */
+export function prejuizoAutomatico(n: Pick<NotaFiscal, 'status' | 'statusHistory' | 'createdAt'>): boolean {
+  const entrada = dataDaEntrada(n)
+  return entrada !== undefined && entrada >= INICIO_PREJUIZO_AUTOMATICO
+}
+
+/** Resultado que vale pra nota inteira: o marcado nela, ou — sem marcação, depois da entrada — prejuízo. */
+export function resultadoDaNota(n: NotaParaResultado): ResultadoTransferencia {
+  return n.resultado || (prejuizoAutomatico(n) ? 'ESTOQUE' : '')
+}
+
+/** Resultado que vale pro produto: o dele mesmo, ou (vazio) o da nota inteira — que, sem marcação
+ * depois da entrada, é prejuízo. */
+export function resultadoDoItem(item: NotaFiscalItem, nota: NotaParaResultado): ResultadoTransferencia {
+  return item.resultado || resultadoDaNota(nota)
 }
 
 export function valorDoItem(item: NotaFiscalItem): number {
@@ -75,8 +103,9 @@ export function valoresPorResultado(n: NotaFiscal): ValoresPorResultado {
   const itens = n.itens ?? []
   if (itens.length === 0) {
     const valor = n.valorNota || 0
-    if (n.resultado === 'FATURADO') r.faturado = valor
-    else if (n.resultado === 'ESTOQUE') {
+    const resultado = resultadoDaNota(n)
+    if (resultado === 'FATURADO') r.faturado = valor
+    else if (resultado === 'ESTOQUE') {
       r.parado = valor
       r.freteParado = n.valorFrete || 0
     } else r.semResultado = valor

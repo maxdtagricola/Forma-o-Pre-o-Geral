@@ -4,6 +4,7 @@ import { proximoCodigoCotacao } from './configRepo'
 import { makeId } from '../utils'
 import type {
   DadosFreteTransportadora,
+  DadosTransporte,
   ItemExcluidoCotacao,
   ItemFaturado,
   ItemFechado,
@@ -442,6 +443,21 @@ export async function salvarItensFechados(id: string, itensFechados: Record<stri
   if (!atual) throw new Error('Cotação não encontrada no servidor.')
   const normalizado = normalizeRecord(atual)
   const atualizado: QuoteRecord = { ...normalizado, itensFechados, updatedAt: Date.now() }
+  await dbPut(STORE_ANALISES, atualizado)
+  return atualizado
+}
+
+/** Salva os dados de transporte (NF, cotação do frete, transportadora, rastreio) dos fornecedores
+ * informados, sem mexer nos dos outros — lendo a versão atual do servidor antes de gravar. */
+export async function salvarTransporte(id: string, porFornecedor: Record<string, DadosTransporte>): Promise<QuoteRecord> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  if (!atual) throw new Error('Cotação não encontrada no servidor.')
+  const normalizado = normalizeRecord(atual)
+  const atualizado: QuoteRecord = {
+    ...normalizado,
+    transportePorFornecedor: { ...normalizado.transportePorFornecedor, ...porFornecedor },
+    updatedAt: Date.now(),
+  }
   await dbPut(STORE_ANALISES, atualizado)
   return atualizado
 }

@@ -27,6 +27,10 @@ export interface ItemDetectadoFornecedor {
   /** NCM que o fornecedor informou pro item (formato 0000.00.00) — fica guardado na cotação dele, e o
    * do fornecedor mais barato vira o NCM do item. */
   ncmDetectado?: string
+  /** Quantidade que o fornecedor disse que atende — coluna de quantidade (ou DISPONÍVEL, ESTOQUE,
+   * QTD ATENDIDA…) da planilha; no PDF/foto, a quantidade que fecha unitário × quantidade = total, ou
+   * escrita junto ("DISPONÍVEL 2"). Menor que a quantidade do item = ele atende só em parte. */
+  quantidadeDetectada?: number
 }
 
 export interface ResultadoImportacaoFornecedor {
@@ -76,15 +80,27 @@ function detectarFornecedorConhecido(texto: string, fornecedores: FornecedorConh
 export function escolherUnitarioETotal(
   valores: number[],
   quantidade: number,
-): { unitario?: number; total?: number; conferido: boolean } {
+  /** Quantidades que aparecem na mesma linha — se o fornecedor atende só parte, unitário × uma delas
+   * (menor que a pedida) = total, e essa é a quantidade que ele atende. */
+  quantidadesNaLinha: number[] = [],
+): { unitario?: number; total?: number; conferido: boolean; quantidade?: number } {
   if (valores.length === 0) return { conferido: false }
   const qtd = quantidade > 0 ? quantidade : 1
+  const fecha = (unitario: number, vezes: number, total: number) => Math.abs(unitario * vezes - total) <= Math.max(0.02, total * 0.005)
   for (let i = 0; i < valores.length; i++) {
     for (let j = 0; j < valores.length; j++) {
-      if (i === j) continue
-      const esperado = valores[i] * qtd
-      if (Math.abs(esperado - valores[j]) <= Math.max(0.02, valores[j] * 0.005)) {
-        return { unitario: valores[i], total: valores[j], conferido: true }
+      if (i !== j && fecha(valores[i], qtd, valores[j])) return { unitario: valores[i], total: valores[j], conferido: true }
+    }
+  }
+  for (const parcial of quantidadesNaLinha) {
+    if (!(parcial > 0 && parcial < qtd)) continue
+    for (let i = 0; i < valores.length; i++) {
+      // a própria quantidade escrita como valor ("2,00") não é o unitário
+      if (valores[i] === parcial) continue
+      for (let j = 0; j < valores.length; j++) {
+        if (i !== j && fecha(valores[i], parcial, valores[j])) {
+          return { unitario: valores[i], total: valores[j], conferido: true, quantidade: parcial }
+        }
       }
     }
   }
@@ -98,6 +114,14 @@ export function escolherUnitarioETotal(
 }
 
 const PRAZO_NO_TEXTO = /\b(IMEDIATO|PRONTA ENTREGA|\d{1,3}\s*(?:DIAS?(?:\s+[ÚU]TEIS)?|D\.?U\.?|DD))\b/
+
+// quantidade que o fornecedor escreveu que atende ("DISPONÍVEL: 2", "ATENDE 3", "ESTOQUE 1")
+const QUANTIDADE_ESCRITA = /\b(?:DISP(?:ONIVE(?:L|IS))?|ATENDE(?:MOS)?|ATENDIDA|SALDO|ESTOQUE)\.?\s*:?\s*(\d{1,5})(?:,00)?\b/
+
+/** Números inteiros soltos no texto ("2", "2,00", "3 UN") — candidatos a quantidade. */
+function quantidadesNoTexto(texto: string): number[] {
+  return (texto.match(/(?<![\d.,])\d{1,5}(?:,00)?(?![\d.,])/g) ?? []).map((m) => Number(m.replace(',00', ''))).filter((n) => n > 0)
+}
 
 /** Acha cada referência dos itens da cotação nas linhas lidas (PDF/OCR) e pega os valores da mesma
  * linha (ou da linha logo abaixo, quando o preço quebrou pra baixo). Só procura pelas referências
@@ -119,9 +143,19 @@ function interpretarLinhas(
       if (!posicao) continue
       // o que vem depois da referência na mesma linha (e, se não tiver preço, a linha de baixo)
       const resto = palavrasPorLinha[i].slice(posicao[1]).join(' ')
+      let textoDosValores = resto
       let valores = valoresMonetariosNoTexto(resto)
-      if (valores.length === 0 && i + 1 < linhas.length) valores = valoresMonetariosNoTexto(linhas[i + 1].texto)
-      const { unitario, total, conferido } = escolherUnitarioETotal(valores, item.product.qtd || 0)
+      if (valores.length === 0 && i + 1 < linhas.length) {
+        textoDosValores = linhas[i + 1].texto
+        valores = valoresMonetariosNoTexto(textoDosValores)
+      }
+      const { unitario, total, conferido, quantidade } = escolherUnitarioETotal(
+        valores,
+        item.product.qtd || 0,
+        quantidadesNoTexto(textoDosValores),
+      )
+      const escrita = normalizarTexto(`${resto} ${textoDosValores}`).match(QUANTIDADE_ESCRITA)?.[1]
+      const quantidadeDetectada = escrita !== undefined ? Number(escrita) : quantidade
       const prazo = normalizarTexto(resto).match(PRAZO_NO_TEXTO)?.[1]
       // NCM na mesma linha (antes ou depois da referência, menos as palavras da própria referência)
       const ncm = acharNcmNasPalavras(palavrasPorLinha[i], { ignorar: posicao, aceitaSemPontos: aceitaNcmSemPontos, ocr })
@@ -134,6 +168,7 @@ function interpretarLinhas(
         conferido,
         ...(prazo ? { prazoDetectado: prazo } : {}),
         ...(ncm ? { ncmDetectado: ncm } : {}),
+        ...(quantidadeDetectada !== undefined ? { quantidadeDetectada } : {}),
       }
     }
     if (achado) encontrados.push(achado)
@@ -195,8 +230,17 @@ async function importarDePlanilha(
         const unitarioCel = tabela.colVlrUnt > 0 ? cellNumero(ws, r, tabela.colVlrUnt) : undefined
         const totalCel = tabela.colVlrTotal > 0 ? cellNumero(ws, r, tabela.colVlrTotal) : undefined
         const qtd = item.product.qtd || 0
-        const conferido =
-          unitarioCel !== undefined && totalCel !== undefined && qtd > 0 && Math.abs(unitarioCel * qtd - totalCel) <= Math.max(0.02, totalCel * 0.005)
+        // quantidade que o fornecedor atende: a coluna DISPONÍVEL/ESTOQUE/QTD ATENDIDA, se tiver; senão
+        // a coluna de quantidade da cotação dele (pode vir menor que a nossa)
+        const disponivelCel = tabela.colQuantDisponivel > 0 ? cellNumero(ws, r, tabela.colQuantDisponivel) : undefined
+        const quantCel = tabela.colQuant > 0 ? cellNumero(ws, r, tabela.colQuant) : undefined
+        const quantidade = [disponivelCel, quantCel].find((q) => q !== undefined && q >= 0)
+        const fecha = (vezes: number) =>
+          unitarioCel !== undefined &&
+          totalCel !== undefined &&
+          vezes > 0 &&
+          Math.abs(unitarioCel * vezes - totalCel) <= Math.max(0.02, totalCel * 0.005)
+        const conferido = fecha(qtd) || (quantidade !== undefined && fecha(quantidade))
         const marca = tabela.colMarca > 0 ? cellTexto(ws, r, tabela.colMarca) : ''
         const prazo = tabela.colEntrega > 0 ? cellTexto(ws, r, tabela.colEntrega) : ''
         // coluna com título NCM: os 8 dígitos valem mesmo sem os pontos
@@ -211,6 +255,7 @@ async function importarDePlanilha(
           ...(marca ? { marcaDetectada: marca.toUpperCase() } : {}),
           ...(prazo ? { prazoDetectado: prazo.toUpperCase() } : {}),
           ...(ncm ? { ncmDetectado: ncm } : {}),
+          ...(quantidade !== undefined ? { quantidadeDetectada: quantidade } : {}),
         })
       }
     }
@@ -238,7 +283,11 @@ async function importarDePlanilha(
               numeros.push(...valoresMonetariosNoTexto(bruto))
             }
           }
-          const { unitario, total, conferido } = escolherUnitarioETotal(numeros, item.product.qtd || 0)
+          const { unitario, total, conferido, quantidade } = escolherUnitarioETotal(
+            numeros,
+            item.product.qtd || 0,
+            numeros.filter((n) => Number.isInteger(n)),
+          )
           encontrados.set(item.id, {
             itemId: item.id,
             referencia: item.product.referencia,
@@ -247,6 +296,7 @@ async function importarDePlanilha(
             valorTotalDetectado: total,
             conferido,
             ...(ncm ? { ncmDetectado: ncm } : {}),
+            ...(quantidade !== undefined ? { quantidadeDetectada: quantidade } : {}),
           })
           break
         }

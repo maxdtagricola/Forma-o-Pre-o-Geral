@@ -16,6 +16,7 @@ import {
   chaveMesDaNota,
   corDoTipo,
   labelCurtoDoMes,
+  labelDoMes,
   labelDoTipo,
   resultadoDoItem,
   valorDoItem,
@@ -23,6 +24,7 @@ import {
 } from '../notasFiscaisHelpers'
 import { formatarNumeroCurtoBR } from '../numeros'
 import { avisar } from '../dialogs'
+import { SeletorMesReferencia, mesesDisponiveis } from '../components/SeletorMesReferencia'
 
 interface ProdutoNoResultado {
   chave: string
@@ -120,6 +122,9 @@ export function NotasFiscaisDashboardPage() {
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
   const [periodo, setPeriodo] = useState<Periodo>('mes')
   const [tipoFiltro, setTipoFiltro] = useState<'TODOS' | NotaFiscalTipo>('TODOS')
+  // "AAAA-MM" (mês de referência da nota: o da emissão — o mesmo das pastas de Transferências
+  // Fiscais): mostra só esse mês, no lugar do Período; vazio = vale o Período
+  const [mesReferencia, setMesReferencia] = useState('')
 
   useEffect(() => {
     setLoading(true)
@@ -140,12 +145,21 @@ export function NotasFiscaisDashboardPage() {
     return coresStatus[status] || corPadraoDoStatus(status, NOTA_FISCAL_STATUSES)
   }
 
+  const meses = useMemo(() => mesesDisponiveis(notas.map(chaveMesDaNota)), [notas])
+
   const notasDoPeriodo = useMemo(() => {
     const inicio = inicioPeriodo(periodo)
     return notas.filter(
-      (n) => n.createdAt >= inicio && (tipoFiltro === 'TODOS' || (n.tipo ?? 'PECAS') === tipoFiltro),
+      (n) =>
+        (mesReferencia ? chaveMesDaNota(n) === mesReferencia : n.createdAt >= inicio) &&
+        (tipoFiltro === 'TODOS' || (n.tipo ?? 'PECAS') === tipoFiltro),
     )
-  }, [notas, periodo, tipoFiltro])
+  }, [notas, periodo, mesReferencia, tipoFiltro])
+
+  /** Gráficos mês a mês: os últimos 6 meses — até o mês de referência, quando escolhido. */
+  function ultimosSeisMeses<T extends { mesKey: string }>(lista: T[]): T[] {
+    return lista.filter((m) => !mesReferencia || m.mesKey <= mesReferencia).slice(-6)
+  }
 
   const statusData: DonutDatum[] = useMemo(
     () =>
@@ -188,11 +202,13 @@ export function NotasFiscaisDashboardPage() {
       atual.quantidade += 1
       atual.valor += n.valorNota
     }
-    return Array.from(porMes.entries())
-      .sort(([a], [b]) => (a < b ? -1 : 1))
-      .slice(-6)
-      .map(([mesKey, porTipo]) => ({ mesKey, porTipo }))
-  }, [notas])
+    return ultimosSeisMeses(
+      Array.from(porMes.entries())
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([mesKey, porTipo]) => ({ mesKey, porTipo })),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notas, mesReferencia])
 
   const tipoSeries = tipoOptions.map((t) => ({ key: t.value, label: t.label, color: corDoTipo(t.value) }))
 
@@ -250,10 +266,9 @@ export function NotasFiscaisDashboardPage() {
       atual.semResultado += v.semResultado
       porMes.set(mesKey, atual)
     }
-    return Array.from(porMes.values())
-      .sort((a, b) => (a.mesKey < b.mesKey ? -1 : 1))
-      .slice(-6)
-  }, [notas, tipoFiltro])
+    return ultimosSeisMeses(Array.from(porMes.values()).sort((a, b) => (a.mesKey < b.mesKey ? -1 : 1)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notas, tipoFiltro, mesReferencia])
 
   const maisParados = useMemo(() => rankingDeProdutos(notasDoPeriodo, 'ESTOQUE'), [notasDoPeriodo])
   const maisFaturados = useMemo(() => rankingDeProdutos(notasDoPeriodo, 'FATURADO'), [notasDoPeriodo])
@@ -263,11 +278,18 @@ export function NotasFiscaisDashboardPage() {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="font-display text-2xl font-bold text-ink-900">Dashboard de Transferências</h2>
-          <p className="text-sm text-ink-400">Visão geral das notas fiscais de transferência</p>
+          <p className="text-sm text-ink-400">
+            Visão geral das notas fiscais de transferência{mesReferencia ? ` — só ${labelDoMes(mesReferencia).toLowerCase()}` : ''}
+          </p>
         </div>
         {!loading && (
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full sm:w-auto">
-            <KpiCard icon={<IconDocumento />} value={String(notasDoPeriodo.length)} label="Notas no período" tone="agua" />
+            <KpiCard
+              icon={<IconDocumento />}
+              value={String(notasDoPeriodo.length)}
+              label={mesReferencia ? 'Notas no mês' : 'Notas no período'}
+              tone="agua"
+            />
             <KpiCard icon={<IconTendencia />} value={formatCurrency(valorTotalNotas)} label="Valor total das notas" tone="amarelo" />
             <KpiCard icon={<IconCaminhao />} value={formatCurrency(valorTotalFrete)} label="Valor total de frete" tone="laranja" />
           </div>
@@ -287,9 +309,12 @@ export function NotasFiscaisDashboardPage() {
                   <button
                     key={p.value}
                     type="button"
-                    onClick={() => setPeriodo(p.value)}
+                    onClick={() => {
+                      setPeriodo(p.value)
+                      setMesReferencia('')
+                    }}
                     className={`pill-tab border ${
-                      periodo === p.value
+                      !mesReferencia && periodo === p.value
                         ? 'bg-ink-950 border-ink-950 text-white'
                         : 'border-ink-200 text-ink-600 hover:bg-ink-50'
                     }`}
@@ -297,6 +322,9 @@ export function NotasFiscaisDashboardPage() {
                     {p.label}
                   </button>
                 ))}
+              </div>
+              <div className="mb-4">
+                <SeletorMesReferencia meses={meses} valor={mesReferencia} onChange={setMesReferencia} />
               </div>
               <p className="field-label mb-1.5">Tipo</p>
               <div className="flex flex-wrap gap-2">
@@ -351,7 +379,8 @@ export function NotasFiscaisDashboardPage() {
               <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Faturamento × prejuízo</h3>
               <p className="text-xs text-ink-400 mb-4">
                 O que as transferências viraram: faturado (venda) ou parado no estoque — prejuízo, a transferência não gerou
-                o lucro esperado. Marcado em Transferências Fiscais, na nota inteira ou em cada produto. Indicadores do
+                o lucro esperado. Assim que a nota dá entrada, o que não foi marcado como faturado conta como prejuízo, até
+                ser marcado como vendido em Transferências Fiscais (na nota inteira ou em cada produto). Indicadores do
                 período selecionado; gráfico dos últimos meses.
               </p>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">

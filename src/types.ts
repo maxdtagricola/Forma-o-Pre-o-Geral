@@ -409,6 +409,10 @@ export interface CotacaoFornecedorItem {
   /** NCM que esse fornecedor informou pro item (0000.00.00) — cada fornecedor pode classificar
    * diferente; o do fornecedor mais barato é o que vai pro item (ver aplicarCotacoes no comparador). */
   ncm?: string
+  /** Quantas unidades o fornecedor tem pra atender — muitas vezes ele tem o item, mas não a
+   * quantidade toda que precisamos; menor que a quantidade do item = cotação parcial (o resto tem
+   * que vir de outro fornecedor). Vazio: atende a quantidade toda. */
+  quantidadeDisponivel?: number
 }
 
 export interface PreRegistroItem {
@@ -435,6 +439,18 @@ export interface DadosFreteTransportadora {
   numeroCotacao: string
   /** Quando foi salvo pela última vez. */
   salvoEm?: number
+}
+
+/** Envio de um fornecedor do pedido, preenchido quando a cotação vai pra EM TRANSPORTE (aba Pedido
+ * de Compra) — cada fornecedor despacha com a nota, a transportadora e o rastreio dele. */
+export interface DadosTransporte {
+  numeroNotaFiscal: string
+  numeroCotacaoFrete: string
+  transportadora: string
+  /** Página de acompanhamento da transportadora — abre numa aba nova. */
+  linkRastreio: string
+  atualizadoEm: number
+  atualizadoPor: string
 }
 
 /** Medidas da carga pro pedido de frete — comprimento/largura/altura sempre em centímetros e peso
@@ -484,6 +500,9 @@ export interface QuoteRecord {
    * estado de onde ele despacha) tem as suas próprias cotações de frete. Registros de antes da
    * separação por UF têm a chave só com o nome. */
   fretePorFornecedor?: Record<string, Record<string, DadosFreteTransportadora>>
+  /** Dados do envio (NF, cotação do frete, transportadora, rastreio) por fornecedor, informados ao
+   * passar pra EM TRANSPORTE na aba Pedido de Compra — mesma chave do frete (ver chaveFornecedorFrete). */
+  transportePorFornecedor?: Record<string, DadosTransporte>
   /** Medidas da carga (cm/kg) por fornecedor, informadas na aba Frete — mesma chave do frete. */
   cargaFretePorFornecedor?: Record<string, MedidasCargaFrete>
   /** Valores fechados por item na aba Pedido de Compra — chave é o id do QuoteItem. */

@@ -4,20 +4,129 @@ import { SelectField } from '../components/ui/Field'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { PedidoCompraFornecedorModal, type BasePedidoCompraFornecedor } from '../components/PedidoCompraFornecedorModal'
 import {
+  CartaoTransporte,
+  TRANSPORTE_VAZIO,
+  TransporteModal,
+  normalizarLinkRastreio,
+  type DadosTransporteEditaveis,
+} from '../components/TransporteFornecedor'
+import {
   chaveFornecedorFrete,
   freteDoFornecedor,
   listQuotes,
   rotuloRemetente,
   salvarItensFechados,
+  salvarTransporte,
   updateQuoteStatus,
   type RemetenteFrete,
 } from '../db/analysesRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency } from '../utils'
-import { parseNumeroFlexivel } from '../numeros'
+import { formatarNumeroBR, parseNumeroFlexivel } from '../numeros'
 import { avisar } from '../dialogs'
 import { QUOTE_STATUSES } from '../types'
-import type { ItemFechado, PedidoCompraInfo, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
+import type { DadosFreteTransportadora, DadosTransporte, ItemFechado, PedidoCompraInfo, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
+
+// a partir de EM TRANSPORTE (no fluxo de QUOTE_STATUSES), cada fornecedor mostra o cartão Transporte
+const INDICE_EM_TRANSPORTE = QUOTE_STATUSES.indexOf('EM TRANSPORTE')
+
+/** Frete digitado em R$ (por unidade, ou o total do fornecedor) ou em % do valor dos produtos —
+ * guardado do mesmo jeito (freteRate, fração do valor) nos dois casos. Preferência deste aparelho. */
+type ModoFrete = 'valor' | 'percentual'
+const CHAVE_MODO_FRETE = 'pedidoCompra.modoFrete'
+
+function lerModoFrete(): ModoFrete {
+  try {
+    return localStorage.getItem(CHAVE_MODO_FRETE) === 'percentual' ? 'percentual' : 'valor'
+  } catch {
+    return 'valor'
+  }
+}
+
+/** "5,25%" — fração (0.0525) em porcentagem com vírgula. */
+function percentual(taxa: number): string {
+  return `${formatarNumeroBR((taxa || 0) * 100, 2)}%`
+}
+
+/** A cotação de frete mais barata desse fornecedor/UF (aba Frete / Itens da cotação): transportadora e dados. */
+function freteMaisBarato(cotacao: QuoteRecord, remetente: RemetenteFrete): [string, DadosFreteTransportadora] | undefined {
+  let melhor: [string, DadosFreteTransportadora] | undefined
+  let menor = Number.POSITIVE_INFINITY
+  for (const [transportadora, frete] of Object.entries(freteDoFornecedor(cotacao, remetente))) {
+    const valor = parseNumeroFlexivel(frete.valorCotacao)
+    if (valor !== undefined && valor > 0 && valor < menor) {
+      menor = valor
+      melhor = [transportadora, frete]
+    }
+  }
+  return melhor
+}
+
+/** Chave dos dados de transporte de um grupo (a do frete; itens sem fornecedor ficam juntos). */
+function chaveTransporte(chaveGrupo: string): string {
+  return chaveGrupo || 'SEM FORNECEDOR'
+}
+
+/** Campos de transporte de um fornecedor: o que já foi salvo, ou a transportadora e o nº da cotação
+ * do frete mais barato dele (aba Frete) como ponto de partida. */
+function transporteInicial(cotacao: QuoteRecord, chaveGrupo: string, remetente: RemetenteFrete): DadosTransporteEditaveis {
+  const salvo = cotacao.transportePorFornecedor?.[chaveTransporte(chaveGrupo)]
+  if (salvo) {
+    const { atualizadoEm: _em, atualizadoPor: _por, ...campos } = salvo
+    return { ...TRANSPORTE_VAZIO, ...campos }
+  }
+  const frete = remetente.nome ? freteMaisBarato(cotacao, remetente) : undefined
+  return {
+    ...TRANSPORTE_VAZIO,
+    transportadora: frete?.[0] ?? '',
+    numeroCotacaoFrete: frete?.[1].numeroCotacao?.trim() || cotacao.numeroCotacaoTransportadora || '',
+  }
+}
+
+/** "Aplicar a todos os itens" do fornecedor: o frete total dele em R$ (dividido pelo valor dos
+ * produtos) ou uma % do valor — os dois viram a mesma taxa em todos os itens do grupo. */
+function AplicarFreteGrupo({
+  modo,
+  valorProdutos,
+  onAplicar,
+}: {
+  modo: ModoFrete
+  valorProdutos: number
+  onAplicar: (taxa: number) => void
+}) {
+  const [texto, setTexto] = useState('')
+  function aplicar() {
+    const valor = parseNumeroFlexivel(texto)
+    if (valor === undefined || valor < 0) {
+      void avisar(modo === 'valor' ? 'Digite o valor total do frete desse fornecedor (ex.: 350,00).' : 'Digite a porcentagem do frete (ex.: 5,5).')
+      return
+    }
+    if (modo === 'valor' && valorProdutos <= 0) {
+      void avisar('Os itens desse fornecedor ainda estão sem valor — preencha o valor fechado antes de aplicar um frete em R$.')
+      return
+    }
+    onAplicar(modo === 'valor' ? valor / valorProdutos : valor / 100)
+    setTexto('')
+  }
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-ink-600">Frete desse fornecedor, pra todos os itens:</span>
+      <input
+        className="field-input w-36 py-1 text-right tabular-nums"
+        inputMode="decimal"
+        aria-label={modo === 'valor' ? 'Frete total do fornecedor em reais' : 'Frete do fornecedor em porcentagem'}
+        placeholder={modo === 'valor' ? 'R$ total' : '% do valor'}
+        value={texto}
+        onChange={(e) => setTexto(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && aplicar()}
+      />
+      <span className="text-xs text-ink-400">{modo === 'valor' ? 'R$ (total do fornecedor)' : '% do valor dos produtos'}</span>
+      <Button variant="secondary" onClick={aplicar} disabled={!texto.trim()}>
+        Aplicar
+      </Button>
+    </div>
+  )
+}
 
 function estatisticasGrupo(items: QuoteItem[], fechados: Record<string, ItemFechado>) {
   let qtdNegociada = 0
@@ -80,7 +189,18 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
   const [salvando, setSalvando] = useState(false)
   const [salvo, setSalvo] = useState(false)
   const [pedidoModalAberto, setPedidoModalAberto] = useState(false)
+  const [transporteModalAberto, setTransporteModalAberto] = useState(false)
   const [pedidoFornecedorAberto, setPedidoFornecedorAberto] = useState<string | undefined>(undefined)
+  const [modoFrete, setModoFrete] = useState<ModoFrete>(lerModoFrete)
+
+  function mudarModoFrete(modo: ModoFrete) {
+    setModoFrete(modo)
+    try {
+      localStorage.setItem(CHAVE_MODO_FRETE, modo)
+    } catch {
+      // sem localStorage, vale só até recarregar
+    }
+  }
 
   function refresh() {
     return listQuotes()
@@ -148,6 +268,14 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
     patchFechado(itemId, { freteRate: valorUnt > 0 ? novoFreteUnitario / valorUnt : 0 })
   }
 
+  function aplicarTaxaNoGrupo(items: QuoteItem[], taxa: number) {
+    setFechados((prev) => {
+      const novo = { ...prev }
+      for (const item of items) novo[item.id] = { ...prev[item.id], freteRate: taxa }
+      return novo
+    })
+  }
+
   async function handleSalvar() {
     if (!cotacao) return
     setSalvando(true)
@@ -172,11 +300,64 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
       setPedidoModalAberto(true)
       return
     }
+    if (novoStatus === 'EM TRANSPORTE') {
+      setTransporteModalAberto(true)
+      return
+    }
     try {
       await updateQuoteStatus(cotacao.id, novoStatus, currentAdmin)
       await refresh()
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
+    }
+  }
+
+  /** Dados de transporte do formulário → como ficam gravados (link arrumado, quem e quando). */
+  function carimbarTransporte(dados: Record<string, DadosTransporteEditaveis>): Record<string, DadosTransporte> {
+    const agora = Date.now()
+    return Object.fromEntries(
+      Object.entries(dados).map(([chave, d]) => [
+        chave,
+        {
+          numeroNotaFiscal: d.numeroNotaFiscal.trim(),
+          numeroCotacaoFrete: d.numeroCotacaoFrete.trim(),
+          transportadora: d.transportadora.trim(),
+          linkRastreio: normalizarLinkRastreio(d.linkRastreio) ?? '',
+          atualizadoEm: agora,
+          atualizadoPor: currentAdmin,
+        },
+      ]),
+    )
+  }
+
+  async function handleConfirmarTransporte(dados: Record<string, DadosTransporteEditaveis>) {
+    if (!cotacao) return
+    try {
+      await updateQuoteStatus(cotacao.id, 'EM TRANSPORTE', currentAdmin)
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
+      return
+    }
+    try {
+      await salvarTransporte(cotacao.id, carimbarTransporte(dados))
+    } catch (err) {
+      void avisar(
+        `O status mudou para EM TRANSPORTE, mas os dados do envio não foram salvos (${err instanceof Error ? err.message : 'erro no servidor'}). ` +
+          'Preencha de novo no cartão Transporte de cada fornecedor.',
+      )
+    }
+    setTransporteModalAberto(false)
+    await refresh()
+  }
+
+  async function handleSalvarTransporteGrupo(chave: string, dados: DadosTransporteEditaveis) {
+    if (!cotacao) return
+    try {
+      const atualizado = await salvarTransporte(cotacao.id, carimbarTransporte({ [chave]: dados }))
+      setQuotes((prev) => prev.map((q) => (q.id === atualizado.id ? atualizado : q)))
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
+      throw err
     }
   }
 
@@ -224,16 +405,10 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
     if (!grupo) return undefined
     const chaveFornecedor = chaveFornecedorFrete(grupo.fornecedor)
 
-    // transportadora: a da cotação de frete mais barata desse fornecedor/UF (aba Frete / Itens da cotação)
-    let transportadoraSugerida: string | undefined
-    let menorFrete = Number.POSITIVE_INFINITY
-    for (const [transportadora, frete] of Object.entries(freteDoFornecedor(cotacao, grupo.remetente))) {
-      const valor = parseNumeroFlexivel(frete.valorCotacao)
-      if (valor !== undefined && valor > 0 && valor < menorFrete) {
-        menorFrete = valor
-        transportadoraSugerida = transportadora
-      }
-    }
+    // transportadora: a do envio (se já informada ao ir pra EM TRANSPORTE), senão a da cotação de
+    // frete mais barata desse fornecedor/UF (aba Frete / Itens da cotação)
+    const transportadoraSugerida =
+      cotacao.transportePorFornecedor?.[chaveTransporte(grupo.chave)]?.transportadora || freteMaisBarato(cotacao, grupo.remetente)?.[0]
 
     // prazo: o que esse fornecedor informou na cotação dele, se for o mesmo pra todos os itens
     const prazos = new Set(
@@ -365,7 +540,23 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
               <h3 className="font-display text-base font-semibold text-ink-900">
                 Resumo geral {gruposPorFornecedor.length > 1 ? `(${gruposPorFornecedor.length} fornecedores)` : ''}
               </h3>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-1.5 text-xs text-ink-500" role="group" aria-label="Frete em reais ou em porcentagem">
+                  Frete em:
+                  {(['valor', 'percentual'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      aria-pressed={modoFrete === m}
+                      onClick={() => mudarModoFrete(m)}
+                      className={`pill-tab border py-1 text-xs ${
+                        modoFrete === m ? 'bg-ink-950 border-ink-950 text-white' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+                      }`}
+                    >
+                      {m === 'valor' ? 'R$' : '%'}
+                    </button>
+                  ))}
+                </div>
                 <Button variant="primary" onClick={handleSalvar} disabled={salvando}>
                   Salvar dados
                 </Button>
@@ -401,11 +592,22 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                     Gerar pedido de compra
                   </Button>
                 </div>
+                {QUOTE_STATUSES.indexOf(cotacao.status) >= INDICE_EM_TRANSPORTE && (
+                  <CartaoTransporte
+                    key={`${grupo.chave}-${cotacao.transportePorFornecedor?.[chaveTransporte(grupo.chave)]?.atualizadoEm ?? 0}`}
+                    chave={chaveTransporte(grupo.chave)}
+                    inicial={transporteInicial(cotacao, grupo.chave, grupo.remetente)}
+                    salvoEm={cotacao.transportePorFornecedor?.[chaveTransporte(grupo.chave)]?.atualizadoEm}
+                    salvoPor={cotacao.transportePorFornecedor?.[chaveTransporte(grupo.chave)]?.atualizadoPor}
+                    onSalvar={(dados) => handleSalvarTransporteGrupo(chaveTransporte(grupo.chave), dados)}
+                  />
+                )}
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-4">
                   <MiniStat label="Frete total" negociado={est.freteNegociado} fechado={est.freteFechado} />
                   <MiniStat label="Frete unitário" negociado={est.freteUnitNegociado} fechado={est.freteUnitFechado} />
                   <MiniStat label="Valor dos produtos" negociado={est.valorNegociado} fechado={est.valorFechado} />
                 </div>
+                <AplicarFreteGrupo modo={modoFrete} valorProdutos={est.valorFechado} onAplicar={(taxa) => aplicarTaxaNoGrupo(grupo.items, taxa)} />
 
                 <div className="overflow-x-auto rounded-xl border border-ink-100">
                   <table className="w-full text-sm border-collapse">
@@ -416,8 +618,8 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                         <th className="py-2 px-2 font-medium w-20 text-right">Qtd fechada</th>
                         <th className="py-2 px-2 font-medium w-24 text-right">Vlr unt. negoc.</th>
                         <th className="py-2 px-2 font-medium w-24 text-right">Vlr unt. fechado</th>
-                        <th className="py-2 px-2 font-medium w-24 text-right">Frete unt. negoc.</th>
-                        <th className="py-2 px-2 font-medium w-24 text-right">Frete unt. fechado</th>
+                        <th className="py-2 px-2 font-medium w-24 text-right">{modoFrete === 'valor' ? 'Frete unt. negoc.' : 'Frete negoc. (%)'}</th>
+                        <th className="py-2 px-2 font-medium w-24 text-right">{modoFrete === 'valor' ? 'Frete unt. fechado' : 'Frete fechado (%)'}</th>
                         <th className="py-2 px-2 font-medium w-28 text-right">Total negociado</th>
                         <th className="py-2 px-2 font-medium w-28 text-right">Total fechado</th>
                         <th className="py-2 px-2 font-medium w-24 text-right">Diferença</th>
@@ -466,17 +668,31 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                               />
                             </td>
                             <td className="py-1.5 px-2 text-right font-mono tabular-nums text-ink-500">
-                              {formatCurrency(freteUnitNegociado)}
+                              {modoFrete === 'valor' ? formatCurrency(freteUnitNegociado) : percentual(item.product.freteRate)}
                             </td>
                             <td className="py-1.5 px-1">
-                              <input
-                                type="number"
-                                min={0}
-                                step={0.01}
-                                className="field-input text-right tabular-nums py-1"
-                                value={Math.round(freteUnitFechado * 100) / 100}
-                                onChange={(e) => patchFreteUnitFechado(item.id, Number(e.target.value) || 0)}
-                              />
+                              {modoFrete === 'valor' ? (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.01}
+                                  className="field-input text-right tabular-nums py-1"
+                                  aria-label={`Frete unitário fechado (R$) — ${item.product.referencia || item.product.descricao}`}
+                                  value={Math.round(freteUnitFechado * 100) / 100}
+                                  onChange={(e) => patchFreteUnitFechado(item.id, Number(e.target.value) || 0)}
+                                />
+                              ) : (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  step={0.01}
+                                  className="field-input text-right tabular-nums py-1"
+                                  aria-label={`Frete fechado (%) — ${item.product.referencia || item.product.descricao}`}
+                                  title={`= ${formatCurrency(freteUnitFechado)} por unidade`}
+                                  value={Math.round((f.freteRate || 0) * 10000) / 100}
+                                  onChange={(e) => patchFechado(item.id, { freteRate: (Number(e.target.value) || 0) / 100 })}
+                                />
+                              )}
                             </td>
                             <td className="py-1.5 px-2 text-right font-mono tabular-nums text-ink-500">
                               {formatCurrency(totalNegociado)}
@@ -502,6 +718,19 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
             )
           })}
         </>
+      )}
+
+      {transporteModalAberto && cotacao && (
+        <TransporteModal
+          codigoCotacao={cotacao.codigo}
+          grupos={gruposPorFornecedor.map((g) => ({
+            chave: chaveTransporte(g.chave),
+            rotulo: g.rotulo,
+            inicial: transporteInicial(cotacao, g.chave, g.remetente),
+          }))}
+          onConfirmar={handleConfirmarTransporte}
+          onCancelar={() => setTransporteModalAberto(false)}
+        />
       )}
 
       {pedidoModalAberto && cotacao && (

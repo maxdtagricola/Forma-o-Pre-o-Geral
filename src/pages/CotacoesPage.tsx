@@ -234,9 +234,12 @@ export function CotacoesPage({
   onCreateQuote,
   onImportQuote,
   onOpenQuote,
+  modoNovoInicial = 'manual',
 }: {
   refreshKey: number
   currentAdmin: string
+  /** Como "Nova cotação" já abre — 'importar' quando se chega pelo atalho "Importar cotação" da Tela Inicial. */
+  modoNovoInicial?: 'manual' | 'importar'
   onCreateQuote: (vendedor: string, cliente: string, maquina: string, tipo: TipoReferencia) => Promise<void>
   onImportQuote: (
     vendedor: string,
@@ -249,8 +252,9 @@ export function CotacoesPage({
 }) {
   const [records, setRecords] = useState<QuoteRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [modoNovo, setModoNovo] = useState<'manual' | 'importar'>('manual')
-  const [mostrarAvisoCotar, setMostrarAvisoCotar] = useState(false)
+  const [modoNovo, setModoNovo] = useState<'manual' | 'importar'>(modoNovoInicial)
+  // chegar pelo atalho "Importar cotação" mostra o mesmo aviso de clicar em "Importar planilha" aqui
+  const [mostrarAvisoCotar, setMostrarAvisoCotar] = useState(modoNovoInicial === 'importar')
   const [vendedor, setVendedor] = useState('')
   const [cliente, setCliente] = useState('')
   const [maquina, setMaquina] = useState('')

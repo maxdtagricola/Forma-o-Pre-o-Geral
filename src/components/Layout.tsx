@@ -4,6 +4,7 @@ import { ICONES_ABAS } from './IconesAbas'
 
 export type TabKey =
   | 'telaInicial'
+  | 'xadrez'
   | 'cotacoes'
   | 'analytics'
   | 'dashboard'
@@ -69,6 +70,10 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Sistema',
     items: [{ key: 'configuracoes', label: 'Configurações' }],
+  },
+  {
+    label: 'Lazer',
+    items: [{ key: 'xadrez', label: 'Xadrez' }],
   },
 ]
 

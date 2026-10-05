@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Layout, type TabKey } from './components/Layout'
 import { AdminGate } from './components/AdminGate'
 import { TelaInicialPage } from './pages/TelaInicialPage'
+import { XadrezPage } from './pages/XadrezPage'
 import { CotacoesPage } from './pages/CotacoesPage'
 import { AnalyticsPage } from './pages/AnalyticsPage'
 import { ConfiguracoesPage } from './pages/ConfiguracoesPage'
@@ -63,6 +64,11 @@ export default function App() {
     const admin = getModoSessao() === 'admin' ? getCurrentAdmin() : null
     return admin === 'Max' ? 'acompanhamentoNotas' : 'telaInicial'
   })
+  // atalhos "Nova cotação" / "Importar cotação" da Tela Inicial: a aba Cotações já abre no modo certo
+  const [modoNovoCotacao, setModoNovoCotacao] = useState<'manual' | 'importar'>('manual')
+  useEffect(() => {
+    if (tab !== 'cotacoes') setModoNovoCotacao('manual')
+  }, [tab])
   // pilha de telas visitadas, pro botão "Voltar" — só empilha quando a aba realmente muda (evita
   // entradas repetidas se algo chamar changeTab pra aba em que já se está)
   const [tabHistory, setTabHistory] = useState<TabKey[]>([])
@@ -565,7 +571,7 @@ export default function App() {
           </button>
         </header>
         <main className="max-w-3xl mx-auto px-4 py-6">
-          <TelaInicialPage jogador={currentPlayer} />
+          <XadrezPage jogador={currentPlayer} />
         </main>
         <DialogHost />
       </div>
@@ -590,7 +596,21 @@ export default function App() {
       podeVoltar={tabHistory.length > 0}
       onVoltar={handleVoltar}
     >
-      {tab === 'telaInicial' && <TelaInicialPage jogador={currentAdmin} />}
+      {tab === 'telaInicial' && (
+        <TelaInicialPage
+          nomeExibido={currentAdmin}
+          currentAdmin={currentAdmin}
+          cotacaoAberta={editingQuoteId ? { codigo: codigoCotacao, cliente } : undefined}
+          onOpenQuote={handleLoad}
+          onNovaCotacao={(modo) => {
+            setModoNovoCotacao(modo)
+            changeTab('cotacoes')
+          }}
+          onContinuar={() => changeTab('dashboard')}
+          onIrPara={changeTab}
+        />
+      )}
+      {tab === 'xadrez' && <XadrezPage jogador={currentAdmin} />}
       {tab === 'cotacoes' && (
         <CotacoesPage
           refreshKey={historyRefreshKey}
@@ -598,6 +618,7 @@ export default function App() {
           onCreateQuote={handleCreateQuote}
           onImportQuote={handleImportQuote}
           onOpenQuote={handleLoad}
+          modoNovoInicial={modoNovoCotacao}
         />
       )}
       {tab === 'analytics' && <AnalyticsPage />}

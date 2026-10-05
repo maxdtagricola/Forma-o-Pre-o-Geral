@@ -25,6 +25,15 @@ function Icone({ children }: { children: ReactNode }) {
 }
 
 export const ICONES_ABAS: Record<TabKey, ReactNode> = {
+  // peão do xadrez
+  xadrez: (
+    <Icone>
+      <circle cx="12" cy="6" r="2.5" />
+      <path d="M9.5 10.5h5" />
+      <path d="M10.3 10.5 9.2 17h5.6l-1.1-6.5" />
+      <path d="M7.5 17h9l1 3.5h-11z" />
+    </Icone>
+  ),
   // casa
   telaInicial: (
     <Icone>

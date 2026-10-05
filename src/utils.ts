@@ -66,6 +66,38 @@ export function melhorCotacaoFornecedor<T extends { valorUnitario: number }>(
   return cotacoes.reduce((menor, atual) => (atual.valorUnitario < menor.valorUnitario ? atual : menor))
 }
 
+/** Cotação que pode ser escolhida como a melhor: tem preço e tem alguma quantidade pra entregar
+ * (o fornecedor que devolveu quantidade 0 não atende nada, por mais barato que seja). */
+export function cotacaoAtende(cotacao: { valorUnitario: number; quantidadeDisponivel?: number }): boolean {
+  return cotacao.valorUnitario > 0 && cotacao.quantidadeDisponivel !== 0
+}
+
+/** Quantas unidades da quantidade pedida a cotação atende (sem quantidade informada, atende tudo). */
+export function quantidadeAtendida(cotacao: { quantidadeDisponivel?: number }, quantidadePedida: number): number {
+  if (cotacao.quantidadeDisponivel === undefined) return quantidadePedida
+  return Math.max(0, Math.min(cotacao.quantidadeDisponivel, quantidadePedida))
+}
+
+/** Como juntar fornecedores pra chegar na quantidade pedida, do mais barato pro mais caro: cada um
+ * entra com o que tem até completar. `faltam` > 0 quando nem todos juntos têm a quantidade toda. */
+export function planoDeAtendimento<T extends { valorUnitario: number; quantidadeDisponivel?: number }>(
+  cotacoes: T[],
+  quantidadePedida: number,
+): { partes: { cotacao: T; quantidade: number }[]; faltam: number } {
+  const partes: { cotacao: T; quantidade: number }[] = []
+  let faltam = quantidadePedida
+  const porPreco = cotacoes.filter((c) => c.valorUnitario > 0).sort((a, b) => a.valorUnitario - b.valorUnitario)
+  for (const cotacao of porPreco) {
+    if (faltam <= 0) break
+    const quantidade = quantidadeAtendida(cotacao, faltam)
+    if (quantidade > 0) {
+      partes.push({ cotacao, quantidade })
+      faltam -= quantidade
+    }
+  }
+  return { partes, faltam: Math.max(0, faltam) }
+}
+
 export function makeId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
     return crypto.randomUUID()
