@@ -6,11 +6,33 @@ import { ESTADOS } from '../data/estados'
 import { deleteFornecedor, listFornecedores, saveFornecedor } from '../db/fornecedoresRepo'
 import { lerPlanilhaFornecedores, type FornecedorImportado } from '../fornecedoresImport'
 import { gerarPreviaPlanilha, type PreviaPlanilha } from '../xlsxSheetUtil'
+import { verificarSenhaAdmin } from '../db/db'
 import { DEFAULT_FORNECEDOR } from '../types'
 import type { Fornecedor } from '../types'
-import { avisar, confirmar } from '../dialogs'
+import { avisar, confirmar, pedirSenha } from '../dialogs'
 
 const estadoOptions = ESTADOS.map((e) => ({ value: e.uf, label: `${e.uf} — ${e.nome}` }))
+
+/** Pede a senha de admin e confere no servidor — senha errada pergunta de novo. Resolve com a senha
+ * certa, ou null se cancelar (ou se o servidor recusar por outro motivo, já avisado). */
+async function pedirSenhaConferida(mensagem: string, opcoes: { titulo: string; confirmText: string }): Promise<string | null> {
+  let texto = mensagem
+  for (;;) {
+    const senha = await pedirSenha(`${texto}\nDigite a senha para confirmar.`, opcoes)
+    if (senha === null) return null
+    try {
+      await verificarSenhaAdmin(senha)
+      return senha
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Erro ao conferir a senha.'
+      if (msg !== 'Senha incorreta.') {
+        void avisar(msg)
+        return null
+      }
+      texto = `Senha incorreta. ${mensagem}`
+    }
+  }
+}
 
 export function FornecedoresPage() {
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
@@ -57,9 +79,19 @@ export function FornecedoresPage() {
       void avisar('Informe pelo menos o nome do fornecedor.')
       return
     }
+    // alterar um fornecedor já cadastrado pede a senha; cadastrar um novo, não
+    let senha: string | undefined
+    if (editingId) {
+      const conferida = await pedirSenhaConferida(`Salvar as alterações de ${form.nome.trim()}?`, {
+        titulo: 'Editar fornecedor',
+        confirmText: 'Salvar',
+      })
+      if (conferida === null) return
+      senha = conferida
+    }
     setSaving(true)
     try {
-      await saveFornecedor(form, editingId)
+      await saveFornecedor(form, editingId, senha)
       handleCancelEdit()
       await refresh()
     } catch (err) {
@@ -86,9 +118,14 @@ export function FornecedoresPage() {
 
   async function handleDelete(id: string, e?: MouseEvent) {
     e?.stopPropagation()
-    if (!(await confirmar('Excluir este fornecedor? Essa ação não pode ser desfeita.'))) return
+    const nome = fornecedores.find((f) => f.id === id)?.nome.trim()
+    const senha = await pedirSenhaConferida(
+      `Excluir ${nome ? `o fornecedor ${nome}` : 'este fornecedor'}? Essa ação não pode ser desfeita.`,
+      { titulo: 'Excluir fornecedor', confirmText: 'Excluir' },
+    )
+    if (senha === null) return
     try {
-      await deleteFornecedor(id)
+      await deleteFornecedor(id, senha)
       if (editingId === id) handleCancelEdit()
       await refresh()
     } catch (err) {
@@ -141,13 +178,27 @@ export function FornecedoresPage() {
   }
 
   async function handleConfirmarImportacao() {
+    const comExistente = itensImportados.map((item) => {
+      const cnpjAlvo = item.cnpj.trim()
+      const existente = fornecedores.find((f) =>
+        cnpjAlvo ? f.cnpj.trim() === cnpjAlvo : f.nome.trim().toLowerCase() === item.nome.trim().toLowerCase(),
+      )
+      return { item, existente }
+    })
+    // atualizar fornecedores já cadastrados também é edição — pede a senha uma vez pra importação toda
+    const atualizados = comExistente.filter((x) => x.existente).length
+    let senha: string | undefined
+    if (atualizados > 0) {
+      const conferida = await pedirSenhaConferida(
+        `${atualizados === 1 ? '1 fornecedor da planilha já está cadastrado e vai ser atualizado' : `${atualizados} fornecedores da planilha já estão cadastrados e vão ser atualizados`}.`,
+        { titulo: 'Importar fornecedores', confirmText: 'Importar' },
+      )
+      if (conferida === null) return
+      senha = conferida
+    }
     setConfirmandoImport(true)
     try {
-      for (const item of itensImportados) {
-        const cnpjAlvo = item.cnpj.trim()
-        const existente = fornecedores.find((f) =>
-          cnpjAlvo ? f.cnpj.trim() === cnpjAlvo : f.nome.trim().toLowerCase() === item.nome.trim().toLowerCase(),
-        )
+      for (const { item, existente } of comExistente) {
         await saveFornecedor(
           {
             cnpj: item.cnpj,
@@ -160,6 +211,7 @@ export function FornecedoresPage() {
             estado: item.estado,
           },
           existente?.id,
+          existente ? senha : undefined,
         )
       }
       const total = itensImportados.length

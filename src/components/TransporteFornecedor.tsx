@@ -21,9 +21,11 @@ export const TRANSPORTE_VAZIO: DadosTransporteEditaveis = {
   previsaoEntrega: '',
 }
 
-/** A previsão de entrega mais cedo entre os fornecedores da cotação ("AAAA-MM-DD"), se alguma foi informada. */
+/** A previsão de entrega mais cedo entre os fornecedores da cotação que ainda não entregaram
+ * ("AAAA-MM-DD"), se alguma foi informada. */
 export function previsaoDaCotacao(cotacao: Pick<QuoteRecord, 'transportePorFornecedor'>): string | undefined {
   const datas = Object.values(cotacao.transportePorFornecedor ?? {})
+    .filter((t) => !t.entregueEm)
     .map((t) => t.previsaoEntrega ?? '')
     .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
     .sort()
@@ -196,18 +198,29 @@ export function TransporteModal({
   )
 }
 
-/** Cartão "Transporte" no fornecedor do pedido — edita e salva os dados do envio dele. */
+/** Cartão "Transporte" no fornecedor do pedido — edita e salva os dados do envio dele, e mostra (ou
+ * marca) a entrega da mercadoria. */
 export function CartaoTransporte({
   chave,
   inicial,
   salvoEm,
   salvoPor,
+  entregueEm,
+  entreguePor,
+  onMarcarEntregue,
+  onDesfazerEntrega,
   onSalvar,
 }: {
   chave: string
   inicial: DadosTransporteEditaveis
   salvoEm?: number
   salvoPor?: string
+  entregueEm?: number
+  entreguePor?: string
+  /** Sem ele, não aparece o botão de marcar entregue (ex.: pedido de um fornecedor só — o botão é o do topo). */
+  onMarcarEntregue?: () => void
+  /** Sem ele, a entrega não pode mais ser desfeita aqui (ex.: cotação já conferida). */
+  onDesfazerEntrega?: () => void
   onSalvar: (dados: DadosTransporteEditaveis) => Promise<void>
 }) {
   const [dados, setDados] = useState(inicial)
@@ -239,9 +252,32 @@ export function CartaoTransporte({
             </span>
           )}
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {salvo && <span className="text-xs text-emerald-600">Salvo!</span>}
-          {inicial.previsaoEntrega && <SeloPrevisao previsao={inicial.previsaoEntrega} />}
+          {entregueEm ? (
+            <span
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800"
+              title={entreguePor ? `Marcado por ${entreguePor}` : undefined}
+            >
+              ✓ Entregue em {new Date(entregueEm).toLocaleDateString('pt-BR')}
+            </span>
+          ) : (
+            inicial.previsaoEntrega && <SeloPrevisao previsao={inicial.previsaoEntrega} />
+          )}
+          {entregueEm && onDesfazerEntrega && (
+            <button type="button" onClick={onDesfazerEntrega} className="text-xs text-ink-500 underline hover:text-ink-800">
+              Desfazer entrega
+            </button>
+          )}
+          {!entregueEm && onMarcarEntregue && (
+            <button
+              type="button"
+              onClick={onMarcarEntregue}
+              className="rounded-lg border border-emerald-600 px-2 py-1 text-xs font-medium text-emerald-700 transition hover:bg-emerald-50"
+            >
+              ✓ Marcar como entregue
+            </button>
+          )}
           <BotaoRastreio link={inicial.linkRastreio} compacto />
           <Button variant="secondary" onClick={() => void handleSalvar()} disabled={!alterado || salvando || linkInvalido}>
             {salvando ? 'Salvando…' : 'Salvar transporte'}

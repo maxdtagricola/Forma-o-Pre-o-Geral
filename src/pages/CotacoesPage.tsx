@@ -15,7 +15,9 @@ import { QUOTE_STATUSES, VENDEDORES } from '../types'
 import type { PedidoCompraInfo, QuoteRecord, QuoteStatus, TipoReferencia } from '../types'
 import { useEstadoPersistente } from '../estadoPersistente'
 import { diasUteisDesde, textoDiasUteis, useVersaoFeriados } from '../diasUteis'
-import { avisar, confirmar, pedirMotivoArquivamento } from '../dialogs'
+import { avisar, confirmar } from '../dialogs'
+import { itensDoPedidoDeCompra, perguntarAntesDoStatus } from '../mudancaDeStatus'
+import { DetalheProducao, SeloProducao } from '../components/SeloProducao'
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
 const NOVO = '__novo__'
@@ -210,6 +212,9 @@ function QuoteCard({
             {r.status}
           </span>
           {r.status === 'PENDENTE' && <TempoPendente r={r} />}
+          {r.status === 'PEDIDO CONFIRMADO' && r.producao && (
+            <SeloProducao producao={r.producao} totalItens={itensDoPedidoDeCompra(r).length} />
+          )}
           <span className="ml-auto text-sm font-mono tabular-nums text-ink-800">
             {r.summary.precoVendaTotalGeral > 0 ? formatCurrency(r.summary.precoVendaTotalGeral) : '—'}
           </span>
@@ -276,6 +281,12 @@ function QuoteCard({
               <p className="text-[11px] text-ink-400">
                 por {r.motivoArquivamento.por} em {formatDate(r.motivoArquivamento.em)}
               </p>
+            </div>
+          )}
+          {r.status === 'PEDIDO CONFIRMADO' && r.producao && (
+            <div className="rounded-lg border border-ink-200 bg-ink-50 px-3 py-2">
+              <p className="text-ink-400">Produção</p>
+              <DetalheProducao producao={r.producao} itens={itensDoPedidoDeCompra(r)} />
             </div>
           )}
           <div>
@@ -576,12 +587,11 @@ export function CotacoesPage({
       setPedidoModalRecord(record)
       return
     }
-    // arquivar sempre pede o motivo de a cotação não ter fechado — sem motivo, não arquiva
-    const arquivamento =
-      novoStatus === 'ARQUIVO' ? await pedirMotivoArquivamento(`Por que a cotação ${record.codigo || ''} não foi fechada?`) : undefined
-    if (novoStatus === 'ARQUIVO' && !arquivamento) return
+    // arquivar pede o motivo; confirmar o pedido, a produção — cancelando, o status não muda
+    const respostas = await perguntarAntesDoStatus(record, novoStatus)
+    if (!respostas) return
     try {
-      await updateQuoteStatus(record.id, novoStatus, currentAdmin, undefined, arquivamento ?? undefined)
+      await updateQuoteStatus(record.id, novoStatus, currentAdmin, undefined, respostas.arquivamento, respostas.producao)
       refresh()
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')

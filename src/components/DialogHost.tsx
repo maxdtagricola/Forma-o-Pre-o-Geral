@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Button } from './ui/Basics'
-import { resolverArquivamento, resolverPedidoAtual, usePedidoDialog, type PedidoDialog } from '../dialogs'
+import { resolverArquivamento, resolverPedidoAtual, resolverProducao, usePedidoDialog, type PedidoDialog } from '../dialogs'
 import { MOTIVOS_ARQUIVAMENTO } from '../types'
 
 /** Renderiza a caixa de confirmar()/avisar()/pedirSenha() atual (ver src/dialogs.ts) — sempre centrada
@@ -24,6 +24,8 @@ export function DialogHost() {
           <CampoSenha key={pedido.id} pedido={pedido} />
         ) : pedido.tipo === 'arquivar' ? (
           <CamposArquivar key={pedido.id} />
+        ) : pedido.tipo === 'producao' ? (
+          <CamposProducao key={pedido.id} pedido={pedido} />
         ) : (
           <div className="mt-5 flex gap-2 justify-end">
             {pedido.tipo === 'confirmar' && (
@@ -92,6 +94,84 @@ function CamposArquivar() {
         </Button>
         <Button type="submit" variant="primary">
           Arquivar
+        </Button>
+      </div>
+    </form>
+  )
+}
+
+/** Produção do pedido confirmado: todo em produção, ou em parte — aí marca quais itens já estão. */
+function CamposProducao({ pedido }: { pedido: Extract<PedidoDialog, { tipo: 'producao' }> }) {
+  const [tipo, setTipo] = useState<'total' | 'parcial' | ''>(pedido.inicial?.tipo ?? '')
+  const [selecionados, setSelecionados] = useState<Set<string>>(
+    new Set(pedido.inicial?.tipo === 'parcial' ? pedido.inicial.itemIds : []),
+  )
+  const [observacao, setObservacao] = useState(pedido.inicial?.observacao ?? '')
+  const [erro, setErro] = useState<string | null>(null)
+
+  function alternar(id: string) {
+    setSelecionados((prev) => {
+      const proximo = new Set(prev)
+      if (proximo.has(id)) proximo.delete(id)
+      else proximo.add(id)
+      return proximo
+    })
+  }
+
+  return (
+    <form
+      className="mt-3 space-y-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (!tipo) return setErro('Escolha se o pedido está todo ou só em parte em produção.')
+        // a ordem dos itens segue a do pedido, não a dos cliques
+        const itemIds = tipo === 'total' ? pedido.itens.map((i) => i.id) : pedido.itens.filter((i) => selecionados.has(i.id)).map((i) => i.id)
+        if (tipo === 'parcial' && itemIds.length === 0) return setErro('Marque os itens que já estão em produção.')
+        resolverProducao({ tipo, itemIds, observacao: observacao.trim() })
+      }}
+    >
+      <div className="space-y-1" role="radiogroup" aria-label="Produção">
+        {(
+          [
+            ['total', 'Todo o pedido em produção'],
+            ['parcial', 'Pedido parcialmente em produção'],
+          ] as const
+        ).map(([valor, rotulo]) => (
+          <label key={valor} className="flex items-center gap-2 text-sm text-ink-700">
+            <input type="radio" name="producao-pedido" value={valor} checked={tipo === valor} onChange={() => setTipo(valor)} />
+            {rotulo}
+          </label>
+        ))}
+      </div>
+      {tipo === 'parcial' && (
+        <div className="max-h-52 space-y-1 overflow-auto rounded-lg border border-ink-100 p-2" aria-label="Itens em produção">
+          <p className="text-xs text-ink-400">Quais itens já estão em produção?</p>
+          {pedido.itens.map((item) => (
+            <label key={item.id} className="flex items-center gap-2 py-0.5 text-sm text-ink-700">
+              <input type="checkbox" checked={selecionados.has(item.id)} onChange={() => alternar(item.id)} />
+              {item.rotulo}
+            </label>
+          ))}
+        </div>
+      )}
+      <textarea
+        className="field-input min-h-[3.5rem] text-sm"
+        placeholder="Observação (opcional) — ex.: o restante entra em produção semana que vem"
+        aria-label="Observação da produção"
+        value={observacao}
+        onChange={(e) => setObservacao(e.target.value)}
+      />
+      {erro && (
+        <p role="alert" className="text-sm text-rose-600">
+          {erro}
+        </p>
+      )}
+      <div className="flex justify-end gap-2 pt-2">
+        <Button type="button" variant="secondary" onClick={() => resolverProducao(null)}>
+          Cancelar
+        </Button>
+        <Button type="submit" variant="primary">
+          Confirmar
         </Button>
       </div>
     </form>

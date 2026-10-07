@@ -84,16 +84,25 @@ export function labelNecessidade(valor: string | undefined): string {
 
 /** O que aconteceu com o que foi transferido: faturado (virou venda) ou parado no estoque (não
  * vendeu — a transferência não gerou o lucro esperado e conta como prejuízo). Vazio = ainda não se
- * sabe. Vale pra nota inteira ou pra cada produto dela (o do produto, quando marcado, vence). */
-export type ResultadoTransferencia = '' | 'FATURADO' | 'ESTOQUE'
+ * sabe. Vale pra nota inteira ou pra cada produto dela (o do produto, quando marcado, vence).
+ * PARCIAL só existe no produto: parte da quantidade foi faturada (quantidadeFaturada) e o resto
+ * continua parado no estoque. */
+export type ResultadoTransferencia = '' | 'FATURADO' | 'ESTOQUE' | 'PARCIAL'
 
+/** Resultados da nota inteira. */
 export const RESULTADOS_TRANSFERENCIA: { value: Exclude<ResultadoTransferencia, ''>; label: string; curto: string }[] = [
   { value: 'FATURADO', label: 'Faturado', curto: 'Faturado' },
   { value: 'ESTOQUE', label: 'Parado no estoque (prejuízo)', curto: 'Estoque' },
 ]
 
+/** Resultados de um produto — os da nota mais o faturado em parte. */
+export const RESULTADOS_DO_PRODUTO: { value: Exclude<ResultadoTransferencia, ''>; label: string; curto: string }[] = [
+  ...RESULTADOS_TRANSFERENCIA,
+  { value: 'PARCIAL', label: 'Parcialmente faturado', curto: 'Parcial' },
+]
+
 export function labelResultado(valor: ResultadoTransferencia | undefined, curto = false): string {
-  const r = RESULTADOS_TRANSFERENCIA.find((x) => x.value === valor)
+  const r = RESULTADOS_DO_PRODUTO.find((x) => x.value === valor)
   return r ? (curto ? r.curto : r.label) : ''
 }
 
@@ -110,8 +119,11 @@ export interface NotaFiscalItem {
   valorTotal: number
   /** Necessidade da transferência desse produto — vazio = vale a da nota inteira. */
   necessidade: string
-  /** Faturado / parado no estoque — vazio = vale o da nota inteira. Registros antigos não têm. */
+  /** Faturado / parado no estoque / parcialmente faturado — vazio = vale o da nota inteira. Registros
+   * antigos não têm. */
   resultado?: ResultadoTransferencia
+  /** Quantas unidades foram faturadas, quando o resultado é PARCIAL (o resto ficou no estoque). */
+  quantidadeFaturada?: number
 }
 
 export interface NotaFiscal {
@@ -381,6 +393,17 @@ export interface PedidoCompraInfo {
   itemIds: string[]
 }
 
+/** Preenchido quando o status vira "PEDIDO CONFIRMADO" (e atualizável no Pedido de Compra): o pedido
+ * todo já está em produção no fornecedor, ou só parte dele. */
+export interface ProducaoPedido {
+  tipo: 'total' | 'parcial'
+  /** Itens do pedido que já estão em produção — no total, todos. */
+  itemIds: string[]
+  observacao: string
+  em: number
+  por: string
+}
+
 /** Valores "fechados" de um item na aba Pedido de Compra — separados de item.product de propósito:
  * a negociação inicial (feita na correria) e o que realmente saiu no fechamento com o fornecedor
  * costumam ser diferentes, e a comparação entre os dois só funciona se um não sobrescrever o outro. */
@@ -472,6 +495,9 @@ export interface DadosTransporte {
   previsaoEntrega?: string
   atualizadoEm: number
   atualizadoPor: string
+  /** Quando a mercadoria desse fornecedor chegou (marcado no Pedido de Compra) e quem marcou. */
+  entregueEm?: number
+  entreguePor?: string
 }
 
 /** Medidas da carga pro pedido de frete — comprimento/largura/altura sempre em centímetros e peso
@@ -508,6 +534,8 @@ export interface QuoteRecord {
   responsavelStatus: string
   statusHistory: StatusChange[]
   pedidoCompra?: PedidoCompraInfo
+  /** Produção do pedido no fornecedor (todo ou parte), informada ao confirmar o pedido. */
+  producao?: ProducaoPedido
   /** Data em que o cliente pediu a cotação (editável) — diferente de createdAt, que é quando o registro foi criado no sistema. */
   dataSolicitacao?: number
   /** Número da cotação de frete que a transportadora informou, pra referência depois. */

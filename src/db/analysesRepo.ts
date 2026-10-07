@@ -12,6 +12,7 @@ import type {
   PedidoCompraInfo,
   PreRegistroItem,
   PricingConfig,
+  ProducaoPedido,
   ProductInput,
   QuoteItem,
   QuoteRecord,
@@ -194,20 +195,13 @@ export async function updateQuoteStatus(
   pedidoCompra?: PedidoCompraInfo,
   /** Justificativa de quem arquivou — obrigatória ao ir pra ARQUIVO (ver pedirMotivoArquivamento). */
   arquivamento?: { motivo: string; detalhe: string },
+  /** Produção do pedido (todo ou parte) — pedida ao ir pra PEDIDO CONFIRMADO (ver pedirProducao). */
+  producao?: Omit<ProducaoPedido, 'em' | 'por'>,
 ): Promise<QuoteRecord> {
   const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
   if (!atual) throw new Error('Cotação não encontrada no servidor.')
   const normalizado = normalizeRecord(atual)
-
-  if (
-    normalizado.status !== 'PENDENTE' &&
-    normalizado.responsavelStatus &&
-    normalizado.responsavelStatus !== atorAdmin
-  ) {
-    throw new Error(
-      `Essa cotação está sendo analisada por ${normalizado.responsavelStatus} — só ele(a) pode mudar o status agora.`,
-    )
-  }
+  exigirResponsavel(normalizado, atorAdmin)
 
   const now = Date.now()
   const atualizado: QuoteRecord = {
@@ -218,6 +212,79 @@ export async function updateQuoteStatus(
     pedidoCompra: novoStatus === 'PEDIDO DE COMPRA' ? pedidoCompra : normalizado.pedidoCompra,
     motivoArquivamento:
       novoStatus === 'ARQUIVO' && arquivamento ? { ...arquivamento, em: now, por: atorAdmin } : normalizado.motivoArquivamento,
+    producao: novoStatus === 'PEDIDO CONFIRMADO' && producao ? { ...producao, em: now, por: atorAdmin } : normalizado.producao,
+    updatedAt: now,
+  }
+  await dbPut(STORE_ANALISES, atualizado)
+  return atualizado
+}
+
+/** Fora de PENDENTE, só quem pegou a cotação (responsavelStatus) muda o status dela. */
+function exigirResponsavel(cotacao: QuoteRecord, atorAdmin: string) {
+  if (cotacao.status !== 'PENDENTE' && cotacao.responsavelStatus && cotacao.responsavelStatus !== atorAdmin) {
+    throw new Error(`Essa cotação está sendo analisada por ${cotacao.responsavelStatus} — só ele(a) pode mudar o status agora.`)
+  }
+}
+
+/** Atualiza a produção do pedido (aba Pedido de Compra), sem mudar o status. */
+export async function salvarProducao(id: string, producao: Omit<ProducaoPedido, 'em' | 'por'>, atorAdmin: string): Promise<QuoteRecord> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  if (!atual) throw new Error('Cotação não encontrada no servidor.')
+  const normalizado = normalizeRecord(atual)
+  const now = Date.now()
+  const atualizado: QuoteRecord = { ...normalizado, producao: { ...producao, em: now, por: atorAdmin }, updatedAt: now }
+  await dbPut(STORE_ANALISES, atualizado)
+  return atualizado
+}
+
+// a entrega só mexe no status enquanto a mercadoria está a caminho — de CONFERIDO em diante (ou
+// arquivada) o status fica como está
+const STATUS_DA_ENTREGA: QuoteStatus[] = ['EM TRANSPORTE', 'CADASTRO DE PRODUTO', 'PARCIALMENTE ENTREGUE', 'ENTREGUE']
+
+/** Marca (ou desmarca) a mercadoria dos fornecedores `chaves` como entregue e acerta o status pelos
+ * fornecedores do pedido (`todasAsChaves`): todos entregues → ENTREGUE; só alguns → PARCIALMENTE
+ * ENTREGUE; nenhum (ao desfazer) → volta pra EM TRANSPORTE. */
+export async function registrarEntrega(
+  id: string,
+  alvo: { chaves: string[]; todasAsChaves: string[]; entregue: boolean },
+  atorAdmin: string,
+): Promise<QuoteRecord> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  if (!atual) throw new Error('Cotação não encontrada no servidor.')
+  const normalizado = normalizeRecord(atual)
+  const mudaStatus = STATUS_DA_ENTREGA.includes(normalizado.status)
+  if (mudaStatus) exigirResponsavel(normalizado, atorAdmin)
+
+  const now = Date.now()
+  const transporte = { ...normalizado.transportePorFornecedor }
+  for (const chave of alvo.chaves) {
+    const anterior: DadosTransporte = transporte[chave] ?? {
+      numeroNotaFiscal: '',
+      numeroCotacaoFrete: '',
+      transportadora: '',
+      linkRastreio: '',
+      atualizadoEm: now,
+      atualizadoPor: atorAdmin,
+    }
+    transporte[chave] = alvo.entregue
+      ? { ...anterior, entregueEm: now, entreguePor: atorAdmin }
+      : { ...anterior, entregueEm: undefined, entreguePor: undefined }
+  }
+
+  let status = normalizado.status
+  if (mudaStatus) {
+    const entregues = alvo.todasAsChaves.filter((chave) => transporte[chave]?.entregueEm).length
+    if (entregues > 0 && entregues === alvo.todasAsChaves.length) status = 'ENTREGUE'
+    else if (entregues > 0) status = 'PARCIALMENTE ENTREGUE'
+    else if (status === 'PARCIALMENTE ENTREGUE' || status === 'ENTREGUE') status = 'EM TRANSPORTE'
+  }
+
+  const atualizado: QuoteRecord = {
+    ...normalizado,
+    transportePorFornecedor: transporte,
+    status,
+    responsavelStatus: status !== normalizado.status ? atorAdmin : normalizado.responsavelStatus,
+    statusHistory: status !== normalizado.status ? [...normalizado.statusHistory, { status, changedAt: now }] : normalizado.statusHistory,
     updatedAt: now,
   }
   await dbPut(STORE_ANALISES, atualizado)
@@ -457,9 +524,12 @@ export async function salvarTransporte(id: string, porFornecedor: Record<string,
   const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
   if (!atual) throw new Error('Cotação não encontrada no servidor.')
   const normalizado = normalizeRecord(atual)
+  // mescla por fornecedor: o que a tela não manda (ex.: a marca de entregue) continua como estava
+  const transporte = { ...normalizado.transportePorFornecedor }
+  for (const [chave, dados] of Object.entries(porFornecedor)) transporte[chave] = { ...transporte[chave], ...dados }
   const atualizado: QuoteRecord = {
     ...normalizado,
-    transportePorFornecedor: { ...normalizado.transportePorFornecedor, ...porFornecedor },
+    transportePorFornecedor: transporte,
     updatedAt: Date.now(),
   }
   await dbPut(STORE_ANALISES, atualizado)

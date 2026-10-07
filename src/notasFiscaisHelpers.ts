@@ -86,6 +86,34 @@ export function valorDoItem(item: NotaFiscalItem): number {
   return item.valorTotal || (item.quantidade || 0) * (item.valorUnitario || 0)
 }
 
+/** Quanto de um produto foi faturado e quanto ficou parado no estoque, em quantidade e em valor. */
+export interface PartesDoItem {
+  /** O resultado que vale pro produto (ver resultadoDoItem). */
+  resultado: ResultadoTransferencia
+  qtdFaturada: number
+  qtdParada: number
+  faturado: number
+  parado: number
+  semResultado: number
+}
+
+/** Divide o produto entre faturado e parado: o faturado em parte (PARCIAL) divide o valor pela
+ * quantidade faturada, e o resto conta como parado no estoque (prejuízo até vender). */
+export function partesDoItem(item: NotaFiscalItem, nota: NotaParaResultado): PartesDoItem {
+  const valor = valorDoItem(item)
+  const qtd = item.quantidade || 0
+  const resultado = resultadoDoItem(item, nota)
+  const vazio = { resultado, qtdFaturada: 0, qtdParada: 0, faturado: 0, parado: 0, semResultado: 0 }
+  if (resultado === 'FATURADO') return { ...vazio, qtdFaturada: qtd, faturado: valor }
+  if (resultado === 'ESTOQUE') return { ...vazio, qtdParada: qtd, parado: valor }
+  if (resultado === 'PARCIAL') {
+    const qtdFaturada = Math.min(Math.max(item.quantidadeFaturada || 0, 0), qtd)
+    const faturado = qtd > 0 ? valor * (qtdFaturada / qtd) : 0
+    return { ...vazio, qtdFaturada, qtdParada: qtd - qtdFaturada, faturado, parado: valor - faturado }
+  }
+  return { ...vazio, semResultado: valor }
+}
+
 export interface ValoresPorResultado {
   faturado: number
   /** Valor do que ficou parado no estoque — o prejuízo da transferência. */
@@ -113,12 +141,11 @@ export function valoresPorResultado(n: NotaFiscal): ValoresPorResultado {
   }
   let total = 0
   for (const item of itens) {
-    const valor = valorDoItem(item)
-    total += valor
-    const resultado = resultadoDoItem(item, n)
-    if (resultado === 'FATURADO') r.faturado += valor
-    else if (resultado === 'ESTOQUE') r.parado += valor
-    else r.semResultado += valor
+    total += valorDoItem(item)
+    const partes = partesDoItem(item, n)
+    r.faturado += partes.faturado
+    r.parado += partes.parado
+    r.semResultado += partes.semResultado
   }
   if (total > 0) r.freteParado = (n.valorFrete || 0) * (r.parado / total)
   return r

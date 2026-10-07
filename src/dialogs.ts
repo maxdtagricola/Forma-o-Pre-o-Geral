@@ -49,6 +49,24 @@ export type PedidoDialog =
       confirmText: string
       resolver: (valor: string | null) => void
     }
+  | {
+      tipo: 'producao'
+      /** Muda a cada pedido — a caixa usa pra começar com o que veio em `inicial`. */
+      id: number
+      mensagem: string
+      titulo?: string
+      /** Itens do pedido, pra marcar quais já estão em produção. */
+      itens: { id: string; rotulo: string }[]
+      inicial?: RespostaProducao
+      resolver: (valor: RespostaProducao | null) => void
+    }
+
+/** Produção do pedido confirmado: todo em produção, ou só os itens marcados. */
+export interface RespostaProducao {
+  tipo: 'total' | 'parcial'
+  itemIds: string[]
+  observacao: string
+}
 
 let pedidoAtual: PedidoDialog | null = null
 // pedidos que chegaram com outra caixa aberta — aparecem em seguida, na ordem (antes, um pedido novo
@@ -146,6 +164,26 @@ export function resolverArquivamento(valor: { motivo: string; detalhe: string } 
   if (pedido?.tipo === 'arquivar') pedido.resolver(valor)
 }
 
+/** Pergunta se o pedido confirmado está todo em produção ou só em parte (e quais itens). Resolve com a
+ * resposta, ou null se cancelar — e aí o status não deve mudar. */
+export function pedirProducao(
+  mensagem: string,
+  itens: { id: string; rotulo: string }[],
+  inicial?: RespostaProducao,
+): Promise<RespostaProducao | null> {
+  return new Promise((resolve) => {
+    abrir({ tipo: 'producao', id: ++proximoId, mensagem, titulo: 'Produção do pedido', itens, inicial, resolver: resolve })
+  })
+}
+
+/** Só o <DialogHost/> chama isso, na caixa de pedirProducao(). */
+export function resolverProducao(valor: RespostaProducao | null) {
+  const pedido = pedidoAtual
+  pedidoAtual = fila.shift() ?? null
+  notificarOuvintes()
+  if (pedido?.tipo === 'producao') pedido.resolver(valor)
+}
+
 /** Só o <DialogHost/> chama isso, ao clicar num botão (ou fechar) da caixa atual. `texto` é a senha
  * digitada, numa caixa de pedirSenha(). */
 export function resolverPedidoAtual(valorConfirmar?: boolean, texto?: string) {
@@ -155,6 +193,6 @@ export function resolverPedidoAtual(valorConfirmar?: boolean, texto?: string) {
   if (!pedido) return
   if (pedido.tipo === 'confirmar') pedido.resolver(valorConfirmar ?? false)
   else if (pedido.tipo === 'senha') pedido.resolver(valorConfirmar ? (texto ?? '') : null)
-  else if (pedido.tipo === 'arquivar') pedido.resolver(null)
+  else if (pedido.tipo === 'arquivar' || pedido.tipo === 'producao') pedido.resolver(null)
   else pedido.resolver()
 }

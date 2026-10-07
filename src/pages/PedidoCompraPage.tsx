@@ -16,8 +16,10 @@ import {
   chaveFornecedorFrete,
   freteDoFornecedor,
   listQuotes,
+  registrarEntrega,
   rotuloRemetente,
   salvarItensFechados,
+  salvarProducao,
   salvarTransporte,
   updateQuoteStatus,
   type RemetenteFrete,
@@ -26,12 +28,18 @@ import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency } from '../utils'
 import { calculateItem } from '../calc/calculator'
 import { formatarNumeroBR, parseNumeroFlexivel } from '../numeros'
-import { avisar, pedirMotivoArquivamento } from '../dialogs'
+import { avisar, confirmar } from '../dialogs'
+import { itensDoPedidoDeCompra, perguntarAntesDoStatus, perguntarProducao } from '../mudancaDeStatus'
+import { DetalheProducao, SeloProducao } from '../components/SeloProducao'
 import { QUOTE_STATUSES } from '../types'
 import type { DadosFreteTransportadora, DadosTransporte, ItemFechado, PedidoCompraInfo, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
 
 // a partir de EM TRANSPORTE (no fluxo de QUOTE_STATUSES), cada fornecedor mostra o cartão Transporte
 const INDICE_EM_TRANSPORTE = QUOTE_STATUSES.indexOf('EM TRANSPORTE')
+// enquanto a mercadoria está a caminho dá pra marcar a entrega (que leva a PARCIALMENTE ENTREGUE / ENTREGUE)
+const STATUS_A_CAMINHO: QuoteStatus[] = ['EM TRANSPORTE', 'CADASTRO DE PRODUTO', 'PARCIALMENTE ENTREGUE']
+// desfazer uma entrega marcada por engano: só até ENTREGUE (de CONFERIDO em diante, já foi conferida)
+const STATUS_DA_ENTREGA: QuoteStatus[] = [...STATUS_A_CAMINHO, 'ENTREGUE']
 
 /** Frete digitado em R$ (por unidade, ou o total do fornecedor) ou em % do valor dos produtos —
  * guardado do mesmo jeito (freteRate, fração do valor) nos dois casos. Preferência deste aparelho. */
@@ -255,13 +263,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
   // pode ter sido fechada só com "alguns itens", e o resto (que não foi pedido) não deve aparecer
   // aqui nem entrar nos totais. Cotações antigas, de antes desse controle existir, não têm
   // pedidoCompra salvo — nesse caso cai pra todos os itens, como sempre foi.
-  const itensDoPedido = useMemo(() => {
-    if (!cotacao) return []
-    const ids = cotacao.pedidoCompra?.itemIds
-    if (!ids) return cotacao.items
-    const permitidos = new Set(ids)
-    return cotacao.items.filter((item) => permitidos.has(item.id))
-  }, [cotacao])
+  const itensDoPedido = useMemo(() => (cotacao ? itensDoPedidoDeCompra(cotacao) : []), [cotacao])
 
   useEffect(() => {
     if (!cotacao) {
@@ -328,15 +330,52 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
       setTransporteModalAberto(true)
       return
     }
-    // arquivar sempre pede o motivo de a cotação não ter fechado — sem motivo, não arquiva
-    const arquivamento =
-      novoStatus === 'ARQUIVO' ? await pedirMotivoArquivamento(`Por que a cotação ${cotacao.codigo || ''} não foi fechada?`) : undefined
-    if (novoStatus === 'ARQUIVO' && !arquivamento) return
+    // arquivar pede o motivo; confirmar o pedido, a produção — cancelando, o status não muda
+    const respostas = await perguntarAntesDoStatus(cotacao, novoStatus)
+    if (!respostas) return
     try {
-      await updateQuoteStatus(cotacao.id, novoStatus, currentAdmin, undefined, arquivamento ?? undefined)
+      await updateQuoteStatus(cotacao.id, novoStatus, currentAdmin, undefined, respostas.arquivamento, respostas.producao)
       await refresh()
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
+    }
+  }
+
+  async function handleAlterarProducao() {
+    if (!cotacao) return
+    const producao = await perguntarProducao(cotacao)
+    if (!producao) return
+    try {
+      const atualizado = await salvarProducao(cotacao.id, producao, currentAdmin)
+      setQuotes((prev) => prev.map((q) => (q.id === atualizado.id ? atualizado : q)))
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
+    }
+  }
+
+  /** Marca (ou desfaz) a entrega da mercadoria dos fornecedores `chaves` — o status acompanha
+   * (todos entregues: ENTREGUE; só alguns: PARCIALMENTE ENTREGUE). */
+  async function handleEntrega(chaves: string[], entregue: boolean) {
+    if (!cotacao || chaves.length === 0) return
+    const todas = gruposPorFornecedor.map((g) => chaveTransporte(g.chave))
+    const rotulos = gruposPorFornecedor.filter((g) => chaves.includes(chaveTransporte(g.chave))).map((g) => g.rotulo)
+    const deQuem = todas.length > 1 ? ` de ${rotulos.join(', ')}` : ''
+    let mensagem: string
+    if (entregue) {
+      const entreguesDepois = todas.filter((c) => chaves.includes(c) || cotacao.transportePorFornecedor?.[c]?.entregueEm).length
+      const proximo = entreguesDepois === todas.length ? 'ENTREGUE' : 'PARCIALMENTE ENTREGUE'
+      mensagem = `Marcar a mercadoria${deQuem} como entregue?${STATUS_A_CAMINHO.includes(cotacao.status) ? `\nA cotação vai para ${proximo}.` : ''}`
+    } else {
+      mensagem = `Desfazer a entrega${deQuem}? A mercadoria volta a constar como em transporte.`
+    }
+    if (!(await confirmar(mensagem, { titulo: entregue ? 'Mercadoria entregue' : 'Desfazer entrega', confirmText: entregue ? 'Marcar entregue' : 'Desfazer' }))) {
+      return
+    }
+    try {
+      const atualizado = await registrarEntrega(cotacao.id, { chaves, todasAsChaves: todas, entregue }, currentAdmin)
+      setQuotes((prev) => prev.map((q) => (q.id === atualizado.id ? atualizado : q)))
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
     }
   }
 
@@ -422,6 +461,10 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
       items: g.items,
     }))
   }, [itensDoPedido])
+
+  // fornecedores do pedido (chave do transporte) e os que ainda não entregaram
+  const chavesTransporte = gruposPorFornecedor.map((g) => chaveTransporte(g.chave))
+  const chavesAEntregar = chavesTransporte.filter((c) => !cotacao?.transportePorFornecedor?.[c]?.entregueEm)
 
   const totaisGerais = useMemo(() => estatisticasGrupo(itensDoPedido, fechados), [itensDoPedido, fechados])
   const corStatus = cotacao ? corPadraoDoStatus(cotacao.status) : '#999'
@@ -521,6 +564,9 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                   >
                     {q.status}
                   </span>
+                  {q.status === 'PEDIDO CONFIRMADO' && q.producao && (
+                    <SeloProducao producao={q.producao} totalItens={itensDoPedidoDeCompra(q).length} />
+                  )}
                   {previsaoDaCotacao(q) && <SeloPrevisao previsao={previsaoDaCotacao(q)!} />}
                 </span>
                 <span className="text-ink-400 shrink-0">{q.maquina}</span>
@@ -544,26 +590,55 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                 {cotacao.maquina} · {cotacao.vendedor || 'sem vendedor'}
               </p>
             </div>
-            <label className="flex items-center gap-2">
-              <span
-                className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
-                style={{ backgroundColor: corStatus, color: corTexto(corStatus) }}
-              >
-                {cotacao.status}
-              </span>
-              <select
-                value={cotacao.status}
-                onChange={(e) => handleStatusChange(e.target.value as QuoteStatus)}
-                className="field-input text-xs py-1.5 w-auto"
-              >
-                {QUOTE_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              {STATUS_A_CAMINHO.includes(cotacao.status) && chavesAEntregar.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void handleEntrega(chavesAEntregar, true)}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700"
+                >
+                  <span aria-hidden>✓</span>
+                  {chavesAEntregar.length < chavesTransporte.length ? 'Marcar o restante como entregue' : 'Mercadoria entregue'}
+                </button>
+              )}
+              <label className="flex items-center gap-2">
+                <span
+                  className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
+                  style={{ backgroundColor: corStatus, color: corTexto(corStatus) }}
+                >
+                  {cotacao.status}
+                </span>
+                <select
+                  value={cotacao.status}
+                  aria-label="Status da cotação"
+                  onChange={(e) => handleStatusChange(e.target.value as QuoteStatus)}
+                  className="field-input text-xs py-1.5 w-auto"
+                >
+                  {QUOTE_STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
+
+          {cotacao.status === 'PEDIDO CONFIRMADO' && (
+            <div className="card flex flex-wrap items-start justify-between gap-3 text-sm" aria-label="Produção do pedido">
+              <div className="min-w-0">
+                <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Produção</h3>
+                {cotacao.producao ? (
+                  <DetalheProducao producao={cotacao.producao} itens={itensDoPedido} />
+                ) : (
+                  <p className="text-ink-500">Ainda não foi informado se o pedido está todo ou só em parte em produção.</p>
+                )}
+              </div>
+              <Button variant="secondary" onClick={() => void handleAlterarProducao()}>
+                {cotacao.producao ? 'Alterar produção' : 'Informar produção'}
+              </Button>
+            </div>
+          )}
 
           <div className="card">
             <div className="flex items-center justify-between gap-3 mb-3">
@@ -630,6 +705,17 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                     inicial={transporteInicial(cotacao, grupo.chave, grupo.remetente)}
                     salvoEm={cotacao.transportePorFornecedor?.[chaveTransporte(grupo.chave)]?.atualizadoEm}
                     salvoPor={cotacao.transportePorFornecedor?.[chaveTransporte(grupo.chave)]?.atualizadoPor}
+                    entregueEm={cotacao.transportePorFornecedor?.[chaveTransporte(grupo.chave)]?.entregueEm}
+                    entreguePor={cotacao.transportePorFornecedor?.[chaveTransporte(grupo.chave)]?.entreguePor}
+                    // com um fornecedor só, o botão do topo ("Mercadoria entregue") já faz isso
+                    onMarcarEntregue={
+                      chavesTransporte.length > 1 && STATUS_A_CAMINHO.includes(cotacao.status)
+                        ? () => void handleEntrega([chaveTransporte(grupo.chave)], true)
+                        : undefined
+                    }
+                    onDesfazerEntrega={
+                      STATUS_DA_ENTREGA.includes(cotacao.status) ? () => void handleEntrega([chaveTransporte(grupo.chave)], false) : undefined
+                    }
                     onSalvar={(dados) => handleSalvarTransporteGrupo(chaveTransporte(grupo.chave), dados)}
                   />
                 )}
@@ -675,6 +761,17 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                           <tr key={item.id} className="border-t border-ink-100">
                             <td className="py-1.5 px-2 text-ink-800">
                               {item.product.descricao || item.product.referencia || 'Item sem descrição'}
+                              {cotacao.status === 'PEDIDO CONFIRMADO' && cotacao.producao?.tipo === 'parcial' && (
+                                <span
+                                  className={`ml-2 inline-flex rounded-full border px-1.5 py-px text-[10px] font-semibold ${
+                                    cotacao.producao.itemIds.includes(item.id)
+                                      ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+                                      : 'border-amber-300 bg-amber-50 text-amber-800'
+                                  }`}
+                                >
+                                  {cotacao.producao.itemIds.includes(item.id) ? 'em produção' : 'ainda não em produção'}
+                                </span>
+                              )}
                             </td>
                             <td className="py-1.5 px-2 text-right font-mono tabular-nums text-ink-500">
                               {item.product.qtd}

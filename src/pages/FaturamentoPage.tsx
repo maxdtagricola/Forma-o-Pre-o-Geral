@@ -6,7 +6,8 @@ import { listQuotes, salvarFaturamento, updateQuoteStatus } from '../db/analyses
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency } from '../utils'
 import { formatarNumeroBR, formatarNumeroCurtoBR, parseNumeroFlexivel } from '../numeros'
-import { avisar, pedirMotivoArquivamento } from '../dialogs'
+import { avisar } from '../dialogs'
+import { perguntarAntesDoStatus } from '../mudancaDeStatus'
 import { QUOTE_STATUSES } from '../types'
 import type { ItemFaturado, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
 
@@ -234,12 +235,11 @@ export function FaturamentoPage({ currentAdmin }: { currentAdmin: string }) {
 
   async function handleStatusChange(novoStatus: QuoteStatus) {
     if (!cotacao || novoStatus === cotacao.status) return
-    // arquivar sempre pede o motivo de a cotação não ter fechado — sem motivo, não arquiva
-    const arquivamento =
-      novoStatus === 'ARQUIVO' ? await pedirMotivoArquivamento(`Por que a cotação ${cotacao.codigo || ''} não foi fechada?`) : undefined
-    if (novoStatus === 'ARQUIVO' && !arquivamento) return
+    // arquivar pede o motivo; confirmar o pedido, a produção — cancelando, o status não muda
+    const respostas = await perguntarAntesDoStatus(cotacao, novoStatus)
+    if (!respostas) return
     try {
-      await updateQuoteStatus(cotacao.id, novoStatus, currentAdmin, undefined, arquivamento ?? undefined)
+      await updateQuoteStatus(cotacao.id, novoStatus, currentAdmin, undefined, respostas.arquivamento, respostas.producao)
       await refresh()
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')

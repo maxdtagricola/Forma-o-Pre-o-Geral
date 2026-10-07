@@ -14,6 +14,7 @@ import {
   NOTA_FISCAL_STATUSES,
   NOTA_FISCAL_TIPOS,
   RECEBEDORES,
+  RESULTADOS_DO_PRODUTO,
   RESULTADOS_TRANSFERENCIA,
   TRANSPORTADORAS,
   labelNecessidade,
@@ -34,10 +35,10 @@ import {
   labelCurtoDoMes,
   labelDoMes,
   labelDoTipo,
+  partesDoItem,
   prejuizoAutomatico,
   resultadoDaNota,
   resultadoDoItem,
-  valorDoItem,
   valoresPorResultado,
 } from '../notasFiscaisHelpers'
 import {
@@ -239,6 +240,7 @@ function SeletorResultado({
   compacto = false,
   disabled = false,
   ariaLabel,
+  doProduto = false,
 }: {
   valor: ResultadoTransferencia
   onChange: (valor: ResultadoTransferencia) => void
@@ -246,6 +248,8 @@ function SeletorResultado({
   compacto?: boolean
   disabled?: boolean
   ariaLabel?: string
+  /** De um produto (tem também o "parcialmente faturado"), não da nota inteira. */
+  doProduto?: boolean
 }) {
   const cls = compacto
     ? 'w-full rounded-md border border-ink-200 bg-surface px-1.5 py-1 text-xs text-ink-900 focus:outline-none focus:ring-1 focus:ring-brand-400 disabled:opacity-60'
@@ -259,7 +263,7 @@ function SeletorResultado({
       onChange={(e) => onChange(e.target.value as ResultadoTransferencia)}
     >
       <option value="">{rotuloVazio}</option>
-      {RESULTADOS_TRANSFERENCIA.map((r) => (
+      {(doProduto ? RESULTADOS_DO_PRODUTO : RESULTADOS_TRANSFERENCIA).map((r) => (
         <option key={r.value} value={r.value}>
           {r.label}
         </option>
@@ -268,17 +272,36 @@ function SeletorResultado({
   )
 }
 
+/** "3 de 5 UN" — quanto de um produto parcialmente faturado foi faturado. */
+function textoQuantidadeFaturada(item: NotaFiscalItem, qtdFaturada: number): string {
+  return `${formatarNumeroCurtoBR(qtdFaturada, 4)} de ${formatarNumeroCurtoBR(item.quantidade || 0, 4)}${item.unidade ? ` ${item.unidade}` : ''}`
+}
+
 function BadgeResultado({
   valor,
   herdado = false,
   automatico = false,
+  parcial,
 }: {
   valor: ResultadoTransferencia | undefined
   herdado?: boolean
   /** Prejuízo que veio da regra (deu entrada e ninguém marcou que vendeu), não de uma marcação. */
   automatico?: boolean
+  /** Do parcialmente faturado: "3 de 5 UN". */
+  parcial?: string
 }) {
   if (!valor) return null
+  if (valor === 'PARCIAL') {
+    return (
+      <span
+        title="Parcialmente faturado — o resto continua parado no estoque (prejuízo até vender)"
+        className="inline-flex items-center gap-1 rounded-full border border-[#2a78d6]/50 bg-gradient-to-r from-[#2a78d6]/10 to-[#e34948]/10 px-2 py-0.5 text-[11px] font-semibold whitespace-nowrap text-[#1d5fae] dark:text-[#8db8ee]"
+      >
+        <span aria-hidden>◐</span>
+        Parcial{parcial ? ` · ${parcial}` : ''}
+      </span>
+    )
+  }
   const faturado = valor === 'FATURADO'
   return (
     <span
@@ -539,11 +562,27 @@ function ItensNotaEditor({
                     <td className="px-1 py-1">
                       <SeletorResultado
                         compacto
+                        doProduto
                         valor={item.resultado ?? ''}
-                        onChange={(v) => patchItem(item.id, { resultado: v })}
+                        onChange={(v) =>
+                          patchItem(item.id, { resultado: v, quantidadeFaturada: v === 'PARCIAL' ? item.quantidadeFaturada : undefined })
+                        }
                         rotuloVazio={rotuloResultadoHerdado}
                         ariaLabel={`Resultado de ${item.descricao || item.codigo || 'produto'}`}
                       />
+                      {item.resultado === 'PARCIAL' && (
+                        <label className="mt-1 flex items-center gap-1 whitespace-nowrap text-[11px] text-ink-500">
+                          Faturado:
+                          <CampoDecimal
+                            valor={item.quantidadeFaturada ?? 0}
+                            casas={4}
+                            placeholder="qtd"
+                            onChange={(v) => patchItem(item.id, { quantidadeFaturada: v })}
+                            className="w-16 rounded-md border border-ink-200 bg-surface px-1.5 py-0.5 text-right text-xs tabular-nums text-ink-900 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                          />
+                          de {formatarNumeroCurtoBR(item.quantidade || 0, 4)} {item.unidade}
+                        </label>
+                      )}
                     </td>
                   )}
                   <td className="px-1 py-1 text-center">
@@ -584,11 +623,18 @@ function ItensNotaEditor({
 // Lista
 // ---------------------------------------------------------------------------------------------
 
-/** Marcar o resultado direto da lista: da nota inteira, ou (com itemId) de um produto dela. */
-export type MarcarResultado = (n: NotaFiscal, alvo: { itemId?: string; resultado: ResultadoTransferencia }) => Promise<void>
+/** O que marcar direto da lista: o resultado da nota inteira, ou (com itemId) o de um produto dela —
+ * o parcialmente faturado leva junto quantas unidades foram faturadas. */
+export interface AlvoResultado {
+  itemId?: string
+  resultado: ResultadoTransferencia
+  quantidadeFaturada?: number
+}
+
+export type MarcarResultado = (n: NotaFiscal, alvo: AlvoResultado) => Promise<void>
 
 /** Resumo do resultado no topo do cartão: o selo, quando a nota inteira tem um só; com produtos de
- * resultados diferentes, quantos foram faturados e quantos ficaram parados. */
+ * resultados diferentes, quantos foram faturados, quantos em parte e quantos ficaram parados. */
 function ResumoResultadoNota({ n }: { n: NotaFiscal }) {
   const itens = itensDaNota(n)
   // prejuízo que veio só da regra da entrada — nem a nota nem os produtos foram marcados
@@ -596,14 +642,115 @@ function ResumoResultadoNota({ n }: { n: NotaFiscal }) {
   if (itens.length === 0) return <BadgeResultado valor={resultadoDaNota(n)} automatico={automatico} />
   const efetivos = itens.map((i) => resultadoDoItem(i, n))
   const faturados = efetivos.filter((r) => r === 'FATURADO').length
+  const parciais = efetivos.filter((r) => r === 'PARCIAL').length
   const parados = efetivos.filter((r) => r === 'ESTOQUE').length
   if (faturados === itens.length) return <BadgeResultado valor="FATURADO" />
   if (parados === itens.length) return <BadgeResultado valor="ESTOQUE" automatico={automatico} />
-  if (faturados === 0 && parados === 0) return null
+  if (faturados === 0 && parciais === 0 && parados === 0) return null
+  const partes = [
+    faturados > 0 && `${faturados} faturado${faturados === 1 ? '' : 's'}`,
+    parciais > 0 && `${parciais} faturado${parciais === 1 ? '' : 's'} em parte`,
+    parados > 0 && `${parados} parado${parados === 1 ? '' : 's'} no estoque`,
+  ].filter(Boolean)
+  return <span className="text-[11px] text-ink-500">{partes.join(' · ')}</span>
+}
+
+/** Resultado de um produto marcado direto da lista: faturado / parado no estoque salvam na hora; o
+ * parcialmente faturado pede antes quantas unidades foram faturadas (o resto fica no estoque). */
+function ResultadoDoProduto({
+  item,
+  nota,
+  disabled,
+  onMarcar,
+}: {
+  item: NotaFiscalItem
+  nota: NotaFiscal
+  disabled: boolean
+  onMarcar: (alvo: AlvoResultado) => Promise<void>
+}) {
+  const [escolhendoParcial, setEscolhendoParcial] = useState(false)
+  const [qtd, setQtd] = useState(item.quantidadeFaturada ?? 0)
+  useEffect(() => {
+    setQtd(item.quantidadeFaturada ?? 0)
+  }, [item.quantidadeFaturada])
+  const escolha: ResultadoTransferencia = escolhendoParcial ? 'PARCIAL' : (item.resultado ?? '')
+  const total = item.quantidade || 0
+  const alterado = item.resultado !== 'PARCIAL' || qtd !== (item.quantidadeFaturada ?? 0)
+
+  async function salvarParcial() {
+    if (!(qtd > 0)) {
+      void avisar('Digite quantas unidades desse produto foram faturadas.')
+      return
+    }
+    if (total > 0 && qtd >= total) {
+      await onMarcar({ itemId: item.id, resultado: 'FATURADO' })
+      void avisar('Foi faturada a quantidade toda — o produto ficou como Faturado.')
+    } else {
+      await onMarcar({ itemId: item.id, resultado: 'PARCIAL', quantidadeFaturada: qtd })
+    }
+    setEscolhendoParcial(false)
+  }
+
   return (
-    <span className="text-[11px] text-ink-500">
-      {faturados} faturado{faturados === 1 ? '' : 's'} · {parados} parado{parados === 1 ? '' : 's'} no estoque
-    </span>
+    <div>
+      <SeletorResultado
+        compacto
+        doProduto
+        disabled={disabled}
+        valor={escolha}
+        onChange={(v) => {
+          if (v === 'PARCIAL') {
+            setEscolhendoParcial(true)
+            return
+          }
+          setEscolhendoParcial(false)
+          void onMarcar({ itemId: item.id, resultado: v })
+        }}
+        rotuloVazio={
+          nota.resultado
+            ? `(da nota: ${labelResultado(nota.resultado, true)})`
+            : prejuizoAutomatico(nota)
+              ? '(prejuízo até vender)'
+              : '(mesmo da nota)'
+        }
+        ariaLabel={`Resultado de ${item.descricao || item.codigo || 'produto'}`}
+      />
+      {escolha === 'PARCIAL' && (
+        <div className="mt-1 flex items-center gap-1 whitespace-nowrap text-[11px] text-ink-500">
+          <label className="flex items-center gap-1">
+            Faturado:
+            <CampoDecimal
+              valor={qtd}
+              casas={4}
+              placeholder="qtd"
+              onChange={setQtd}
+              className="w-14 rounded-md border border-ink-200 bg-surface px-1.5 py-0.5 text-right text-xs tabular-nums text-ink-900 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            />
+          </label>
+          de {formatarNumeroCurtoBR(total, 4)} {item.unidade}
+          {alterado && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => void salvarParcial()}
+              className="rounded-md bg-brand-600 px-1.5 py-0.5 font-semibold text-white hover:bg-brand-700 disabled:opacity-50"
+            >
+              Salvar
+            </button>
+          )}
+          {escolhendoParcial && item.resultado !== 'PARCIAL' && (
+            <button
+              type="button"
+              onClick={() => setEscolhendoParcial(false)}
+              aria-label="Cancelar o parcialmente faturado"
+              className="h-5 w-5 rounded-full text-ink-400 hover:bg-ink-100 hover:text-ink-700"
+            >
+              ×
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -631,7 +778,7 @@ function NotaCard({
   const itens = itensDaNota(n)
   const mesDaNota = chaveMesDaNota(n)
 
-  async function marcar(alvo: { itemId?: string; resultado: ResultadoTransferencia }) {
+  async function marcar(alvo: AlvoResultado) {
     setSalvandoResultado(true)
     try {
       await onMarcarResultado(n, alvo)
@@ -825,20 +972,7 @@ function NotaCard({
                       </td>
                       {controleResultado && (
                         <td className="px-2 py-1">
-                          <SeletorResultado
-                            compacto
-                            disabled={salvandoResultado}
-                            valor={item.resultado ?? ''}
-                            onChange={(v) => void marcar({ itemId: item.id, resultado: v })}
-                            rotuloVazio={
-                              n.resultado
-                                ? `(da nota: ${labelResultado(n.resultado, true)})`
-                                : prejuizoAutomatico(n)
-                                  ? '(prejuízo até vender)'
-                                  : '(mesmo da nota)'
-                            }
-                            ariaLabel={`Resultado de ${item.descricao || item.codigo || 'produto'}`}
-                          />
+                          <ResultadoDoProduto item={item} nota={n} disabled={salvandoResultado} onMarcar={marcar} />
                         </td>
                       )}
                     </tr>
@@ -1099,8 +1233,8 @@ function ListaItensTransferidos({
 }) {
   const totalQtd = linhas.reduce((s, l) => s + (l.item.quantidade || 0), 0)
   const totalValor = linhas.reduce((s, l) => s + (l.item.valorTotal || 0), 0)
-  const totalFaturado = linhas.reduce((s, l) => s + (resultadoDoItem(l.item, l.nota) === 'FATURADO' ? valorDoItem(l.item) : 0), 0)
-  const totalParado = linhas.reduce((s, l) => s + (resultadoDoItem(l.item, l.nota) === 'ESTOQUE' ? valorDoItem(l.item) : 0), 0)
+  const totalFaturado = linhas.reduce((s, l) => s + partesDoItem(l.item, l.nota).faturado, 0)
+  const totalParado = linhas.reduce((s, l) => s + partesDoItem(l.item, l.nota).parado, 0)
   if (linhas.length === 0) {
     return <p className="text-sm text-ink-400 text-center py-6">Nenhum produto com esses filtros.</p>
   }
@@ -1152,7 +1286,11 @@ function ListaItensTransferidos({
               </td>
               {controleResultado && (
                 <td className="px-2 py-1.5">
-                  <BadgeResultado valor={resultadoDoItem(item, nota)} herdado={!item.resultado} />
+                  <BadgeResultado
+                    valor={resultadoDoItem(item, nota)}
+                    herdado={!item.resultado}
+                    parcial={textoQuantidadeFaturada(item, partesDoItem(item, nota).qtdFaturada)}
+                  />
                   {!resultadoDoItem(item, nota) && <span className="text-ink-300">—</span>}
                 </td>
               )}
@@ -1293,8 +1431,13 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
   // histórico e quem criou continuam os mesmos — ver config.salvar)
   const handleMarcarResultado: MarcarResultado = async (nota, alvo) => {
     const dados = dadosDaNota(nota)
+    // a quantidade faturada só vale pro parcialmente faturado — os outros resultados limpam
+    const marcarItem = (i: NotaFiscalItem): NotaFiscalItem =>
+      i.id === alvo.itemId
+        ? { ...i, resultado: alvo.resultado, quantidadeFaturada: alvo.resultado === 'PARCIAL' ? alvo.quantidadeFaturada : undefined }
+        : i
     const atualizados: DadosNota = alvo.itemId
-      ? { ...dados, itens: itensDaNota(nota).map((i) => (i.id === alvo.itemId ? { ...i, resultado: alvo.resultado } : i)) }
+      ? { ...dados, itens: itensDaNota(nota).map(marcarItem) }
       : { ...dados, resultado: alvo.resultado }
     try {
       const salva = await config.salvar(atualizados, nota.criadoPor, nota.id)
@@ -1302,9 +1445,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
       // a nota aberta no formulário (editando) acompanha, pra um "Salvar alterações" depois não desfazer a marcação
       if (editingId === nota.id) {
         setForm((prev) =>
-          alvo.itemId
-            ? { ...prev, itens: (prev.itens ?? []).map((i) => (i.id === alvo.itemId ? { ...i, resultado: alvo.resultado } : i)) }
-            : { ...prev, resultado: alvo.resultado },
+          alvo.itemId ? { ...prev, itens: (prev.itens ?? []).map(marcarItem) } : { ...prev, resultado: alvo.resultado },
         )
       }
     } catch (err) {
@@ -1429,7 +1570,23 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
       return
     }
     // produto sem código nem descrição não identifica nada — sai antes de salvar
-    const itensValidos = itensForm.filter((i) => i.codigo.trim() || i.descricao.trim())
+    const itensValidos = itensForm
+      .filter((i) => i.codigo.trim() || i.descricao.trim())
+      // parcialmente faturado com a quantidade toda (ou mais) é faturado; sem resultado parcial, a quantidade faturada não vale
+      .map((i): NotaFiscalItem => {
+        if (i.resultado !== 'PARCIAL') return { ...i, quantidadeFaturada: undefined }
+        if (i.quantidade > 0 && (i.quantidadeFaturada ?? 0) >= i.quantidade) return { ...i, resultado: 'FATURADO', quantidadeFaturada: undefined }
+        return i
+      })
+    if (controleResultado) {
+      const parcialSemQuantidade = itensValidos.find((i) => i.resultado === 'PARCIAL' && !((i.quantidadeFaturada ?? 0) > 0))
+      if (parcialSemQuantidade) {
+        void avisar(
+          `Informe quantas unidades foram faturadas do produto parcialmente faturado (${parcialSemQuantidade.codigo || parcialSemQuantidade.descricao}).`,
+        )
+        return
+      }
+    }
     const semQuantidade = itensValidos.filter((i) => !(i.quantidade > 0))
     if (semQuantidade.length > 0) {
       const continuar = await confirmar(
@@ -1798,7 +1955,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
               aria-label="Filtrar pelo resultado da transferência"
             >
               <option value="">Todos os resultados</option>
-              {RESULTADOS_TRANSFERENCIA.map((r) => (
+              {RESULTADOS_DO_PRODUTO.map((r) => (
                 <option key={r.value} value={r.value}>
                   {r.label}
                 </option>

@@ -18,8 +18,7 @@ import {
   labelCurtoDoMes,
   labelDoMes,
   labelDoTipo,
-  resultadoDoItem,
-  valorDoItem,
+  partesDoItem,
   valoresPorResultado,
 } from '../notasFiscaisHelpers'
 import { formatarNumeroCurtoBR } from '../numeros'
@@ -36,12 +35,16 @@ interface ProdutoNoResultado {
   notas: Set<string>
 }
 
-/** Os produtos que mais pesaram num resultado (faturado ou parado no estoque), por valor. */
+/** Os produtos que mais pesaram num resultado (faturado ou parado no estoque), por valor — o
+ * parcialmente faturado entra nos dois, cada um com a sua parte. */
 function rankingDeProdutos(notas: NotaFiscal[], resultado: 'FATURADO' | 'ESTOQUE', limite = 5): ProdutoNoResultado[] {
   const porProduto = new Map<string, ProdutoNoResultado>()
   for (const n of notas) {
     for (const item of n.itens ?? []) {
-      if (resultadoDoItem(item, n) !== resultado) continue
+      const partes = partesDoItem(item, n)
+      const quantidade = resultado === 'FATURADO' ? partes.qtdFaturada : partes.qtdParada
+      const valor = resultado === 'FATURADO' ? partes.faturado : partes.parado
+      if (!(valor > 0) && !(quantidade > 0)) continue
       const chave = (item.codigo.trim() || item.descricao.trim()).toUpperCase()
       if (!chave) continue
       const atual = porProduto.get(chave) ?? {
@@ -53,8 +56,8 @@ function rankingDeProdutos(notas: NotaFiscal[], resultado: 'FATURADO' | 'ESTOQUE
         valor: 0,
         notas: new Set<string>(),
       }
-      atual.quantidade += item.quantidade || 0
-      atual.valor += valorDoItem(item)
+      atual.quantidade += quantidade
+      atual.valor += valor
       atual.notas.add(n.id)
       porProduto.set(chave, atual)
     }

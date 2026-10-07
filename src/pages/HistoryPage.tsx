@@ -5,7 +5,8 @@ import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { formatCurrency, formatDate } from '../utils'
 import { ADMINS, QUOTE_STATUSES, VENDEDORES } from '../types'
 import type { PedidoCompraInfo, QuoteRecord, QuoteStatus } from '../types'
-import { avisar, confirmar, pedirMotivoArquivamento } from '../dialogs'
+import { avisar, confirmar } from '../dialogs'
+import { perguntarAntesDoStatus } from '../mudancaDeStatus'
 
 function chaveMes(ts: number): string {
   const d = new Date(ts)
@@ -146,12 +147,11 @@ export function HistoryPage({
       setPedidoModalRecord(record)
       return
     }
-    // arquivar sempre pede o motivo de a cotação não ter fechado — sem motivo, não arquiva
-    const arquivamento =
-      novoStatus === 'ARQUIVO' ? await pedirMotivoArquivamento(`Por que a cotação ${record.codigo || ''} não foi fechada?`) : undefined
-    if (novoStatus === 'ARQUIVO' && !arquivamento) return
+    // arquivar pede o motivo; confirmar o pedido, a produção — cancelando, o status não muda
+    const respostas = await perguntarAntesDoStatus(record, novoStatus)
+    if (!respostas) return
     try {
-      await updateQuoteStatus(record.id, novoStatus, currentAdmin, undefined, arquivamento ?? undefined)
+      await updateQuoteStatus(record.id, novoStatus, currentAdmin, undefined, respostas.arquivamento, respostas.producao)
       refresh()
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao atualizar o status.')
