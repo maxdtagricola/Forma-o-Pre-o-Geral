@@ -5,7 +5,9 @@ import {
   importarCotacaoFornecedor,
   type FornecedorConhecido,
   type ItemDetectadoFornecedor,
+  type LinhaNaoEncontrada,
 } from '../cotacaoFornecedorImport'
+import type { TipoCasamento } from '../importacao/codigosFornecedor'
 import { formatarNumeroBR, formatarNumeroCurtoBR, parseNumeroFlexivel } from '../numeros'
 import { normalizarNcm } from '../importacao/ncm'
 import { avisar } from '../dialogs'
@@ -32,8 +34,12 @@ function textoParaValor(texto: string): number | undefined {
   return valor !== undefined && valor > 0 ? valor : undefined
 }
 
+/** Preço com as casas que o fornecedor mandou (a SOLUS manda 3: "29,808") — arredondar pra 2 mudaria o
+ * total do item. */
 function valorParaTexto(valor: number | undefined): string {
-  return valor !== undefined ? formatarNumeroBR(valor, 2) : ''
+  if (valor === undefined) return ''
+  const casas = Math.abs(valor * 100 - Math.round(valor * 100)) > 1e-6 ? 3 : 2
+  return formatarNumeroBR(valor, casas)
 }
 
 /** Quantidade que o fornecedor atende: vazio = a quantidade toda (undefined); texto que não é número
@@ -53,6 +59,13 @@ function textoDiferencaDeQuantidade(referencia: string, pedida: number, devolvid
 
 const ACEITA_ARQUIVOS = '.xlsx,.xlsm,.xls,.csv,.ods,.pdf,.png,.jpg,.jpeg,.webp,.bmp,.gif,image/*'
 
+/** Como o código do arquivo bate com o nosso, quando não é igual — selo na linha. */
+const SELO_CASAMENTO: Record<Exclude<TipoCasamento, 'exato'>, { texto: string; classe: string }> = {
+  alternativo: { texto: 'código alternativo', classe: 'bg-sky-100 text-sky-800' },
+  variacao: { texto: 'código parecido', classe: 'bg-amber-100 text-amber-800' },
+  proximo: { texto: 'confira: código diferente', classe: 'bg-rose-100 text-rose-800' },
+}
+
 export interface ItemImportadoConfirmado {
   itemId: string
   valorUnitario: number
@@ -63,6 +76,9 @@ export interface ItemImportadoConfirmado {
   ncm?: string
   /** Quantas unidades o fornecedor atende (vazio: a quantidade toda). */
   quantidadeDisponivel?: number
+  /** UF de onde a mercadoria sai (filial que fatura). */
+  ufOrigem?: string
+  observacao?: string
 }
 
 export function ImportarCotacaoFornecedorModal({
@@ -86,39 +102,59 @@ export function ImportarCotacaoFornecedorModal({
   const [fornecedor, setFornecedor] = useState('')
   const [marca, setMarca] = useState('')
   const [linhas, setLinhas] = useState<LinhaEditavel[] | undefined>(undefined)
+  const [padrao, setPadrao] = useState<{ fornecedor: string; descricao: string } | undefined>(undefined)
+  const [naoEncontrados, setNaoEncontrados] = useState<LinhaNaoEncontrada[]>([])
 
   async function handleArquivoSelecionado(file: File) {
     setLendo(true)
     setErro(undefined)
     setAvisoLeituraFraca(undefined)
     setLinhas(undefined)
+    setPadrao(undefined)
+    setNaoEncontrados([])
     setNomeArquivo(file.name)
     try {
       const resultado = await importarCotacaoFornecedor(file, items, fornecedores)
-      // quantidade devolvida diferente da pedida (menor ou maior): avisa já, antes de revisar a tabela
+      // quantidade devolvida diferente da pedida (menor ou maior) e itens sem estoque: avisa já, antes
+      // de revisar a tabela
       const diferencas = resultado.itens.flatMap((item) => {
         const pedida = items.find((i) => i.id === item.itemId)?.product.qtd || 0
-        return item.quantidadeDetectada !== undefined && item.quantidadeDetectada !== pedida
+        return !item.semEstoque && item.quantidadeDetectada !== undefined && item.quantidadeDetectada !== pedida
           ? [textoDiferencaDeQuantidade(item.referencia, pedida, item.quantidadeDetectada)]
           : []
       })
-      if (diferencas.length > 0) {
+      const semEstoque = resultado.itens.filter((item) => item.semEstoque).map((item) => `• ${item.referencia}`)
+      if (diferencas.length > 0 || semEstoque.length > 0) {
         const LIMITE = 15
-        void avisar(
-          `${diferencas.length === 1 ? 'Um item veio' : `${diferencas.length} itens vieram`} com quantidade diferente da que pedimos:\n\n` +
-            diferencas.slice(0, LIMITE).join('\n') +
-            (diferencas.length > LIMITE ? `\n… e mais ${diferencas.length - LIMITE}.` : '') +
-            '\n\nConfira na coluna "Qtd que atende" antes de adicionar ao comparador.',
-          { titulo: 'Quantidade diferente da solicitada' },
-        )
+        const partes: string[] = []
+        if (diferencas.length > 0) {
+          partes.push(
+            `${diferencas.length === 1 ? 'Um item veio' : `${diferencas.length} itens vieram`} com quantidade diferente da que pedimos:\n\n` +
+              diferencas.slice(0, LIMITE).join('\n') +
+              (diferencas.length > LIMITE ? `\n… e mais ${diferencas.length - LIMITE}.` : ''),
+          )
+        }
+        if (semEstoque.length > 0) {
+          partes.push(
+            `${semEstoque.length === 1 ? 'Um item está' : `${semEstoque.length} itens estão`} sem estoque no fornecedor agora:\n\n` +
+              semEstoque.slice(0, LIMITE).join('\n') +
+              (semEstoque.length > LIMITE ? `\n… e mais ${semEstoque.length - LIMITE}.` : ''),
+          )
+        }
+        void avisar(`${partes.join('\n\n')}\n\nConfira na coluna "Qtd que atende" antes de adicionar ao comparador.`, {
+          titulo: diferencas.length > 0 ? 'Quantidade diferente da solicitada' : 'Itens sem estoque',
+        })
       }
       setFornecedorDetectado(resultado.fornecedorDetectado)
       setFornecedor(resultado.fornecedorDetectado ?? '')
       setAvisoLeituraFraca(resultado.avisoLeituraFraca)
+      setPadrao(resultado.padrao)
+      setNaoEncontrados(resultado.naoEncontrados)
       setLinhas(
         resultado.itens.map((item) => ({
           ...item,
-          incluir: item.valorUnitarioDetectado !== undefined,
+          // código só "parecido em um caractere" pode ser outra peça — fica pra marcar na mão
+          incluir: item.valorUnitarioDetectado !== undefined && item.casamento !== 'proximo',
           valorUnitarioTexto: valorParaTexto(item.valorUnitarioDetectado),
           valorTotalTexto: valorParaTexto(item.valorTotalDetectado),
           marcaTexto: item.marcaDetectada ?? '',
@@ -134,8 +170,8 @@ export function ImportarCotacaoFornecedorModal({
     }
   }
 
-  function patchLinha(itemId: string, patch: Partial<LinhaEditavel>) {
-    setLinhas((prev) => prev?.map((l) => (l.itemId === itemId ? { ...l, ...patch } : l)))
+  function patchLinha(chave: string, patch: Partial<LinhaEditavel>) {
+    setLinhas((prev) => prev?.map((l) => (l.chave === chave ? { ...l, ...patch } : l)))
   }
 
   const linhasProntas = (linhas ?? []).filter((l) => l.incluir && textoParaValor(l.valorUnitarioTexto) !== undefined)
@@ -173,6 +209,8 @@ export function ImportarCotacaoFornecedorModal({
           ...(l.marcaTexto.trim() ? { marca: l.marcaTexto.trim() } : {}),
           ...(l.prazoTexto.trim() ? { prazoEntrega: l.prazoTexto.trim() } : {}),
           ...(ncm ? { ncm } : {}),
+          ...(l.ufOrigem ? { ufOrigem: l.ufOrigem } : {}),
+          ...(l.observacao ? { observacao: l.observacao } : {}),
         }
       }),
     )
@@ -187,7 +225,10 @@ export function ImportarCotacaoFornecedorModal({
         <div className="flex items-start justify-between gap-3 mb-1">
           <div>
             <h3 className="font-display text-lg font-semibold text-ink-900">Importar cotação do fornecedor</h3>
-            <p className="text-sm text-ink-400">Planilha, PDF ou foto/print da cotação — leio e caso pela Referência.</p>
+            <p className="text-sm text-ink-400">
+              Planilha, PDF ou foto/print da cotação — os fornecedores conhecidos (SOLUS, INGÁ, CAMBUCI, MG, TOLEAGRI, MINAS,
+              REDEPARTS) são lidos no padrão de cada um; os outros, pela Referência.
+            </p>
           </div>
           <button type="button" onClick={onClose} className="text-ink-400 hover:text-ink-700 text-xl leading-none px-1">
             ×
@@ -226,6 +267,11 @@ export function ImportarCotacaoFornecedorModal({
               {fornecedorDetectado && (
                 <p className="text-xs text-emerald-700">
                   Fornecedor identificado no arquivo: <strong>{fornecedorDetectado}</strong> — confirme ou troque abaixo.
+                </p>
+              )}
+              {padrao && (
+                <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                  Lido no padrão de <strong>{padrao.fornecedor}</strong>: {padrao.descricao}.
                 </p>
               )}
               <p className="text-xs text-ink-500">
@@ -270,13 +316,15 @@ export function ImportarCotacaoFornecedorModal({
                     <tbody>
                       {linhas.map((l) => {
                         const item = items.find((i) => i.id === l.itemId)
+                        const selo = l.casamento !== 'exato' ? SELO_CASAMENTO[l.casamento] : undefined
                         return (
-                          <tr key={l.itemId} className="border-t border-ink-100">
+                          <tr key={l.chave} className="border-t border-ink-100" data-referencia={l.referencia}>
                             <td className="py-2 px-2 text-center">
                               <input
                                 type="checkbox"
                                 checked={l.incluir}
-                                onChange={(e) => patchLinha(l.itemId, { incluir: e.target.checked })}
+                                aria-label={`Incluir ${l.referencia}${l.codigoNoArquivo ? ` (${l.codigoNoArquivo})` : ''}`}
+                                onChange={(e) => patchLinha(l.chave, { incluir: e.target.checked })}
                               />
                             </td>
                             <td className="py-2 px-2">
@@ -293,6 +341,19 @@ export function ImportarCotacaoFornecedorModal({
                                   </span>
                                 )}
                               </p>
+                              {(selo || l.semEstoque || l.ufOrigem || l.observacao) && (
+                                <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[10px]">
+                                  {selo && (
+                                    <span className={`rounded-full px-1.5 py-0.5 font-semibold ${selo.classe}`} title={l.detalheCasamento}>
+                                      {selo.texto}: {l.codigoNoArquivo}
+                                      {l.detalheCasamento ? ` · ${l.detalheCasamento}` : ''}
+                                    </span>
+                                  )}
+                                  {l.semEstoque && <span className="rounded-full bg-rose-100 px-1.5 py-0.5 font-semibold text-rose-800">sem estoque</span>}
+                                  {l.ufOrigem && <span className="rounded-full bg-ink-100 px-1.5 py-0.5 font-semibold text-ink-700">sai de {l.ufOrigem}</span>}
+                                  {l.observacao && <span className="text-ink-500">{l.observacao}</span>}
+                                </p>
+                              )}
                             </td>
                             <td className="py-2 px-1">
                               <input
@@ -300,7 +361,7 @@ export function ImportarCotacaoFornecedorModal({
                                 inputMode="decimal"
                                 placeholder="R$"
                                 value={l.valorUnitarioTexto}
-                                onChange={(e) => patchLinha(l.itemId, { valorUnitarioTexto: e.target.value, incluir: true })}
+                                onChange={(e) => patchLinha(l.chave, { valorUnitarioTexto: e.target.value, incluir: true })}
                                 className={inputCls}
                               />
                             </td>
@@ -310,7 +371,7 @@ export function ImportarCotacaoFornecedorModal({
                                 inputMode="decimal"
                                 placeholder="R$ (opcional)"
                                 value={l.valorTotalTexto}
-                                onChange={(e) => patchLinha(l.itemId, { valorTotalTexto: e.target.value })}
+                                onChange={(e) => patchLinha(l.chave, { valorTotalTexto: e.target.value })}
                                 className={inputCls}
                               />
                             </td>
@@ -320,7 +381,7 @@ export function ImportarCotacaoFornecedorModal({
                                 inputMode="decimal"
                                 placeholder={item ? String(item.product.qtd) : 'todas'}
                                 value={l.quantidadeTexto}
-                                onChange={(e) => patchLinha(l.itemId, { quantidadeTexto: e.target.value })}
+                                onChange={(e) => patchLinha(l.chave, { quantidadeTexto: e.target.value })}
                                 aria-invalid={textoParaQuantidade(l.quantidadeTexto) === null}
                                 aria-label={`Quantidade que o fornecedor atende — ${l.referencia}`}
                                 title="Quanto o fornecedor tem desse item — vazio: atende a quantidade toda"
@@ -351,10 +412,10 @@ export function ImportarCotacaoFornecedorModal({
                                 inputMode="numeric"
                                 placeholder="0000.00.00"
                                 value={l.ncmTexto}
-                                onChange={(e) => patchLinha(l.itemId, { ncmTexto: e.target.value })}
+                                onChange={(e) => patchLinha(l.chave, { ncmTexto: e.target.value })}
                                 onBlur={() => {
                                   const ncm = normalizarNcm(l.ncmTexto)
-                                  if (ncm) patchLinha(l.itemId, { ncmTexto: ncm })
+                                  if (ncm) patchLinha(l.chave, { ncmTexto: ncm })
                                 }}
                                 aria-invalid={!ncmValidoOuVazio(l.ncmTexto)}
                                 title={
@@ -380,7 +441,7 @@ export function ImportarCotacaoFornecedorModal({
                                 <input
                                   type="text"
                                   value={l.marcaTexto}
-                                  onChange={(e) => patchLinha(l.itemId, { marcaTexto: e.target.value.toUpperCase() })}
+                                  onChange={(e) => patchLinha(l.chave, { marcaTexto: e.target.value.toUpperCase() })}
                                   className="field-input py-1 text-sm"
                                 />
                               </td>
@@ -390,7 +451,7 @@ export function ImportarCotacaoFornecedorModal({
                                 <input
                                   type="text"
                                   value={l.prazoTexto}
-                                  onChange={(e) => patchLinha(l.itemId, { prazoTexto: e.target.value.toUpperCase() })}
+                                  onChange={(e) => patchLinha(l.chave, { prazoTexto: e.target.value.toUpperCase() })}
                                   className="field-input py-1 text-sm"
                                 />
                               </td>
@@ -405,6 +466,24 @@ export function ImportarCotacaoFornecedorModal({
                 !avisoLeituraFraca && (
                   <p className="text-sm text-ink-400 text-center py-4">Não encontrei nenhuma referência dessa cotação nesse arquivo.</p>
                 )
+              )}
+
+              {naoEncontrados.length > 0 && (
+                <details className="rounded-lg border border-ink-100 px-3 py-2 text-xs text-ink-600">
+                  <summary className="cursor-pointer font-medium text-ink-700">
+                    {naoEncontrados.length === 1 ? '1 item do arquivo não está' : `${naoEncontrados.length} itens do arquivo não estão`} nesta
+                    cotação
+                  </summary>
+                  <ul className="mt-2 space-y-0.5">
+                    {naoEncontrados.map((n, i) => (
+                      <li key={i} className="flex gap-2">
+                        <span className="font-mono text-ink-800">{n.codigo}</span>
+                        <span className="min-w-0 flex-1 truncate">{n.descricao}</span>
+                        {n.valorUnitario !== undefined && <span className="tabular-nums">{valorParaTexto(n.valorUnitario)}</span>}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               )}
             </>
           )}

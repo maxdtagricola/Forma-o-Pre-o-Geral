@@ -294,51 +294,6 @@ export function TelaInicialPage({
         <div className="card text-center text-sm text-ink-400 py-10">Carregando…</div>
       ) : (
         <>
-          {blocos.retorno.length > 0 && (
-            <section className="card border-amber-300 bg-amber-50/60" aria-label="Retorno do cliente">
-              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">
-                Retorno do cliente
-                <span className="ml-2 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-900">{blocos.retorno.length}</span>
-              </h3>
-              <p className="mb-3 text-sm text-ink-600">
-                Enviadas por você há {DIAS_PARA_RETORNO} dias ou mais — atualize: se fechou, siga pro pedido de compra; se não
-                fechou, arquive com o motivo.
-              </p>
-              <div className="space-y-1">
-                {blocos.retorno.map((r) => (
-                  <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-surface px-2 py-2">
-                    <button
-                      type="button"
-                      onClick={() => onOpenQuote(r)}
-                      title="Abrir na Precificação"
-                      className="min-w-0 flex-1 text-left"
-                    >
-                      <span className="block truncate text-sm text-ink-900">
-                        <span className="font-mono text-xs text-ink-500">{r.codigo || '—'}</span>{' '}
-                        <span className="font-medium">{r.cliente || '(sem cliente)'}</span>
-                      </span>
-                      <span className="block text-[11px] font-semibold text-amber-800">enviada há {diasDesdeOEnvio(r, agora)} dias</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setPedidoDoRetorno(r)}
-                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
-                    >
-                      Fechou
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleNaoFechou(r)}
-                      className="rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-xs font-semibold text-ink-700 hover:bg-ink-50"
-                    >
-                      Não fechou
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
           {blocos.producaoChegando.length > 0 && (
             <section className="card border-sky-300 bg-sky-50/60" aria-label="Produção — previsão de finalização">
               <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
@@ -522,6 +477,52 @@ export function TelaInicialPage({
               </Bloco>
             )}
           </div>
+
+          {/* por último, depois de todos os blocos */}
+          {blocos.retorno.length > 0 && (
+            <section className="card border-amber-300 bg-amber-50/60" aria-label="Retorno do cliente">
+              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">
+                Retorno do cliente
+                <span className="ml-2 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-900">{blocos.retorno.length}</span>
+              </h3>
+              <p className="mb-3 text-sm text-ink-600">
+                Enviadas por você há {DIAS_PARA_RETORNO} dias ou mais — atualize: se fechou, siga pro pedido de compra; se não
+                fechou, arquive com o motivo.
+              </p>
+              <div className="space-y-1">
+                {blocos.retorno.map((r) => (
+                  <div key={r.id} className="flex flex-wrap items-center gap-2 rounded-lg bg-surface px-2 py-2">
+                    <button
+                      type="button"
+                      onClick={() => onOpenQuote(r)}
+                      title="Abrir na Precificação"
+                      className="min-w-0 flex-1 text-left"
+                    >
+                      <span className="block truncate text-sm text-ink-900">
+                        <span className="font-mono text-xs text-ink-500">{r.codigo || '—'}</span>{' '}
+                        <span className="font-medium">{r.cliente || '(sem cliente)'}</span>
+                      </span>
+                      <span className="block text-[11px] font-semibold text-amber-800">enviada há {diasDesdeOEnvio(r, agora)} dias</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPedidoDoRetorno(r)}
+                      className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                    >
+                      Fechou
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleNaoFechou(r)}
+                      className="rounded-lg border border-ink-200 bg-surface px-3 py-1.5 text-xs font-semibold text-ink-700 hover:bg-ink-50"
+                    >
+                      Não fechou
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
         </>
       )}
 
@@ -566,7 +567,7 @@ function Bloco({
           {total > 0 && <span className="ml-2 rounded-full bg-ink-100 px-2 py-0.5 text-xs font-semibold text-ink-600">{total}</span>}
         </h3>
         {onVerTodas && total > ITENS_POR_BLOCO && (
-          <button type="button" onClick={onVerTodas} className="shrink-0 text-xs text-brand-600 hover:underline">
+          <button type="button" onClick={onVerTodas} className="shrink-0 text-xs text-ink-800 underline-offset-2 hover:underline">
             {rotuloVerTodas} (+{total - ITENS_POR_BLOCO})
           </button>
         )}

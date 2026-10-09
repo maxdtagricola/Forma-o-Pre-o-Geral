@@ -58,7 +58,7 @@ export function FeriadosCard() {
       <p className="text-sm text-ink-400 mb-4">
         Fins de semana e feriados não contam nos dias úteis (tempo de cotação pendente, em andamento, previsão de
         entrega). Os nacionais já entram sozinhos — cadastre aqui os estaduais e municipais.{' '}
-        <button type="button" onClick={() => setVerNacionais((v) => !v)} className="text-brand-600 hover:underline">
+        <button type="button" onClick={() => setVerNacionais((v) => !v)} className="text-ink-800 underline-offset-2 hover:underline">
           {verNacionais ? 'Esconder' : 'Ver'} os nacionais de {ano}
         </button>
       </p>

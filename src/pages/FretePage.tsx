@@ -5,6 +5,7 @@ import { getEmpresaPorTransportadora, setEmpresaPorTransportadora } from '../db/
 import { listEmpresas } from '../db/empresasRepo'
 import { listFornecedores } from '../db/fornecedoresRepo'
 import {
+  cadastroDoRemetente,
   cargaDoFornecedor,
   chaveFornecedorFrete,
   freteDoFornecedor,
@@ -280,8 +281,12 @@ function FormularioFrete({
   // lista de cotações é recarregada (isso acontecia ao salvar: o formulário era refeito e o aviso
   // "Salvo!" sumia antes de aparecer, dando a impressão de que nada tinha sido gravado)
   useEffect(() => {
+    // o que o sistema sabe agora (CNPJ/CEP do fornecedor escolhido e da empresa, valor da nota, volumes,
+    // medidas da carga dele) vale mais que o que foi gravado antes — gravado, ficava o dado velho (ou
+    // de outro fornecedor) no lugar; o gravado preenche os campos que só o usuário sabe (pagador, tipo
+    // de material…)
     const iniciais: Record<string, string> = {}
-    for (const campo of campos) iniciais[campo.chave] = dadosSalvos?.camposPedido[campo.chave] ?? derivados[campo.chave] ?? ''
+    for (const campo of campos) iniciais[campo.chave] = derivados[campo.chave] || dadosSalvos?.camposPedido[campo.chave] || ''
     setValores(iniciais)
     setValorCotacao(dadosSalvos?.valorCotacao ?? '')
     setNumeroCotacao(dadosSalvos?.numeroCotacao ?? '')
@@ -629,11 +634,9 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
     [cotacaoSelecionada],
   )
 
-  /** Cadastro do fornecedor de um grupo dos itens: o de mesmo nome e mesmo estado, ou, não havendo,
-   * o de mesmo nome. */
-  function cadastroDoRemetente(r: RemetenteFrete): Fornecedor | null {
-    const doNome = fornecedores.filter((f) => chaveFornecedorFrete(f.nome) === chaveFornecedorFrete(r.nome))
-    return doNome.find((f) => (f.estado || '').toUpperCase() === (r.uf || '').toUpperCase()) ?? doNome[0] ?? null
+  /** Cadastro do fornecedor de um grupo dos itens (mesmo nome e estado; ou, não havendo, mesmo nome). */
+  function cadastroDoGrupo(r: RemetenteFrete): Fornecedor | null {
+    return cadastroDoRemetente(fornecedores, r) ?? null
   }
 
   // trocar de cotação zera o fornecedor escolhido (era de outra cotação) — e, com um fornecedor só
@@ -679,7 +682,7 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
 
   const fornecedorCadastro = useMemo(() => {
     if (selecaoFornecedor.startsWith('id:')) return fornecedores.find((f) => f.id === selecaoFornecedor.slice(3)) ?? null
-    return remetenteSelecionado ? cadastroDoRemetente(remetenteSelecionado) : null
+    return remetenteSelecionado ? cadastroDoGrupo(remetenteSelecionado) : null
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selecaoFornecedor, fornecedores, remetenteSelecionado])
 
@@ -786,10 +789,13 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
     }
   }
 
+  // só o frete do fornecedor escolhido — com mais de uma origem e nenhuma escolhida, nada é carregado
+  // (antes vinha o conjunto geral da cotação, que podia ter o CNPJ/CEP de outro fornecedor)
   const freteSalvo = useMemo(
-    () => (cotacaoSelecionada ? freteDoFornecedor(cotacaoSelecionada, remetenteFrete) : {}),
+    () =>
+      cotacaoSelecionada && fornecedorDefinido ? freteDoFornecedor(cotacaoSelecionada, remetenteFrete, fornecedorCadastro?.cnpj) : {},
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [cotacaoSelecionada, chaveRemetente],
+    [cotacaoSelecionada, chaveRemetente, fornecedorDefinido, fornecedorCadastro?.cnpj],
   )
 
   const cotacaoOptions = [
@@ -803,7 +809,7 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
     for (const r of remetentesNaCotacao) {
       opcoes.push({
         value: `grupo:${r.chave}`,
-        label: `${rotuloComUf(r)}${cadastroDoRemetente(r) ? '' : ' (sem cadastro)'}`,
+        label: `${rotuloComUf(r)}${cadastroDoGrupo(r) ? '' : ' (sem cadastro)'}`,
       })
     }
     for (const f of fornecedores) {
@@ -847,7 +853,14 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
         )}
       </div>
 
-      {cotacaoSelecionada && (
+      {cotacaoSelecionada && !fornecedorDefinido && (
+        <div className="card border-amber-200 bg-amber-50/60 text-sm text-amber-800">
+          Essa cotação tem itens de mais de uma origem — escolha o fornecedor (remetente) acima. As medidas e os dados
+          de frete de cada fornecedor só aparecem depois de escolhido, sem misturar com os dos outros.
+        </div>
+      )}
+
+      {cotacaoSelecionada && fornecedorDefinido && (
         <div className="card">
           <div className="flex flex-wrap items-baseline justify-between gap-2 mb-1">
             <h3 className="font-display text-base font-semibold text-ink-900">
@@ -898,7 +911,7 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
 
       {loading ? (
         <div className="card text-center text-sm text-ink-400 py-10">Carregando…</div>
-      ) : (
+      ) : cotacaoSelecionada && !fornecedorDefinido ? null : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {TRANSPORTADORAS.map((nome) => (
             <CardTransportadora

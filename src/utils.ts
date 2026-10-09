@@ -104,6 +104,7 @@ export function valoresDaCotacaoDoFornecedor(
     marca: cotacao.marca,
     ...(cotacao.prazoEntrega ? { prazoEntrega: cotacao.prazoEntrega } : {}),
     ...(ncm ? { ncm } : {}),
+    ...(cotacao.ufOrigem ? { estadoOrigem: cotacao.ufOrigem } : {}),
   }
 }
 

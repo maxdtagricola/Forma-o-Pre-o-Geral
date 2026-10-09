@@ -26,6 +26,28 @@
     --amber-700: 127 68 23;
     --amber-800: 103 55 24;
     --amber-900: 86 47 23;
+    --brand-50: 245 245 245;
+    --brand-100: 229 229 229;
+    --brand-200: 212 212 212;
+    /* verde/vermelho/azul: os valores normais do Tailwind no claro */
+    --emerald-50: 236 253 245;
+    --emerald-100: 209 250 229;
+    --emerald-200: 167 243 208;
+    --emerald-700: 4 120 87;
+    --emerald-800: 6 95 70;
+    --emerald-900: 6 78 59;
+    --rose-50: 255 241 242;
+    --rose-100: 255 228 230;
+    --rose-200: 254 205 211;
+    --rose-700: 190 18 60;
+    --rose-800: 159 18 57;
+    --rose-900: 136 19 55;
+    --sky-50: 240 249 255;
+    --sky-100: 224 242 254;
+    --sky-200: 186 230 253;
+    --sky-700: 3 105 161;
+    --sky-800: 7 89 133;
+    --sky-900: 12 74 110;
     /* altura da barra fixa do topo no celular (h-14 no Layout) — no computador não tem barra */
     --altura-topo: 3.5rem;
   }
@@ -40,14 +62,16 @@
     --ink-50: 18 16 14;
     --ink-100: 32 29 25;
     --ink-200: 54 49 43;
-    --ink-300: 82 75 66;
+    /* 300 é texto de dica ("+ obs.", "—"): um pouco mais claro que a borda pra dar pra ler */
+    --ink-300: 112 104 92;
     --ink-400: 150 142 128;
     --ink-500: 173 165 151;
     --ink-600: 194 187 174;
     --ink-700: 213 207 196;
     --ink-800: 236 233 227;
     --ink-900: 250 249 247;
-    --ink-950: 20 17 14;
+    /* 950 é o fundo dos botões/abas ativos (letra branca): mais claro que o fundo da página pra destacar */
+    --ink-950: 62 56 49;
     --surface: 30 27 24;
     --amber-50: 30 24 14;
     --amber-100: 45 36 20;
@@ -59,6 +83,28 @@
     --amber-700: 242 205 143;
     --amber-800: 250 232 203;
     --amber-900: 253 246 236;
+    /* fundos claros viram tons escuros da mesma cor; textos escuros viram tons claros */
+    --brand-50: 38 35 31;
+    --brand-100: 54 49 43;
+    --brand-200: 72 66 58;
+    --emerald-50: 12 40 31;
+    --emerald-100: 14 54 41;
+    --emerald-200: 6 78 59;
+    --emerald-700: 110 231 183;
+    --emerald-800: 167 243 208;
+    --emerald-900: 209 250 229;
+    --rose-50: 48 18 25;
+    --rose-100: 66 22 33;
+    --rose-200: 136 19 55;
+    --rose-700: 253 164 175;
+    --rose-800: 254 205 211;
+    --rose-900: 255 228 230;
+    --sky-50: 12 34 50;
+    --sky-100: 14 47 70;
+    --sky-200: 12 74 110;
+    --sky-700: 125 211 252;
+    --sky-800: 186 230 253;
+    --sky-900: 224 242 254;
   }
 
   html {

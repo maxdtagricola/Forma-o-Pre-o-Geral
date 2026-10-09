@@ -17,6 +17,7 @@ import { listFornecedores } from '../db/fornecedoresRepo'
 import {
   buscarQuote,
   buscarUltimoUsoDoProduto,
+  cadastroDoRemetente,
   chaveFornecedorFrete,
   freteDoFornecedor,
   limparCotacaoFreteTransportadora,
@@ -322,6 +323,7 @@ export function QuoteItemsList({
   onPatchItem,
   onApplyMarginToAll,
   onGoToComparar,
+  onGoToFrete,
   onSave,
   podeSalvar,
   salvoRecentemente,
@@ -344,6 +346,7 @@ export function QuoteItemsList({
   onPatchItem: (id: string, patch: Partial<ProductInput>) => void
   onApplyMarginToAll: (lucroPct: number) => void
   onGoToComparar: () => void
+  onGoToFrete: () => void
   onSave: () => void
   /** false quando a cotação está travada por outro admin — desabilita o botão enquanto isso. */
   podeSalvar: boolean
@@ -379,6 +382,7 @@ export function QuoteItemsList({
   const [fornecedorBulk, setFornecedorBulk] = useState('')
   const [fornecedorBulkAberto, setFornecedorBulkAberto] = useState(false)
   const [marcaBulk, setMarcaBulk] = useState('')
+  const [prazoBulk, setPrazoBulk] = useState('')
   const [ncmBulk, setNcmBulk] = useState('')
   const [planilhaFornecedorAberta, setPlanilhaFornecedorAberta] = useState(false)
   const [freteBulk, setFreteBulk] = useState('')
@@ -449,7 +453,8 @@ export function QuoteItemsList({
   }, [cotacaoId])
 
   function fretesDoFornecedor(remetente: RemetenteFrete) {
-    return freteDoFornecedor({ items, ...freteSalvo }, remetente)
+    // só o frete desse fornecedor (o CNPJ do cadastro reconhece o frete dele salvo no formato antigo)
+    return freteDoFornecedor({ items, ...freteSalvo }, remetente, cadastroDoRemetente(fornecedores, remetente)?.cnpj)
   }
 
   async function handleSalvarFrete(remetente: RemetenteFrete, transportadora: string, numero: string, valor: string) {
@@ -764,6 +769,14 @@ export function QuoteItemsList({
     for (const id of idsMarcados) onPatchItem(id, { marca: marcaLimpa })
     setMarcados(new Set())
     setMarcaBulk('')
+  }
+
+  function handleAplicarPrazoAosMarcados() {
+    const prazoLimpo = prazoBulk.trim().toUpperCase()
+    if (!prazoLimpo || idsMarcados.length === 0) return
+    for (const id of idsMarcados) onPatchItem(id, { prazoEntrega: prazoLimpo })
+    setMarcados(new Set())
+    setPrazoBulk('')
   }
 
   function handleAplicarNcmAosMarcados() {
@@ -1110,6 +1123,15 @@ export function QuoteItemsList({
               <span className="sm:hidden">Comparar</span>
               <span className="hidden sm:inline">Comparar fornecedores</span>
             </button>
+            {/* aqui (e não só no cartão do topo): a barra acompanha a rolagem */}
+            <button
+              type="button"
+              onClick={onGoToFrete}
+              className={`${btnBarraCls} border border-ink-200 text-ink-700 hover:bg-ink-50`}
+            >
+              <span className="sm:hidden">Frete</span>
+              <span className="hidden sm:inline">Ir para Frete</span>
+            </button>
             <button
               type="button"
               onClick={onAdd}
@@ -1195,6 +1217,20 @@ export function QuoteItemsList({
                   />
                   <button type="button" onClick={handleAplicarMarcaAosMarcados} className={acaoMarcadosCls}>
                     Aplicar marca
+                  </button>
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    placeholder="Prazo (ex.: 5 DIAS)"
+                    aria-label="Prazo de entrega pros itens marcados"
+                    value={prazoBulk}
+                    onChange={(e) => setPrazoBulk(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && handleAplicarPrazoAosMarcados()}
+                    className="field-input w-36 py-1 text-sm uppercase"
+                  />
+                  <button type="button" onClick={handleAplicarPrazoAosMarcados} className={acaoMarcadosCls}>
+                    Aplicar prazo
                   </button>
                 </span>
                 <span className="inline-flex items-center gap-1.5">

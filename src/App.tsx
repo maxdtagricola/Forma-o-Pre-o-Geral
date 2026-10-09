@@ -444,7 +444,17 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       atual && patch.fornecedor !== undefined && patch.valorUnt === undefined && !mesmoFornecedor(patch.fornecedor, atual.product.fornecedor)
         ? valoresDaCotacaoDoFornecedor(atual.product.cotacoesFornecedores, patch.fornecedor)
         : {}
-    const completo = { ...patch, ...daCotacao }
+    const completo: Partial<ProductInput> = { ...patch, ...daCotacao }
+    // marca trocada na Precificação (na linha ou "Aplicar marca" nos marcados): a cotação do
+    // fornecedor do item (a que veio da planilha/PDF dele) passa a ter a mesma marca
+    if (atual && patch.marca !== undefined && patch.fornecedor === undefined && patch.cotacoesFornecedores === undefined) {
+      const cotacoes = atual.product.cotacoesFornecedores ?? []
+      const doFornecedor = cotacoes.filter((c) => mesmoFornecedor(c.fornecedor, atual.product.fornecedor))
+      const alvo = doFornecedor.find((c) => c.valorUnitario === atual.product.valorUnt) ?? doFornecedor[0]
+      if (alvo && alvo.marca !== patch.marca) {
+        completo.cotacoesFornecedores = cotacoes.map((c) => (c.id === alvo.id ? { ...c, marca: patch.marca! } : c))
+      }
+    }
     if (completo.valorUnt !== undefined) promoverStatusPorValorUnitario()
     setItems((prev) => prev.map((item) => (item.id === id ? { ...item, product: { ...item.product, ...completo } } : item)))
   }

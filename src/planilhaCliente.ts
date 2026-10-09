@@ -4,6 +4,7 @@ import { abaComTabelaItens, cellTexto, cellValue, clearCellValue, localizarTabel
 import { mesmaReferencia } from './importacao/referencias'
 import { parseNumeroFlexivel } from './numeros'
 import { avisar } from './dialogs'
+import { abrirXlsx, aplicarAlteracoes, ehZip, fecharXlsx, renderizarAba, type AlteracaoCelula, type PreviaOriginal } from './xlsxOriginal'
 import type { QuoteItem } from './types'
 
 export async function arquivoParaBase64(arquivo: File): Promise<string> {
@@ -14,11 +15,11 @@ export async function arquivoParaBase64(arquivo: File): Promise<string> {
   return btoa(binario)
 }
 
-function base64ParaArrayBuffer(base64: string): ArrayBuffer {
+function base64ParaBytes(base64: string): Uint8Array {
   const binario = atob(base64)
   const bytes = new Uint8Array(binario.length)
   for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i)
-  return bytes.buffer
+  return bytes
 }
 
 /** Linha da planilha do cliente que já tinha valor — o site não escreve por cima, só avisa. */
@@ -34,10 +35,50 @@ export interface ItemComValorNaPlanilha {
 }
 
 export interface PlanilhaAtualizada {
-  workbook: XLSX.WorkBook
+  /** O arquivo pronto pra baixar/enviar: o mesmo que o cliente mandou, só com as células preenchidas. */
+  arquivo: Blob
   htmlPreview: string
+  /** true = a prévia reproduz a formatação da planilha (cores, bordas, larguras, logo); false = prévia
+   * simples, só com os valores (formato antigo .xls/.ods, que não dá pra abrir por dentro). */
+  previaFiel: boolean
+  /** Página HTML completa pra imprimir/"Salvar como PDF", no tamanho e orientação da planilha. */
+  paginaImpressao: string
   itensAtualizados: number
   itensComValorNaPlanilha: ItemComValorNaPlanilha[]
+}
+
+const TIPOS_POR_EXTENSAO: Record<string, { bookType: XLSX.BookType; mime: string }> = {
+  xlsx: { bookType: 'xlsx', mime: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+  xlsm: { bookType: 'xlsm', mime: 'application/vnd.ms-excel.sheet.macroEnabled.12' },
+  xls: { bookType: 'biff8', mime: 'application/vnd.ms-excel' },
+  ods: { bookType: 'ods', mime: 'application/vnd.oasis.opendocument.spreadsheet' },
+}
+
+function tipoDoArquivo(nomeArquivo: string) {
+  const extensao = nomeArquivo.split('.').pop()?.toLowerCase() ?? ''
+  return TIPOS_POR_EXTENSAO[extensao] ?? TIPOS_POR_EXTENSAO.xlsx
+}
+
+function paginaDeImpressao(previa: PreviaOriginal, titulo: string): string {
+  // mesma escala/orientação/margens configuradas na planilha; se ainda não couber na largura da folha, reduz
+  const larguraFolhaPol = previa.orientacao === 'landscape' ? 11.69 : 8.27
+  const larguraUtilPx = (larguraFolhaPol - previa.margens.left - previa.margens.right) * 96
+  const escala = Math.min(previa.escala, larguraUtilPx / Math.max(1, previa.largura))
+  const m = previa.margens
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>${escaparHtml(titulo)}</title>
+<style>
+  @page { size: A4 ${previa.orientacao}; margin: ${m.top}in ${m.right}in ${m.bottom}in ${m.left}in; }
+  html, body { margin: 0; background: #fff; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .folha { zoom: ${escala.toFixed(3)}; }
+</style>
+</head>
+<body><div class="folha">${previa.html}</div></body>
+</html>`
 }
 
 /** Valor já preenchido numa célula (número, ou texto tipo "R$ 12,50") — vazio, zero ou "-" não contam. */
@@ -58,17 +99,37 @@ function valorNaCelula(ws: XLSX.WorkSheet, linha: number, coluna: number): numbe
  * tem valor (unitário ou total) fica como veio — e entra na lista
  * itensComValorNaPlanilha, pra avisar quem está gerando; prazo que já
  * estava preenchido também fica.
+ *
+ * O arquivo devolvido é o próprio arquivo do cliente, alterado só nessas
+ * células (direto no XML de dentro do .xlsx): logo, cores, bordas, larguras,
+ * fórmulas e configuração de impressão ficam iguais ao original.
  */
-export function gerarPlanilhaAtualizada(conteudoBase64: string, items: QuoteItem[]): PlanilhaAtualizada {
-  const buffer = base64ParaArrayBuffer(conteudoBase64)
-  const workbook = XLSX.read(buffer, { type: 'array' })
+export function gerarPlanilhaAtualizada(
+  conteudoBase64: string,
+  items: QuoteItem[],
+  nomeArquivo = 'planilha.xlsx',
+  titulo = 'Planilha do cliente',
+): PlanilhaAtualizada {
+  const bytes = base64ParaBytes(conteudoBase64)
+  const workbook = XLSX.read(bytes, { type: 'array' })
   // a mesma aba de onde a cotação foi importada (a primeira que tem a tabela de itens)
-  const { ws } = abaComTabelaItens(workbook)
+  const { ws, nome: nomeAba } = abaComTabelaItens(workbook)
 
   const tabela = localizarTabelaItens(ws)
   let itensAtualizados = 0
   let somaVlrTotal = 0
   const itensComValorNaPlanilha: ItemComValorNaPlanilha[] = []
+  // o que muda na planilha: aplicado na cópia lida pelo "xlsx" (pras contas abaixo) e anotado pra
+  // depois aplicar no arquivo original
+  const alteracoes: AlteracaoCelula[] = []
+  const escrever = (linha: number, coluna: number, valor: number | string) => {
+    setCellValue(ws, linha, coluna, valor)
+    alteracoes.push({ linha, coluna, valor })
+  }
+  const apagar = (linha: number, coluna: number) => {
+    clearCellValue(ws, linha, coluna)
+    alteracoes.push({ linha, coluna, valor: null })
+  }
 
   for (let r = tabela.linhaCabecalho + 1; r <= tabela.maxRow; r++) {
     const referenciaTexto = cellTexto(ws, r, tabela.colReferencia)
@@ -92,17 +153,17 @@ export function gerarPlanilhaAtualizada(conteudoBase64: string, items: QuoteItem
           })
         } else {
           if (tabela.colVlrUnt > -1) {
-            setCellValue(ws, r, tabela.colVlrUnt, Number(resultado.precoVendaUnitario.toFixed(2)))
+            escrever(r, tabela.colVlrUnt, Number(resultado.precoVendaUnitario.toFixed(2)))
           }
           if (tabela.colVlrTotal > -1) {
-            setCellValue(ws, r, tabela.colVlrTotal, Number(resultado.precoVendaTotal.toFixed(2)))
+            escrever(r, tabela.colVlrTotal, Number(resultado.precoVendaTotal.toFixed(2)))
           }
           // prazo que o cliente já tinha escrito fica
           if (tabela.colEntrega > -1 && item.product.prazoEntrega.trim() && !cellTexto(ws, r, tabela.colEntrega)) {
-            setCellValue(ws, r, tabela.colEntrega, item.product.prazoEntrega.trim())
+            escrever(r, tabela.colEntrega, item.product.prazoEntrega.trim())
           }
           for (let c = 1; c <= tabela.maxCol; c++) {
-            if (/^(a\s+)?cotar[\s!.]*$/.test(normalizar(cellValue(ws, r, c)))) clearCellValue(ws, r, c)
+            if (/^(a\s+)?cotar[\s!.]*$/.test(normalizar(cellValue(ws, r, c)))) apagar(r, c)
           }
           itensAtualizados++
         }
@@ -121,7 +182,7 @@ export function gerarPlanilhaAtualizada(conteudoBase64: string, items: QuoteItem
       if (texto.startsWith('valo total') || texto.startsWith('valor total')) {
         for (let c2 = c + 1; c2 <= tabela.maxCol; c2++) {
           if (typeof cellValue(ws, r, c2) === 'number') {
-            setCellValue(ws, r, c2, Number(somaVlrTotal.toFixed(2)))
+            escrever(r, c2, Number(somaVlrTotal.toFixed(2)))
             break
           }
         }
@@ -129,17 +190,36 @@ export function gerarPlanilhaAtualizada(conteudoBase64: string, items: QuoteItem
     }
   }
 
+  const tipo = tipoDoArquivo(nomeArquivo)
+  const resumo = { itensAtualizados, itensComValorNaPlanilha }
+  if (ehZip(bytes) && tipo.bookType !== 'ods') {
+    try {
+      const arquivos = abrirXlsx(bytes)
+      aplicarAlteracoes(arquivos, nomeAba, alteracoes)
+      const previa = renderizarAba(arquivos, nomeAba)
+      return {
+        arquivo: new Blob([fecharXlsx(arquivos) as Uint8Array<ArrayBuffer>], { type: tipo.mime }),
+        htmlPreview: previa.html,
+        previaFiel: true,
+        paginaImpressao: paginaDeImpressao(previa, titulo),
+        ...resumo,
+      }
+    } catch (err) {
+      // arquivo que não deu pra abrir por dentro: cai na regravação simples abaixo
+      console.warn('Planilha do cliente: não deu pra manter o arquivo original, regravando sem a formatação.', err)
+    }
+  }
+
+  // formato antigo (.xls/.ods): regrava com a biblioteca de planilha — os valores ficam certos, a formatação não
   const htmlPreview = XLSX.utils.sheet_to_html(ws)
-  return { workbook, htmlPreview, itensAtualizados, itensComValorNaPlanilha }
-}
-
-export function baixarWorkbook(workbook: XLSX.WorkBook, nomeArquivo: string): void {
-  XLSX.writeFile(workbook, nomeArquivo)
-}
-
-export function workbookParaBlob(workbook: XLSX.WorkBook): Blob {
-  const array = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' }) as ArrayBuffer
-  return new Blob([array], { type: MIME_XLSX })
+  const array = XLSX.write(workbook, { bookType: tipo.bookType, type: 'array' }) as ArrayBuffer
+  return {
+    arquivo: new Blob([array], { type: tipo.mime }),
+    htmlPreview,
+    previaFiel: false,
+    paginaImpressao: paginaSimples(htmlPreview, titulo),
+    ...resumo,
+  }
 }
 
 export function baixarBlob(blob: Blob, nomeArquivo: string): void {
@@ -162,14 +242,8 @@ function escaparHtml(texto: string): string {
     .replace(/'/g, '&#39;')
 }
 
-/** Abre uma aba só com a tabela, pronta pra imprimir/"Salvar como PDF" pelo próprio navegador. */
-export function abrirParaImpressao(htmlTable: string, titulo: string): void {
-  const win = window.open('', '_blank')
-  if (!win) {
-    void avisar('O navegador bloqueou a nova aba — permita pop-ups pra esse site e tente de novo.')
-    return
-  }
-  win.document.write(`<!DOCTYPE html>
+function paginaSimples(htmlTable: string, titulo: string): string {
+  return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8" />
@@ -181,9 +255,12 @@ export function abrirParaImpressao(htmlTable: string, titulo: string): void {
 </style>
 </head>
 <body>${htmlTable}</body>
-</html>`)
-  win.document.close()
-  setTimeout(() => win.print(), 300)
+</html>`
+}
+
+/** Abre uma aba só com a tabela, pronta pra imprimir/"Salvar como PDF" pelo próprio navegador. */
+export function abrirParaImpressao(htmlTable: string, titulo: string): void {
+  abrirPaginaParaImpressao(paginaSimples(htmlTable, titulo))
 }
 
 /** Igual a abrirParaImpressao, mas com uma página HTML já completa (com o próprio CSS) — usado

@@ -2053,7 +2053,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
           <button
             type="button"
             onClick={() => handleDelete(editingId)}
-            className="h-10 px-4 rounded-full bg-rose-600 text-white text-sm font-medium shadow-lg hover:bg-rose-700 transition"
+            className="h-10 px-4 rounded-full bg-rose-600 text-white text-sm font-medium shadow-lg hover:bg-rose-500 transition"
           >
             Excluir
           </button>
@@ -2063,7 +2063,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
           onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
           aria-label="Voltar ao topo"
           title="Voltar ao topo"
-          className="h-11 w-11 rounded-full bg-ink-950 text-white text-lg shadow-lg hover:bg-ink-800 transition flex items-center justify-center"
+          className="h-11 w-11 rounded-full bg-ink-950 text-white text-lg shadow-lg hover:bg-brand-600 transition flex items-center justify-center"
         >
           ↑
         </button>

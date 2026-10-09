@@ -166,9 +166,6 @@ export function Dashboard({
                 Planilha do cliente
               </Button>
             )}
-            <Button variant="ghost" onClick={onGoToFrete}>
-              Ir para Frete
-            </Button>
             <Button variant="secondary" onClick={() => setMostrarEnvioCotacao(true)} disabled={items.length === 0}>
               Enviar cotação
             </Button>
@@ -242,6 +239,7 @@ export function Dashboard({
         onPatchItem={onPatchItem}
         onApplyMarginToAll={onApplyMarginToAll}
         onGoToComparar={onGoToComparar}
+        onGoToFrete={onGoToFrete}
         onSave={onSave}
         podeSalvar={!travadaPorOutro}
         salvoRecentemente={cotacaoSalva}

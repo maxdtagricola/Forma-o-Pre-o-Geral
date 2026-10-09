@@ -716,7 +716,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                 <button
                   type="button"
                   onClick={() => void handleEntrega(chavesAEntregar, true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-500"
                 >
                   <span aria-hidden>✓</span>
                   {chavesAEntregar.length < chavesTransporte.length ? 'Marcar o restante como entregue' : 'Mercadoria entregue'}

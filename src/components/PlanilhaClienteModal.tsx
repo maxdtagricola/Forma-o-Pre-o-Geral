@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from './ui/Basics'
 import {
-  abrirParaImpressao,
-  baixarWorkbook,
+  abrirPaginaParaImpressao,
+  baixarBlob,
   compartilharArquivo,
   gerarPlanilhaAtualizada,
   linkEmail,
   linkWhatsApp,
   suportaCompartilharArquivo,
-  workbookParaBlob,
   type PlanilhaAtualizada,
 } from '../planilhaCliente'
 import { avisar } from '../dialogs'
@@ -36,10 +35,11 @@ export function PlanilhaClienteModal({
   const podeCompartilharArquivo = useMemo(() => suportaCompartilharArquivo(), [])
   // o aviso de "já tem valor na planilha" sai uma vez só por abertura
   const jaAvisou = useRef(false)
+  const titulo = `Orçamento — ${cliente || 'cliente'} — ${maquina || 'máquina'}`
 
   useEffect(() => {
     try {
-      const gerado = gerarPlanilhaAtualizada(conteudoBase64, items)
+      const gerado = gerarPlanilhaAtualizada(conteudoBase64, items, nomeArquivo, titulo)
       setResultado(gerado)
       setErro(undefined)
       // a planilha do cliente já tinha valor nessas linhas — o site não escreveu por cima; avisa na hora
@@ -62,7 +62,7 @@ export function PlanilhaClienteModal({
       setErro(err instanceof Error ? err.message : 'Erro ao ler a planilha original.')
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conteudoBase64, items])
+  }, [conteudoBase64, items, nomeArquivo])
 
   useEffect(() => {
     function handleEsc(e: KeyboardEvent) {
@@ -72,7 +72,6 @@ export function PlanilhaClienteModal({
     return () => window.removeEventListener('keydown', handleEsc)
   }, [onClose])
 
-  const titulo = `Orçamento — ${cliente || 'cliente'} — ${maquina || 'máquina'}`
   const mensagem = `Segue o orçamento atualizado (${cliente || 'cliente'} — ${maquina || 'máquina'}). Anexei a planilha "${nomeArquivo}".`
 
   // o navegador rejeita o compartilhamento de duas formas bem diferentes: o usuário fecha a folha
@@ -84,7 +83,7 @@ export function PlanilhaClienteModal({
     if (!resultado) return
     setCompartilhando(true)
     try {
-      await compartilharArquivo(workbookParaBlob(resultado.workbook), nomeArquivo, titulo, mensagem)
+      await compartilharArquivo(resultado.arquivo, nomeArquivo, titulo, mensagem, resultado.arquivo.type)
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return
       await avisar('Não consegui compartilhar o arquivo direto — baixe a planilha acima e anexe manualmente.')
@@ -100,7 +99,7 @@ export function PlanilhaClienteModal({
     if (podeCompartilharArquivo && resultado) {
       setCompartilhando(true)
       try {
-        await compartilharArquivo(workbookParaBlob(resultado.workbook), nomeArquivo, titulo, mensagem)
+        await compartilharArquivo(resultado.arquivo, nomeArquivo, titulo, mensagem, resultado.arquivo.type)
         return
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') return
@@ -152,16 +151,18 @@ export function PlanilhaClienteModal({
               </div>
             )}
 
+            {/* prévia fiel: a planilha como ela é (fundo branco de papel, cores e bordas dela), também no modo escuro */}
             <div
-              className="planilha-preview flex-1 overflow-auto rounded-xl border border-ink-100 mb-4"
+              data-testid="previa-planilha-cliente"
+              className={`${resultado.previaFiel ? 'bg-white p-2' : 'planilha-preview'} flex-1 overflow-auto rounded-xl border border-ink-100 mb-4`}
               dangerouslySetInnerHTML={{ __html: resultado.htmlPreview }}
             />
 
             <div className="flex flex-wrap gap-2 mb-3">
-              <Button variant="secondary" onClick={() => baixarWorkbook(resultado.workbook, nomeArquivo)}>
-                Baixar planilha (.xlsx)
+              <Button variant="secondary" onClick={() => baixarBlob(resultado.arquivo, nomeArquivo)}>
+                Baixar planilha (.{nomeArquivo.split('.').pop()?.toLowerCase() || 'xlsx'})
               </Button>
-              <Button variant="secondary" onClick={() => abrirParaImpressao(resultado.htmlPreview, titulo)}>
+              <Button variant="secondary" onClick={() => abrirPaginaParaImpressao(resultado.paginaImpressao)}>
                 Imprimir / Salvar como PDF
               </Button>
               {podeCompartilharArquivo && (

@@ -3,13 +3,18 @@ import { cellNumero, cellTexto, cellValue, procurarTabelaItens, sheetDims, vazio
 import { lerPdf } from './importacao/leitorPdf'
 import { ocrDeImagem } from './importacao/ocr'
 import { agruparEmLinhas, normalizarTexto, type LinhaTexto, type PaginaPosicionada } from './importacao/textoPosicionado'
-import { acharReferenciaNaLinha, mesmaReferencia } from './importacao/referencias'
+import { acharReferenciaNaLinha } from './importacao/referencias'
 import { acharNcmNasPalavras, documentoMencionaNcm, normalizarNcm } from './importacao/ncm'
+import { ORDEM_CASAMENTO, codigoProximo, compararCodigo, type CasamentoCodigo, type TipoCasamento } from './importacao/codigosFornecedor'
+import { identificarPerfil, textoDeIndisponivel, type LinhaDoRetorno, type PerfilFornecedor } from './importacao/perfisFornecedores'
 import { valoresMonetariosNoTexto } from './numeros'
 import type { QuoteItem } from './types'
 
-/** Um item da cotação atual que foi encontrado (pela Referência) no arquivo importado. */
+/** Uma oferta do arquivo importado casada com um item da cotação atual. O mesmo item pode ter mais de
+ * uma (o fornecedor ofereceu marcas diferentes: "GE40KRRB" e "GE40KRRB/1"). */
 export interface ItemDetectadoFornecedor {
+  /** Identifica a oferta (linha do arquivo) — o item da cotação é `itemId`. */
+  chave: string
   itemId: string
   referencia: string
   descricao: string
@@ -31,13 +36,34 @@ export interface ItemDetectadoFornecedor {
    * QTD ATENDIDA…) da planilha; no PDF/foto, a quantidade que fecha unitário × quantidade = total, ou
    * escrita junto ("DISPONÍVEL 2"). Menor que a quantidade do item = ele atende só em parte. */
   quantidadeDetectada?: number
+  /** Como o fornecedor escreveu o código, quando não é igual ao nosso. */
+  codigoNoArquivo?: string
+  /** Quão certo é que é o nosso item (ver codigosFornecedor.ts). */
+  casamento: TipoCasamento
+  detalheCasamento?: string
+  /** O fornecedor marcou que não tem no momento ("*" da INGÁ, "S/ ESTOQUE"…). */
+  semEstoque?: boolean
+  observacao?: string
+  /** UF de onde sai a mercadoria (filial que fatura). */
+  ufOrigem?: string
+}
+
+/** Linha do arquivo que não casou com nenhum item da cotação. */
+export interface LinhaNaoEncontrada {
+  codigo: string
+  descricao: string
+  valorUnitario?: number
 }
 
 export interface ResultadoImportacaoFornecedor {
-  /** Fornecedor já cadastrado que apareceu no arquivo (pelo CNPJ ou pelo nome) — ainda assim
-   * precisa de confirmação explícita do usuário, nunca é aplicado sozinho. */
+  /** Fornecedor do arquivo (do cadastro, pelo CNPJ ou pelo nome; ou o nome do padrão reconhecido) —
+   * ainda assim precisa de confirmação explícita do usuário, nunca é aplicado sozinho. */
   fornecedorDetectado?: string
+  /** Padrão de documento reconhecido (ver perfisFornecedores.ts). */
+  padrao?: { fornecedor: string; descricao: string }
   itens: ItemDetectadoFornecedor[]
+  /** Itens do arquivo que não estão nessa cotação (só quando o padrão do fornecedor é conhecido). */
+  naoEncontrados: LinhaNaoEncontrada[]
   /** Preenchido quando o arquivo foi lido (sem erro) mas não achou nada aproveitável — ex.: imagem
    * borrada, PDF escaneado que o OCR não deu conta. */
   avisoLeituraFraca?: string
@@ -55,13 +81,18 @@ function extensaoDoArquivo(nome: string): string {
   return nome.toLowerCase().split('.').pop() ?? ''
 }
 
-/** Fornecedor cadastrado que aparece no texto — primeiro pelo CNPJ (identifica sem ambiguidade),
- * depois pelo nome (o mais comprido que aparecer, pra "TRACTOR TERRA PEÇAS" ganhar de "TRACTOR"). */
+/** Fornecedor cadastrado que aparece no texto — primeiro pelo CNPJ (identifica sem ambiguidade; a
+ * raiz de 8 dígitos vale pra qualquer filial), depois pelo nome (o mais comprido que aparecer, pra
+ * "TRACTOR TERRA PEÇAS" ganhar de "TRACTOR"). */
 function detectarFornecedorConhecido(texto: string, fornecedores: FornecedorConhecido[]): string | undefined {
-  const digitos = texto.replace(/\D/g, '')
+  const cnpjsNoTexto = (texto.match(/\d{2}\.?\d{3}\.?\d{3}\s*\/?\s*\d{4}\s*-?\s*\d{2}/g) ?? []).map((c) => c.replace(/\D/g, ''))
   for (const f of fornecedores) {
     const cnpj = (f.cnpj ?? '').replace(/\D/g, '')
-    if (cnpj.length === 14 && digitos.includes(cnpj)) return f.nome
+    if (cnpj.length === 14 && cnpjsNoTexto.includes(cnpj)) return f.nome
+  }
+  for (const f of fornecedores) {
+    const raiz = (f.cnpj ?? '').replace(/\D/g, '').slice(0, 8)
+    if (raiz.length === 8 && cnpjsNoTexto.some((c) => c.startsWith(raiz))) return f.nome
   }
   const normal = normalizarTexto(texto)
   const porNome = fornecedores
@@ -123,14 +154,41 @@ function quantidadesNoTexto(texto: string): number[] {
   return (texto.match(/(?<![\d.,])\d{1,5}(?:,00)?(?![\d.,])/g) ?? []).map((m) => Number(m.replace(',00', ''))).filter((n) => n > 0)
 }
 
-/** Acha cada referência dos itens da cotação nas linhas lidas (PDF/OCR) e pega os valores da mesma
- * linha (ou da linha logo abaixo, quando o preço quebrou pra baixo). Só procura pelas referências
- * que já existem na cotação, porque só essas podem virar uma linha no comparador. */
+/** Unitário × quantidade dá o total? (com uma folga de arredondamento) */
+function fechaConta(unitario: number | undefined, quantidade: number | undefined, total: number | undefined): boolean {
+  return (
+    unitario !== undefined &&
+    total !== undefined &&
+    quantidade !== undefined &&
+    quantidade > 0 &&
+    Math.abs(unitario * quantidade - total) <= Math.max(0.02, total * 0.005)
+  )
+}
+
+/** Onde a referência aparece numa linha com o código escrito do jeito do fornecedor (marca colada,
+ * sufixo, alternativos) — só pra quando ela não aparece igual. */
+function acharVariacaoNaLinha(palavras: string[], referencia: string): { posicao: [number, number]; casamento: CasamentoCodigo; codigo: string } | undefined {
+  for (let i = 0; i < palavras.length; i++) {
+    // a palavra sozinha e com a seguinte ("JD9268 FAG")
+    for (let j = i; j < Math.min(palavras.length, i + 2); j++) {
+      const codigo = palavras.slice(i, j + 1).join(' ').replace(/^[(]+|[)]+$/g, '')
+      const casamento = compararCodigo(referencia, codigo)
+      if (casamento && casamento.tipo !== 'exato') return { posicao: [i, j + 1], casamento, codigo }
+    }
+  }
+  return undefined
+}
+
+/** Leitura genérica (fornecedor de padrão desconhecido): acha cada referência dos itens da cotação
+ * nas linhas lidas (PDF/OCR) e pega os valores da mesma linha (ou da linha logo abaixo, quando o preço
+ * quebrou pra baixo). Só procura pelas referências que já existem na cotação, porque só essas podem
+ * virar uma linha no comparador. */
 function interpretarLinhas(
   linhas: LinhaTexto[],
   items: QuoteItem[],
   ocr: boolean,
   aceitaNcmSemPontos: boolean,
+  aceitaVariacao: boolean,
 ): ItemDetectadoFornecedor[] {
   const palavrasPorLinha = linhas.map((l) => l.texto.split(/\s+/).filter(Boolean))
   const encontrados: ItemDetectadoFornecedor[] = []
@@ -139,7 +197,9 @@ function interpretarLinhas(
     if (!referencia) continue
     let achado: ItemDetectadoFornecedor | undefined
     for (let i = 0; i < linhas.length && !achado; i++) {
-      const posicao = acharReferenciaNaLinha(palavrasPorLinha[i], referencia, ocr)
+      const exata = acharReferenciaNaLinha(palavrasPorLinha[i], referencia, ocr)
+      const variacao = !exata && aceitaVariacao ? acharVariacaoNaLinha(palavrasPorLinha[i], referencia) : undefined
+      const posicao = exata ?? variacao?.posicao
       if (!posicao) continue
       // o que vem depois da referência na mesma linha (e, se não tiver preço, a linha de baixo)
       const resto = palavrasPorLinha[i].slice(posicao[1]).join(' ')
@@ -160,12 +220,21 @@ function interpretarLinhas(
       // NCM na mesma linha (antes ou depois da referência, menos as palavras da própria referência)
       const ncm = acharNcmNasPalavras(palavrasPorLinha[i], { ignorar: posicao, aceitaSemPontos: aceitaNcmSemPontos, ocr })
       achado = {
+        chave: item.id,
         itemId: item.id,
         referencia,
         descricao: item.product.descricao,
         valorUnitarioDetectado: unitario,
         valorTotalDetectado: total,
         conferido,
+        casamento: variacao ? variacao.casamento.tipo : 'exato',
+        ...(variacao
+          ? {
+              codigoNoArquivo: variacao.codigo,
+              detalheCasamento: variacao.casamento.detalhe,
+              ...(variacao.casamento.marca ? { marcaDetectada: variacao.casamento.marca } : {}),
+            }
+          : {}),
         ...(prazo ? { prazoDetectado: prazo } : {}),
         ...(ncm ? { ncmDetectado: ncm } : {}),
         ...(quantidadeDetectada !== undefined ? { quantidadeDetectada } : {}),
@@ -176,15 +245,93 @@ function interpretarLinhas(
   return encontrados
 }
 
-function interpretarPaginas(paginas: PaginaPosicionada[], items: QuoteItem[]): ItemDetectadoFornecedor[] {
-  const ocr = paginas.some((p) => p.ocr)
-  const linhas = paginas.flatMap((p) => agruparEmLinhas(p.trechos))
+function interpretarPaginas(linhas: LinhaTexto[], items: QuoteItem[], ocr: boolean): ItemDetectadoFornecedor[] {
   const mencionaNcm = documentoMencionaNcm(linhas.map((l) => l.texto).join('\n'))
-  const exatos = interpretarLinhas(linhas, items, false, mencionaNcm)
+  const exatos = interpretarLinhas(linhas, items, false, mencionaNcm, true)
   if (!ocr) return exatos
   // OCR: tenta de novo, tolerando trocas típicas (O/0, I/1, S/5…), só pros itens que faltaram
   const faltando = items.filter((item) => !exatos.some((e) => e.itemId === item.id))
-  return [...exatos, ...interpretarLinhas(linhas, faltando, true, mencionaNcm)]
+  return [...exatos, ...interpretarLinhas(linhas, faltando, true, mencionaNcm, false)]
+}
+
+/** O item da cotação de uma linha do retorno: o primeiro código dela que casar (na ordem em que o
+ * fornecedor escreveu), com o item que casar melhor. */
+function melhorItemDaLinha(
+  linha: LinhaDoRetorno,
+  items: QuoteItem[],
+  ocr: boolean,
+): { item: QuoteItem; casamento: CasamentoCodigo; codigo: string } | undefined {
+  for (const codigo of linha.codigos) {
+    for (const tolerante of ocr ? [false, true] : [false]) {
+      let melhor: { item: QuoteItem; casamento: CasamentoCodigo; codigo: string } | undefined
+      for (const item of items) {
+        const referencia = item.product.referencia.trim()
+        if (!referencia) continue
+        const casamento = compararCodigo(referencia, codigo, tolerante)
+        if (casamento && (!melhor || ORDEM_CASAMENTO[casamento.tipo] < ORDEM_CASAMENTO[melhor.casamento.tipo])) {
+          melhor = { item, casamento, codigo }
+        }
+      }
+      if (melhor) return melhor
+    }
+  }
+  return undefined
+}
+
+/** Casa as linhas lidas no padrão do fornecedor com os itens da cotação. Código um caractere diferente
+ * só vira sugestão (desmarcada) e só pra item que não achou nada melhor no arquivo. */
+export function casarLinhasDoRetorno(
+  linhas: LinhaDoRetorno[],
+  items: QuoteItem[],
+  ocr: boolean,
+): { itens: ItemDetectadoFornecedor[]; naoEncontrados: LinhaNaoEncontrada[] } {
+  const casadas = linhas.map((linha) => ({ linha, achado: melhorItemDaLinha(linha, items, ocr) }))
+  const itensComOferta = new Set(casadas.filter((c) => c.achado).map((c) => c.achado!.item.id))
+  for (const c of casadas) {
+    if (c.achado) continue
+    const candidatos = items.flatMap((item) => {
+      if (itensComOferta.has(item.id) || !item.product.referencia.trim()) return []
+      const codigo = c.linha.codigos[0] ?? ''
+      const casamento = codigo ? codigoProximo(item.product.referencia, codigo) : undefined
+      return casamento ? [{ item, casamento, codigo }] : []
+    })
+    // dois itens a um caractere de distância: não dá pra saber qual — fica de fora
+    if (candidatos.length === 1) c.achado = candidatos[0]
+  }
+
+  const itens: ItemDetectadoFornecedor[] = []
+  const naoEncontrados: LinhaNaoEncontrada[] = []
+  casadas.forEach(({ linha, achado }, i) => {
+    if (!achado) {
+      naoEncontrados.push({ codigo: linha.codigos.join(' / '), descricao: linha.descricao, valorUnitario: linha.valorUnitario })
+      return
+    }
+    const { item, casamento, codigo } = achado
+    const unitario = linha.valorUnitario ?? (linha.valorTotal && linha.quantidade ? linha.valorTotal / linha.quantidade : undefined)
+    const total = linha.valorTotal ?? (unitario !== undefined && linha.quantidade ? unitario * linha.quantidade : undefined)
+    const quantidade = linha.semEstoque ? 0 : linha.quantidade
+    const marca = linha.marca || casamento.marca
+    const prazo = linha.semEstoque ? 'SEM ESTOQUE' : linha.prazo
+    itens.push({
+      chave: `${item.id}#${i}`,
+      itemId: item.id,
+      referencia: item.product.referencia,
+      descricao: item.product.descricao || linha.descricao,
+      valorUnitarioDetectado: unitario !== undefined && unitario > 0 ? unitario : undefined,
+      valorTotalDetectado: total !== undefined && total > 0 ? total : undefined,
+      conferido: fechaConta(unitario, item.product.qtd || 0, total) || fechaConta(unitario, linha.quantidade, total),
+      casamento: casamento.tipo,
+      ...(casamento.tipo !== 'exato' ? { codigoNoArquivo: codigo, detalheCasamento: casamento.detalhe } : {}),
+      ...(marca ? { marcaDetectada: marca.toUpperCase() } : {}),
+      ...(prazo ? { prazoDetectado: prazo.toUpperCase() } : {}),
+      ...(linha.ncm ? { ncmDetectado: linha.ncm } : {}),
+      ...(quantidade !== undefined ? { quantidadeDetectada: quantidade } : {}),
+      ...(linha.semEstoque ? { semEstoque: true } : {}),
+      ...(linha.observacao ? { observacao: linha.observacao } : {}),
+      ...(linha.uf ? { ufOrigem: linha.uf } : {}),
+    })
+  })
+  return { itens, naoEncontrados }
 }
 
 async function importarDePlanilha(
@@ -196,7 +343,9 @@ async function importarDePlanilha(
   const workbook = XLSX.read(buffer, { type: 'array' })
 
   let textoCompleto = ''
-  const encontrados = new Map<string, ItemDetectadoFornecedor>()
+  const encontrados: ItemDetectadoFornecedor[] = []
+  const naoEncontrados: LinhaNaoEncontrada[] = []
+  const temOferta = (itemId: string) => encontrados.some((e) => e.itemId === itemId)
 
   for (const nomeAba of workbook.SheetNames) {
     const ws = workbook.Sheets[nomeAba]
@@ -221,41 +370,53 @@ async function importarDePlanilha(
 
     const tabela = procurarTabelaItens(ws)
     if (tabela && tabela.colReferencia > 0) {
-      // planilha com cabeçalho reconhecido: lê cada coluna pelo nome dela
+      // planilha com cabeçalho reconhecido: lê cada coluna pelo nome dela — cada linha vira uma
+      // oferta do item que o código dela casar (com o código do jeito do fornecedor: "6210523M1",
+      // "ACW2132720/1"…)
       for (let r = tabela.linhaCabecalho + 1; r <= tabela.maxRow; r++) {
         const referenciaCel = cellTexto(ws, r, tabela.colReferencia)
         if (!referenciaCel) continue
-        const item = items.find((i) => i.product.referencia.trim() && mesmaReferencia(i.product.referencia, referenciaCel))
-        if (!item || encontrados.has(item.id)) continue
+        const descricaoCel = tabela.colDescricao > 0 ? cellTexto(ws, r, tabela.colDescricao) : ''
         const unitarioCel = tabela.colVlrUnt > 0 ? cellNumero(ws, r, tabela.colVlrUnt) : undefined
+        const linhaRetorno: LinhaDoRetorno = { codigos: [referenciaCel], descricao: descricaoCel, valorUnitario: unitarioCel }
+        const achado = melhorItemDaLinha(linhaRetorno, items, false)
+        if (!achado) {
+          naoEncontrados.push({ codigo: referenciaCel, descricao: descricaoCel, valorUnitario: unitarioCel })
+          continue
+        }
+        const { item, casamento } = achado
         const totalCel = tabela.colVlrTotal > 0 ? cellNumero(ws, r, tabela.colVlrTotal) : undefined
         const qtd = item.product.qtd || 0
         // quantidade que o fornecedor atende: a coluna DISPONÍVEL/ESTOQUE/QTD ATENDIDA, se tiver; senão
         // a coluna de quantidade da cotação dele (pode vir menor que a nossa)
         const disponivelCel = tabela.colQuantDisponivel > 0 ? cellNumero(ws, r, tabela.colQuantDisponivel) : undefined
         const quantCel = tabela.colQuant > 0 ? cellNumero(ws, r, tabela.colQuant) : undefined
-        const quantidade = [disponivelCel, quantCel].find((q) => q !== undefined && q >= 0)
-        const fecha = (vezes: number) =>
-          unitarioCel !== undefined &&
-          totalCel !== undefined &&
-          vezes > 0 &&
-          Math.abs(unitarioCel * vezes - totalCel) <= Math.max(0.02, totalCel * 0.005)
-        const conferido = fecha(qtd) || (quantidade !== undefined && fecha(quantidade))
-        const marca = tabela.colMarca > 0 ? cellTexto(ws, r, tabela.colMarca) : ''
-        const prazo = tabela.colEntrega > 0 ? cellTexto(ws, r, tabela.colEntrega) : ''
+        const marcaCel = tabela.colMarca > 0 ? cellTexto(ws, r, tabela.colMarca) : ''
+        const obsCel = tabela.colObservacao > 0 ? cellTexto(ws, r, tabela.colObservacao) : ''
+        // "S/ CADASTRO", "S/ ESTOQUE" na coluna de marca (ou na de observação): o fornecedor não tem
+        const semEstoque = textoDeIndisponivel(marcaCel) || textoDeIndisponivel(obsCel)
+        const quantidade = semEstoque ? 0 : [disponivelCel, quantCel].find((q) => q !== undefined && q >= 0)
+        const conferido = fechaConta(unitarioCel, qtd, totalCel) || fechaConta(unitarioCel, quantidade, totalCel)
+        const marca = textoDeIndisponivel(marcaCel) ? casamento.marca : marcaCel || casamento.marca
+        const prazo = semEstoque ? (textoDeIndisponivel(marcaCel) ? marcaCel : obsCel) : tabela.colEntrega > 0 ? cellTexto(ws, r, tabela.colEntrega) : ''
         // coluna com título NCM: os 8 dígitos valem mesmo sem os pontos
         const ncm = tabela.colNcm > 0 ? normalizarNcm(cellTexto(ws, r, tabela.colNcm)) : undefined
-        encontrados.set(item.id, {
+        encontrados.push({
+          chave: `${item.id}#${nomeAba}!${r}`,
           itemId: item.id,
           referencia: item.product.referencia,
           descricao: item.product.descricao,
           valorUnitarioDetectado: unitarioCel !== undefined && unitarioCel > 0 ? unitarioCel : undefined,
           valorTotalDetectado: totalCel !== undefined && totalCel > 0 ? totalCel : undefined,
           conferido,
+          casamento: casamento.tipo,
+          ...(casamento.tipo !== 'exato' ? { codigoNoArquivo: referenciaCel, detalheCasamento: casamento.detalhe } : {}),
           ...(marca ? { marcaDetectada: marca.toUpperCase() } : {}),
           ...(prazo ? { prazoDetectado: prazo.toUpperCase() } : {}),
           ...(ncm ? { ncmDetectado: ncm } : {}),
           ...(quantidade !== undefined ? { quantidadeDetectada: quantidade } : {}),
+          ...(semEstoque ? { semEstoque: true } : {}),
+          ...(obsCel && !textoDeIndisponivel(obsCel) ? { observacao: obsCel.toUpperCase() } : {}),
         })
       }
     }
@@ -263,11 +424,13 @@ async function importarDePlanilha(
     // sem cabeçalho reconhecível (ou referência fora dele): procura cada referência em qualquer
     // célula e pega os números da mesma linha à direita dela
     for (const item of items) {
-      if (encontrados.has(item.id) || !item.product.referencia.trim()) continue
-      for (let r = 1; r <= maxRow && !encontrados.has(item.id); r++) {
+      if (temOferta(item.id) || !item.product.referencia.trim()) continue
+      let achou = false
+      for (let r = 1; r <= maxRow && !achou; r++) {
         for (let c = 1; c <= maxCol; c++) {
           const texto = cellTexto(ws, r, c)
-          if (!texto || !mesmaReferencia(item.product.referencia, texto)) continue
+          const casamento = texto ? compararCodigo(item.product.referencia, texto) : undefined
+          if (!casamento || casamento.tipo === 'proximo') continue
           let ncm: string | undefined
           for (let c2 = 1; c2 <= maxCol && !ncm; c2++) if (c2 !== c) ncm = ncmDaCelula(r, c2)
           const numeros: number[] = []
@@ -288,31 +451,69 @@ async function importarDePlanilha(
             item.product.qtd || 0,
             numeros.filter((n) => Number.isInteger(n)),
           )
-          encontrados.set(item.id, {
+          encontrados.push({
+            chave: item.id,
             itemId: item.id,
             referencia: item.product.referencia,
             descricao: item.product.descricao,
             valorUnitarioDetectado: unitario,
             valorTotalDetectado: total,
             conferido,
+            casamento: casamento.tipo,
+            ...(casamento.tipo !== 'exato' ? { codigoNoArquivo: texto, detalheCasamento: casamento.detalhe } : {}),
+            ...(casamento.marca ? { marcaDetectada: casamento.marca } : {}),
             ...(ncm ? { ncmDetectado: ncm } : {}),
             ...(quantidade !== undefined ? { quantidadeDetectada: quantidade } : {}),
           })
+          achou = true
           break
         }
       }
     }
   }
 
+  const perfil = identificarPerfil(textoCompleto, file.name)
   return {
-    fornecedorDetectado: detectarFornecedorConhecido(textoCompleto, fornecedores),
-    itens: items.filter((i) => encontrados.has(i.id)).map((i) => encontrados.get(i.id)!),
+    fornecedorDetectado: detectarFornecedorConhecido(textoCompleto, fornecedores) ?? perfil?.nome,
+    ...(perfil ? { padrao: { fornecedor: perfil.nome, descricao: perfil.padrao } } : {}),
+    itens: ordenarComoNaCotacao(encontrados, items),
+    naoEncontrados,
   }
 }
 
+/** Ofertas na ordem dos itens da cotação (e, do mesmo item, na ordem do arquivo). */
+function ordenarComoNaCotacao(itens: ItemDetectadoFornecedor[], items: QuoteItem[]): ItemDetectadoFornecedor[] {
+  const posicao = new Map(items.map((item, i) => [item.id, i]))
+  return itens
+    .map((item, i) => ({ item, i }))
+    .sort((a, b) => (posicao.get(a.item.itemId) ?? 0) - (posicao.get(b.item.itemId) ?? 0) || a.i - b.i)
+    .map((x) => x.item)
+}
+
+/** Lê o documento no padrão do fornecedor reconhecido; se o padrão não render nada (ex.: foto que o
+ * OCR leu torto), volta pra leitura genérica. Na foto, o que o padrão não pegou ainda é procurado do
+ * jeito genérico. */
+function lerPaginas(
+  paginas: PaginaPosicionada[],
+  items: QuoteItem[],
+  perfil: PerfilFornecedor | undefined,
+  texto: string,
+): { itens: ItemDetectadoFornecedor[]; naoEncontrados: LinhaNaoEncontrada[]; leuNoPadrao: boolean } {
+  const ocr = paginas.some((p) => p.ocr)
+  const linhas = paginas.flatMap((p) => agruparEmLinhas(p.trechos))
+  const doPadrao = perfil?.lerLinhas?.(linhas, texto) ?? []
+  if (doPadrao.length === 0) return { itens: interpretarPaginas(linhas, items, ocr), naoEncontrados: [], leuNoPadrao: false }
+  const casado = casarLinhasDoRetorno(doPadrao, items, ocr)
+  if (!ocr) return { ...casado, leuNoPadrao: true }
+  const faltando = items.filter((item) => !casado.itens.some((e) => e.itemId === item.id))
+  const genericos = interpretarPaginas(linhas, faltando, ocr)
+  return { itens: [...casado.itens, ...genericos], naoEncontrados: casado.naoEncontrados, leuNoPadrao: true }
+}
+
 /** Lê um arquivo de cotação de fornecedor (planilha, PDF ou imagem) e casa o que encontrar com os
- * itens já existentes na cotação atual, pela Referência. Nunca aplica nada sozinho — devolve só o
- * que achou, pra revisão e confirmação na tela antes de entrar no comparador. */
+ * itens já existentes na cotação atual, pela Referência (no padrão do fornecedor, quando ele é
+ * conhecido — ver perfisFornecedores.ts). Nunca aplica nada sozinho — devolve só o que achou, pra
+ * revisão e confirmação na tela antes de entrar no comparador. */
 export async function importarCotacaoFornecedor(
   file: File,
   items: QuoteItem[],
@@ -339,12 +540,16 @@ export async function importarCotacaoFornecedor(
 
   const texto = paginas.map((p) => p.trechos.map((t) => t.texto).join(' ')).join('\n')
   if (texto.replace(/\s/g, '').length < 10) {
-    return { itens: [], avisoLeituraFraca: 'Não consegui ler nenhum texto aproveitável nesse arquivo.' }
+    return { itens: [], naoEncontrados: [], avisoLeituraFraca: 'Não consegui ler nenhum texto aproveitável nesse arquivo.' }
   }
 
+  const perfil = identificarPerfil(texto, file.name)
+  const { itens, naoEncontrados, leuNoPadrao } = lerPaginas(paginas, items, perfil, texto)
   const resultado: ResultadoImportacaoFornecedor = {
-    fornecedorDetectado: detectarFornecedorConhecido(texto, fornecedores),
-    itens: interpretarPaginas(paginas, items),
+    fornecedorDetectado: detectarFornecedorConhecido(texto, fornecedores) ?? perfil?.nome,
+    ...(perfil && leuNoPadrao ? { padrao: { fornecedor: perfil.nome, descricao: perfil.padrao } } : {}),
+    itens: ordenarComoNaCotacao(itens, items),
+    naoEncontrados,
   }
   if (resultado.itens.length === 0) {
     resultado.avisoLeituraFraca = 'Li o arquivo, mas não encontrei nenhuma referência dessa cotação nele.'
@@ -353,4 +558,3 @@ export async function importarCotacaoFornecedor(
   }
   return resultado
 }
-

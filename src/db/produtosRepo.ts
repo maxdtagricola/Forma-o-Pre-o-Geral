@@ -189,7 +189,13 @@ export async function sincronizarProdutos(quotes: QuoteRecord[]): Promise<Produt
   }
 
   if (paraSalvar.size > 0) {
-    await Promise.all(Array.from(paraSalvar.values()).map((p) => dbPut(STORE_PRODUTOS, p)))
+    // poucos por vez: centenas de gravações de uma vez ficavam na fila do navegador, estouravam o
+    // tempo limite de cada requisição e o site acusava "não foi possível conectar ao servidor"
+    const fila = Array.from(paraSalvar.values())
+    const gravarProximos = async () => {
+      for (let p = fila.shift(); p; p = fila.shift()) await dbPut(STORE_PRODUTOS, p)
+    }
+    await Promise.all(Array.from({ length: 4 }, gravarProximos))
   }
 
   const resultadoPorId = new Map<string, Produto>()

@@ -501,7 +501,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
                               />
                               <Button
                                 variant="primary"
-                                className="py-1 px-2 text-xs bg-rose-600 hover:bg-rose-700"
+                                className="py-1 px-2 text-xs bg-rose-600 hover:bg-rose-500"
                                 onClick={() => handleConfirmarExclusao(p)}
                                 disabled={salvando === p.id}
                               >

@@ -145,7 +145,7 @@ export function ProductForm({
       <button
         type="button"
         onClick={() => setShowAdvanced((s) => !s)}
-        className="mt-5 text-sm font-medium text-brand-700 hover:text-brand-800"
+        className="mt-5 text-sm font-medium text-ink-800 hover:text-ink-900"
       >
         {showAdvanced ? 'Ocultar campos avançados' : 'Mostrar campos avançados'}
       </button>

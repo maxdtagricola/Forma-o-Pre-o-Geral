@@ -117,7 +117,7 @@ function Erro({ texto }: { texto: string | null }) {
 
 function Link({ onClick, children }: { onClick: () => void; children: ReactNode }) {
   return (
-    <button type="button" onClick={onClick} className="text-sm text-brand-600 hover:text-brand-700 hover:underline">
+    <button type="button" onClick={onClick} className="text-sm text-ink-800 underline-offset-2 hover:text-ink-900 hover:underline">
       {children}
     </button>
   )

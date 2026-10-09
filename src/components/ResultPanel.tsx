@@ -88,7 +88,7 @@ export function ResultPanel({
               className={`pill-tab border ${
                 active
                   ? 'bg-brand-600 border-brand-600 text-white'
-                  : 'border-ink-200 text-ink-600 hover:border-brand-300 hover:text-brand-700'
+                  : 'border-ink-200 text-ink-600 hover:border-ink-400 hover:text-ink-900'
               }`}
             >
               {formatPercent(m, 0)}

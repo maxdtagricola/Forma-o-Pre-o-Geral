@@ -17,9 +17,10 @@ export function DialogHost() {
         if (e.target === e.currentTarget && pedido.tipo === 'avisar') resolverPedidoAtual()
       }}
     >
-      <div className="card max-w-sm w-full animate-[dialog-pop-in_0.18s_cubic-bezier(0.16,1,0.3,1)]">
+      {/* mensagem comprida (lista de itens) rola dentro da caixa — os botões ficam sempre à vista */}
+      <div className="card flex max-h-[90vh] w-full max-w-sm flex-col animate-[dialog-pop-in_0.18s_cubic-bezier(0.16,1,0.3,1)]">
         {pedido.titulo && <h3 className="font-display text-lg font-semibold text-ink-900 mb-1">{pedido.titulo}</h3>}
-        <p className="text-sm text-ink-600 whitespace-pre-line">{pedido.mensagem}</p>
+        <p className="min-h-0 shrink overflow-y-auto text-sm text-ink-600 whitespace-pre-line">{pedido.mensagem}</p>
         {pedido.tipo === 'senha' ? (
           <CampoSenha key={pedido.id} pedido={pedido} />
         ) : pedido.tipo === 'arquivar' ? (
@@ -37,7 +38,7 @@ export function DialogHost() {
               <button
                 type="button"
                 onClick={() => resolverPedidoAtual(true)}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-700"
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-500"
               >
                 {pedido.confirmText}
               </button>

@@ -9,7 +9,7 @@ export function Badge({
 }) {
   const tones: Record<string, string> = {
     neutral: 'bg-ink-100 text-ink-600',
-    brand: 'bg-brand-100 text-brand-700',
+    brand: 'bg-brand-100 text-ink-800',
     amber: 'bg-amber-100 text-amber-800',
     danger: 'bg-rose-100 text-rose-700',
   }

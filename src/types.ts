@@ -457,6 +457,11 @@ export interface CotacaoFornecedorItem {
    * quantidade toda que precisamos; menor que a quantidade do item = cotação parcial (o resto tem
    * que vir de outro fornecedor). Vazio: atende a quantidade toda. */
   quantidadeDisponivel?: number
+  /** UF de onde a mercadoria sai, quando o fornecedor informou (filial que fatura — ex.: TOLEAGRI
+   * PR/SC/GO). Do mais barato, vira o estado de origem do item (muda o ICMS da compra). */
+  ufOrigem?: string
+  /** Observação do fornecedor pro item ("S/ PARAFUSO", IPI à parte…). */
+  observacao?: string
 }
 
 export interface PreRegistroItem {

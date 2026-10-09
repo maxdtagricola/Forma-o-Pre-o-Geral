@@ -1,3 +1,15 @@
+import colors from 'tailwindcss/colors'
+
+// Cores fixas que precisam de outro tom no modo escuro: os tons claros (fundos 50–200) e os
+// escuros de texto (700–900) viram variáveis CSS que trocam com a classe "dark" (valores em
+// index.css). Os tons do meio (300–600) ficam fixos — são os de botão cheio com letra branca e
+// os de texto claro em cima de fundo sempre escuro, que já funcionam nos dois modos.
+function corComTema(nome, padrao) {
+  const cor = { ...padrao }
+  for (const tom of [50, 100, 200, 700, 800, 900]) cor[tom] = `rgb(var(--${nome}-${tom}) / <alpha-value>)`
+  return cor
+}
+
 /** @type {import('tailwindcss').Config} */
 export default {
   darkMode: 'class',
@@ -22,10 +34,12 @@ export default {
           950: 'rgb(var(--ink-950) / <alpha-value>)',
         },
         surface: 'rgb(var(--surface) / <alpha-value>)',
+        // brand: só os tons claros (fundos) trocam no escuro — 600–900 são o fundo dos botões
+        // principais, sempre escuros com letra branca
         brand: {
-          50: '#f5f5f5',
-          100: '#e5e5e5',
-          200: '#d4d4d4',
+          50: 'rgb(var(--brand-50) / <alpha-value>)',
+          100: 'rgb(var(--brand-100) / <alpha-value>)',
+          200: 'rgb(var(--brand-200) / <alpha-value>)',
           300: '#a3a3a3',
           400: '#737373',
           500: '#525252',
@@ -34,6 +48,9 @@ export default {
           800: '#0a0a0a',
           900: '#000000',
         },
+        emerald: corComTema('emerald', colors.emerald),
+        rose: corComTema('rose', colors.rose),
+        sky: corComTema('sky', colors.sky),
         amber: {
           50: 'rgb(var(--amber-50) / <alpha-value>)',
           100: 'rgb(var(--amber-100) / <alpha-value>)',

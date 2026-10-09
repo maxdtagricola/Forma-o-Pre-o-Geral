@@ -90,6 +90,7 @@ const CABECALHOS = {
   valorTotal: [/^vlr total$/, /^vlr total/, /^valor total/, /^v total/, /^vl total/, /^total$/, /^subtotal$/],
   marca: [/^marca$/, /^fabricante$/],
   ncm: [/^ncm$/, /^ncm\b/, /^(cod|codigo) ncm$/, /^classif(icacao)? fiscal$/, /^class fiscal$/],
+  observacao: [/^obs$/, /^obs\b/, /^observac/],
 } satisfies Record<string, RegExp[]>
 
 type ColunaCabecalho = keyof typeof CABECALHOS
@@ -106,6 +107,8 @@ export interface TabelaItensLocalizada {
   colVlrTotal: number
   colMarca: number
   colNcm: number
+  /** Coluna OBS/OBSERVAÇÃO (ex.: "S/ PARAFUSO"), -1 se não tiver. */
+  colObservacao: number
   maxRow: number
   maxCol: number
 }
@@ -149,6 +152,7 @@ export function procurarTabelaItens(ws: XLSX.WorkSheet, linhasProcura = 60): Tab
     colVlrTotal: c.valorTotal ?? -1,
     colMarca: c.marca ?? -1,
     colNcm: c.ncm ?? -1,
+    colObservacao: c.observacao ?? -1,
     maxRow,
     maxCol,
   }

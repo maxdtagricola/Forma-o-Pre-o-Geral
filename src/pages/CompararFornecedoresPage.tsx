@@ -141,6 +141,13 @@ function LinhaCotacao({
           disabled={travadaPorOutro}
           onChange={(e) => onChange({ fornecedor: e.target.value })}
         />
+        {(cotacao.ufOrigem || cotacao.observacao) && (
+          <p className="truncate px-1.5 text-[10px] text-ink-400" title={cotacao.observacao}>
+            {cotacao.ufOrigem && <span className="font-semibold text-ink-600">sai de {cotacao.ufOrigem}</span>}
+            {cotacao.ufOrigem && cotacao.observacao && ' · '}
+            {cotacao.observacao}
+          </p>
+        )}
       </td>
       <td className={cellCls}>
         <input
@@ -420,6 +427,8 @@ export function CompararFornecedoresPage({
             marca: melhor.marca,
             ...(melhor.prazoEntrega ? { prazoEntrega: melhor.prazoEntrega } : {}),
             ...(ncmDoMelhor ? { ncm: ncmDoMelhor } : {}),
+            // a filial que fatura muda a alíquota de ICMS da compra
+            ...(melhor.ufOrigem ? { estadoOrigem: melhor.ufOrigem } : {}),
           }
         : {}),
     })
@@ -452,10 +461,15 @@ export function CompararFornecedoresPage({
   // cada um recebe a mesma cotação (fornecedor/marca), com o valor unitário e (se o arquivo trazia)
   // o valor total mudando por item
   function handleImportarConfirmado(fornecedorNome: string, marca: string, confirmados: ItemImportadoConfirmado[]) {
-    for (const c of confirmados) {
-      const item = items.find((i) => i.id === c.itemId)
+    // tudo do mesmo item de uma vez: o fornecedor pode ter mandado mais de uma oferta pro item (marcas
+    // diferentes) — uma de cada vez, a segunda partiria do item sem a primeira e a apagaria
+    const porItem = new Map<string, ItemImportadoConfirmado[]>()
+    for (const c of confirmados) porItem.set(c.itemId, [...(porItem.get(c.itemId) ?? []), c])
+    for (const [itemId, ofertas] of porItem) {
+      const item = items.find((i) => i.id === itemId)
       if (!item) continue
-      handleAddCotacao(item, {
+      const novas: CotacaoFornecedorItem[] = ofertas.map((c) => ({
+        id: makeId(),
         fornecedor: fornecedorNome,
         // marca lida do próprio arquivo (coluna MARCA) vale mais que a marca geral digitada
         marca: c.marca || marca,
@@ -464,7 +478,10 @@ export function CompararFornecedoresPage({
         ...(c.prazoEntrega ? { prazoEntrega: c.prazoEntrega } : {}),
         ...(c.ncm ? { ncm: c.ncm } : {}),
         ...(c.quantidadeDisponivel !== undefined ? { quantidadeDisponivel: c.quantidadeDisponivel } : {}),
-      })
+        ...(c.ufOrigem ? { ufOrigem: c.ufOrigem } : {}),
+        ...(c.observacao ? { observacao: c.observacao } : {}),
+      }))
+      aplicarCotacoes(item.id, [...(item.product.cotacoesFornecedores ?? []), ...novas])
     }
   }
 
@@ -738,7 +755,7 @@ export function CompararFornecedoresPage({
         <button
           type="button"
           onClick={onGoToPrecificacao}
-          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-1.5 rounded-full bg-ink-950 px-4 py-2.5 text-sm font-medium text-white shadow-lg transition hover:bg-ink-800"
+          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-1.5 rounded-full bg-ink-950 px-4 py-2.5 text-sm font-medium text-white shadow-lg transition hover:bg-brand-600"
         >
           <span aria-hidden>←</span> Voltar para Precificação
         </button>
