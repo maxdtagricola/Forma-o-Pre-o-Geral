@@ -61,11 +61,13 @@ export type PedidoDialog =
       resolver: (valor: RespostaProducao | null) => void
     }
 
-/** Produção do pedido confirmado: todo em produção, ou só os itens marcados. */
+/** Produção do pedido confirmado: todo em produção, ou só os itens marcados — e quando fica pronta. */
 export interface RespostaProducao {
   tipo: 'total' | 'parcial'
   itemIds: string[]
   observacao: string
+  /** "AAAA-MM-DD", ou vazio sem previsão. */
+  previsaoFinalizacao: string
 }
 
 let pedidoAtual: PedidoDialog | null = null

@@ -6,6 +6,8 @@ export interface ItemCotacaoImportado {
   referencia: string
   descricao: string
   quantidade: number
+  /** Escrita na tela, antes de criar a cotação — vai pra observação do item na Precificação. */
+  observacao?: string
 }
 
 export interface ResultadoImportacaoCotacao {

@@ -70,6 +70,11 @@ export interface PlanilhaImportada {
   importadoEm: number
   rbc: RbcData
   icmsSt: Record<string, StInfo>
+  /** NCMs com PIS/COFINS monofásico (aba PISCOFINS) — planilhas importadas antes de out/2026 não têm
+   * (o cálculo usa a tabela padrão). */
+  pisCofins?: Record<string, boolean>
+  /** A lista de NCMs da planilha (aba "Planilha1") — só pra saber que o NCM é conhecido. */
+  ncmsLista?: string[]
 }
 
 export async function listPlanilhas(): Promise<PlanilhaImportada[]> {

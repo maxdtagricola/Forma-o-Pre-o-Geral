@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Button } from './ui/Basics'
 import { diasUteisAte, textoDiasUteis } from '../diasUteis'
 import type { DadosTransporte, QuoteRecord } from '../types'
@@ -32,27 +32,40 @@ export function previsaoDaCotacao(cotacao: Pick<QuoteRecord, 'transportePorForne
   return datas[0]
 }
 
-/** "chega 10/10 · em 3 dias úteis", "chega hoje" ou "atrasada 2 dias úteis (previsão 08/10)". */
-export function situacaoDaPrevisao(previsao: string, agora: number = Date.now()): { texto: string; atrasada: boolean } {
+/** Previsão de entrega (da transportadora) ou de finalização da produção (do fornecedor). */
+export type TipoPrevisao = 'entrega' | 'producao'
+
+/** "chega 10/10 · em 3 dias úteis" (ou "fica pronto…", na produção), "chega hoje" ou "atrasada 2 dias
+ * úteis (previsão 08/10)". `diasUteis`: quantos dias úteis faltam (negativo = atrasada). */
+export function situacaoDaPrevisao(
+  previsao: string,
+  agora: number = Date.now(),
+  tipo: TipoPrevisao = 'entrega',
+): { texto: string; atrasada: boolean; diasUteis: number } {
   const [ano, mes, dia] = previsao.split('-').map(Number)
   const data = new Date(ano, mes - 1, dia).getTime()
   const dataBR = `${String(dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}`
   const dias = diasUteisAte(data, agora)
-  if (dias === 0) return { texto: `chega hoje (${dataBR})`, atrasada: false }
-  if (dias > 0) return { texto: `chega ${dataBR} · em ${textoDiasUteis(dias)}`, atrasada: false }
+  const verbo = tipo === 'entrega' ? 'chega' : 'fica pronto'
+  if (dias === 0) return { texto: `${verbo} hoje (${dataBR})`, atrasada: false, diasUteis: 0 }
+  if (dias > 0) return { texto: `${verbo} ${dataBR} · em ${textoDiasUteis(dias)}`, atrasada: false, diasUteis: dias }
   // previsão passou: num fim de semana/feriado logo depois dela a contagem de dias úteis ainda é 0
-  return { texto: `atrasada ${textoDiasUteis(Math.max(1, -dias))} (previsão ${dataBR})`, atrasada: true }
+  return { texto: `atrasada ${textoDiasUteis(Math.max(1, -dias))} (previsão ${dataBR})`, atrasada: true, diasUteis: Math.min(-1, dias) }
 }
 
-/** Selo da previsão de entrega (cinza no prazo, vermelho atrasada). */
-export function SeloPrevisao({ previsao, agora }: { previsao: string; agora?: number }) {
-  const { texto, atrasada } = situacaoDaPrevisao(previsao, agora)
+/** Selo da previsão (cinza no prazo, vermelho atrasada). */
+export function SeloPrevisao({ previsao, agora, tipo = 'entrega' }: { previsao: string; agora?: number; tipo?: TipoPrevisao }) {
+  const { texto, atrasada } = situacaoDaPrevisao(previsao, agora, tipo)
   return (
     <span
       className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
         atrasada ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-sky-200 bg-sky-50 text-sky-800'
       }`}
-      title="Previsão de entrega informada pela transportadora (dias úteis)"
+      title={
+        tipo === 'entrega'
+          ? 'Previsão de entrega informada pela transportadora (dias úteis)'
+          : 'Previsão de finalização da produção informada pelo fornecedor (dias úteis)'
+      }
     >
       {texto}
     </span>
@@ -106,11 +119,12 @@ function CamposTransporte({
       {campo('Link de rastreio', 'linkRastreio', { placeholder: 'https://… (página de acompanhamento)', inputMode: 'url' })}
       <label className="block" htmlFor={`${idBase}-previsaoEntrega`}>
         <span className="mb-1 block text-xs font-medium text-ink-600">Previsão de entrega (a que a transportadora informa)</span>
+        {/* não controlado (ver DateField): controlado, o campo se apagava enquanto o ano era digitado */}
         <input
           id={`${idBase}-previsaoEntrega`}
           type="date"
           className="field-input py-1.5 text-sm"
-          value={valor.previsaoEntrega}
+          defaultValue={valor.previsaoEntrega}
           onChange={(e) => onChange({ previsaoEntrega: e.target.value })}
         />
       </label>
@@ -191,6 +205,105 @@ export function TransporteModal({
           </Button>
           <Button variant="primary" onClick={() => void handleConfirmar()} disabled={salvando || algumLinkInvalido}>
             {salvando ? 'Salvando…' : 'Confirmar: em transporte'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Janela por cima da tela com o envio de cada fornecedor de um pedido em transporte — NF,
+ * transportadora, cotação do frete, rastreio e previsão — pra consultar rápido, sem abrir o pedido.
+ * Fecha no "×", no ESC ou clicando fora. */
+export function ResumoTransporteModal({
+  titulo,
+  subtitulo,
+  selos,
+  fornecedores,
+  onAbrirPedido,
+  onFechar,
+}: {
+  titulo: string
+  subtitulo?: string
+  selos?: ReactNode
+  fornecedores: { chave: string; rotulo: string; transporte?: DadosTransporte }[]
+  onAbrirPedido: () => void
+  onFechar: () => void
+}) {
+  useEffect(() => {
+    function aoTeclar(e: KeyboardEvent) {
+      if (e.key === 'Escape') onFechar()
+    }
+    window.addEventListener('keydown', aoTeclar)
+    return () => window.removeEventListener('keydown', aoTeclar)
+  }, [onFechar])
+
+  const campo = (rotulo: string, valor: string | undefined) => (
+    <div>
+      <p className="text-xs text-ink-400">{rotulo}</p>
+      <p className={`text-sm ${valor ? 'font-medium text-ink-900' : 'text-ink-300'}`}>{valor || '—'}</p>
+    </div>
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => e.target === e.currentTarget && onFechar()}>
+      <div role="dialog" aria-modal="true" aria-label={`Transporte — ${titulo}`} className="card relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden">
+        <button
+          type="button"
+          onClick={onFechar}
+          aria-label="Fechar"
+          title="Fechar (Esc)"
+          className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full text-xl leading-none text-ink-400 transition hover:bg-ink-100 hover:text-ink-800"
+        >
+          ×
+        </button>
+        <div className="pr-10">
+          <h3 className="font-display text-lg font-semibold text-ink-900">{titulo}</h3>
+          {subtitulo && <p className="text-sm text-ink-400">{subtitulo}</p>}
+          {selos && <div className="mt-2 flex flex-wrap items-center gap-2">{selos}</div>}
+        </div>
+        <div className="mt-4 flex-1 space-y-3 overflow-y-auto">
+          {fornecedores.map((f) => {
+            const t = f.transporte
+            return (
+              <section key={f.chave} aria-label={`Envio de ${f.rotulo}`} className="rounded-xl border border-ink-100 bg-ink-50/50 p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-semibold text-ink-800">Fornecedor: {f.rotulo}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {t?.entregueEm ? (
+                      <span className="inline-flex items-center rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+                        ✓ Entregue em {new Date(t.entregueEm).toLocaleDateString('pt-BR')}
+                      </span>
+                    ) : (
+                      t?.previsaoEntrega && <SeloPrevisao previsao={t.previsaoEntrega} />
+                    )}
+                    {t?.linkRastreio && <BotaoRastreio link={t.linkRastreio} compacto />}
+                  </div>
+                </div>
+                {t ? (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {campo('Nota fiscal', t.numeroNotaFiscal)}
+                    {campo('Transportadora', t.transportadora)}
+                    {campo('Cotação do frete', t.numeroCotacaoFrete)}
+                    {campo(
+                      'Previsão de entrega',
+                      t.previsaoEntrega ? new Date(`${t.previsaoEntrega}T00:00:00`).toLocaleDateString('pt-BR') : undefined,
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-ink-400">Os dados do envio desse fornecedor ainda não foram informados.</p>
+                )}
+                {t && !normalizarLinkRastreio(t.linkRastreio) && <p className="mt-2 text-xs text-ink-400">Sem link de rastreio.</p>}
+              </section>
+            )
+          })}
+        </div>
+        <div className="mt-3 flex justify-end gap-2 border-t border-ink-100 pt-3">
+          <Button variant="secondary" onClick={onAbrirPedido}>
+            Abrir o pedido
+          </Button>
+          <Button variant="primary" onClick={onFechar}>
+            Fechar
           </Button>
         </div>
       </div>

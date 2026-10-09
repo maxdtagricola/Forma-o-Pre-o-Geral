@@ -27,15 +27,20 @@ function posicionar(ancora: DOMRect, altura: number): { top: number; left: numbe
 export function CelulaObservacao({
   valor,
   onChange,
+  onFechar,
   idLinha,
   descricaoItem,
+  placeholder = 'Escreva a observação desse produto…',
 }: {
   valor: string
   onChange: (valor: string) => void
+  /** Quando o balão de escrever fecha — pra quem grava no servidor só no fim, não a cada tecla. */
+  onFechar?: () => void
   /** Marca o balão como parte da linha — o foco indo pro balão não conta como "saiu da linha". */
   idLinha: string
   /** Pra quem usa leitor de tela saber de qual item é a observação. */
   descricaoItem: string
+  placeholder?: string
 }) {
   const [editando, setEditando] = useState(false)
   const [espiando, setEspiando] = useState(false)
@@ -82,6 +87,7 @@ export function CelulaObservacao({
   }, [editando])
 
   function fechar(devolverFoco: boolean) {
+    if (editando) onFechar?.()
     setEditando(false)
     setEspiando(false)
     if (devolverFoco) celulaRef.current?.focus()
@@ -148,7 +154,7 @@ export function CelulaObservacao({
                       fechar(true)
                     }
                   }}
-                  placeholder="Escreva a observação desse produto…"
+                  placeholder={placeholder}
                   className="block w-full resize-none rounded border border-amber-200 bg-surface/70 px-1.5 py-1 text-xs leading-snug text-ink-900 placeholder:text-ink-400 focus:outline-none focus:ring-1 focus:ring-amber-400"
                 />
                 <p className="mt-1 text-[10px] text-ink-500">Esc ou clicar fora fecha · Enter pula linha</p>

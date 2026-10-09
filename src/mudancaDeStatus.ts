@@ -27,7 +27,9 @@ export function perguntarProducao(cotacao: Pick<QuoteRecord, 'codigo' | 'items' 
   return pedirProducao(
     `${cotacao.codigo ? `${cotacao.codigo} — ` : ''}o pedido já está todo em produção no fornecedor, ou só uma parte?`,
     itens.map((item, i) => ({ id: item.id, rotulo: rotuloDoItem(item, i) })),
-    atual ? { tipo: atual.tipo, itemIds: atual.itemIds, observacao: atual.observacao } : undefined,
+    atual
+      ? { tipo: atual.tipo, itemIds: atual.itemIds, observacao: atual.observacao, previsaoFinalizacao: atual.previsaoFinalizacao ?? '' }
+      : undefined,
   )
 }
 

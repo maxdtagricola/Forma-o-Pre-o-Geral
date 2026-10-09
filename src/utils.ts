@@ -1,3 +1,6 @@
+import { normalizarNcm } from './importacao/ncm'
+import type { CotacaoFornecedorItem, ProductInput } from './types'
+
 export function formatCurrency(value: number): string {
   if (!Number.isFinite(value)) return 'R$ 0,00'
   return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -70,6 +73,38 @@ export function melhorCotacaoFornecedor<T extends { valorUnitario: number }>(
  * (o fornecedor que devolveu quantidade 0 não atende nada, por mais barato que seja). */
 export function cotacaoAtende(cotacao: { valorUnitario: number; quantidadeDisponivel?: number }): boolean {
   return cotacao.valorUnitario > 0 && cotacao.quantidadeDisponivel !== 0
+}
+
+/** Nome de fornecedor pra comparar: sem acento, maiúsculo, espaços simples ("Agripeças " = "AGRIPECAS"). */
+export function mesmoFornecedor(a: string, b: string): boolean {
+  const comparavel = (nome: string) =>
+    nome
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .toUpperCase()
+      .replace(/\s+/g, ' ')
+      .trim()
+  return comparavel(a) === comparavel(b)
+}
+
+/** Ao trocar o fornecedor de um item que tem cotações na comparação de fornecedores, o preço vem da
+ * cotação desse fornecedor — o valor importado é sempre o do fornecedor de onde ele veio. Com mais de
+ * uma cotação dele (marcas diferentes), a mais barata que atende. Sem cotação dele, nada muda. */
+export function valoresDaCotacaoDoFornecedor(
+  cotacoes: CotacaoFornecedorItem[] | undefined,
+  fornecedor: string,
+): Partial<ProductInput> {
+  if (!fornecedor.trim()) return {}
+  const dele = (cotacoes ?? []).filter((c) => c.valorUnitario > 0 && mesmoFornecedor(c.fornecedor, fornecedor))
+  const cotacao = melhorCotacaoFornecedor(dele.some(cotacaoAtende) ? dele.filter(cotacaoAtende) : dele)
+  if (!cotacao) return {}
+  const ncm = cotacao.ncm ? normalizarNcm(cotacao.ncm) : undefined
+  return {
+    valorUnt: cotacao.valorUnitario,
+    marca: cotacao.marca,
+    ...(cotacao.prazoEntrega ? { prazoEntrega: cotacao.prazoEntrega } : {}),
+    ...(ncm ? { ncm } : {}),
+  }
 }
 
 /** Quantas unidades da quantidade pedida a cotação atende (sem quantidade informada, atende tudo). */

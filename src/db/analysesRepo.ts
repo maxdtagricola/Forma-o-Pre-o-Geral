@@ -135,6 +135,8 @@ export async function saveQuote(
     /** Itens tirados na tela desde o último salvamento — entram no arquivo de excluídos mesmo que
      * nunca tenham chegado a ser salvos na cotação. */
     itensRemovidos?: QuoteItem[]
+    /** Observação da cotação — omitida, fica a que já estava salva. */
+    observacao?: string
   },
 ): Promise<QuoteRecord> {
   const now = Date.now()
@@ -172,6 +174,7 @@ export async function saveQuote(
     itensPreRegistro: base?.itensPreRegistro ?? [],
     planilhaOriginal: base?.planilhaOriginal,
     dataSolicitacao: dataSolicitacao ?? base?.dataSolicitacao,
+    observacao: opcoes?.observacao !== undefined ? opcoes.observacao.trim() || undefined : base?.observacao,
     itensExcluidos: arquivarItensExcluidos(base, items, opcoes?.itensRemovidos ?? [], atorAdmin, now),
     status: base?.status ?? 'PENDENTE',
     responsavelStatus: base?.responsavelStatus ?? '',
@@ -224,6 +227,16 @@ function exigirResponsavel(cotacao: QuoteRecord, atorAdmin: string) {
   if (cotacao.status !== 'PENDENTE' && cotacao.responsavelStatus && cotacao.responsavelStatus !== atorAdmin) {
     throw new Error(`Essa cotação está sendo analisada por ${cotacao.responsavelStatus} — só ele(a) pode mudar o status agora.`)
   }
+}
+
+/** Grava a observação da cotação (aba Cotações) — é só uma anotação, qualquer um pode escrever. */
+export async function salvarObservacaoCotacao(id: string, observacao: string): Promise<QuoteRecord> {
+  const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
+  if (!atual) throw new Error('Cotação não encontrada no servidor.')
+  const normalizado = normalizeRecord(atual)
+  const atualizado: QuoteRecord = { ...normalizado, observacao: observacao.trim() || undefined, updatedAt: Date.now() }
+  await dbPut(STORE_ANALISES, atualizado)
+  return atualizado
 }
 
 /** Atualiza a produção do pedido (aba Pedido de Compra), sem mudar o status. */

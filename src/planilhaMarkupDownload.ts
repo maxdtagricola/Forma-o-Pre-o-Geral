@@ -31,17 +31,24 @@ export function gerarWorkbookMarkup(planilha: PlanilhaImportada): XLSX.WorkBook 
 
   const linhasIcmsSt: (string | number)[][] = [
     ['NCM', 'MVA 4%', 'MVA 7%', 'MVA 12%', 'ST'],
+    // MVA vazio = sem percentual na planilha (ex.: PMPF) — ST sem base de substituição
     ...Object.entries(planilha.icmsSt).map(([ncm, info]) => [
       ncm,
-      info.mva04,
-      info.mva07,
-      info.mva12,
+      info.mva04 ?? '',
+      info.mva07 ?? '',
+      info.mva12 ?? '',
       info.st ? 'Sim' : 'Não',
     ]),
   ]
   const wsIcmsSt = XLSX.utils.aoa_to_sheet(linhasIcmsSt)
   wsIcmsSt['!cols'] = [{ wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 8 }]
   XLSX.utils.book_append_sheet(workbook, wsIcmsSt, 'ICMS ST')
+
+  if (planilha.pisCofins) {
+    const wsPisCofins = XLSX.utils.aoa_to_sheet([['NCM com PIS/COFINS monofásico'], ...Object.keys(planilha.pisCofins).map((ncm) => [ncm])])
+    wsPisCofins['!cols'] = [{ wch: 30 }]
+    XLSX.utils.book_append_sheet(workbook, wsPisCofins, 'PIS COFINS')
+  }
 
   return workbook
 }

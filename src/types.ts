@@ -400,6 +400,8 @@ export interface ProducaoPedido {
   /** Itens do pedido que já estão em produção — no total, todos. */
   itemIds: string[]
   observacao: string
+  /** Quando o fornecedor diz que a produção fica pronta ("AAAA-MM-DD"; vazio = sem previsão). */
+  previsaoFinalizacao?: string
   em: number
   por: string
 }
@@ -536,6 +538,8 @@ export interface QuoteRecord {
   pedidoCompra?: PedidoCompraInfo
   /** Produção do pedido no fornecedor (todo ou parte), informada ao confirmar o pedido. */
   producao?: ProducaoPedido
+  /** Observação da cotação inteira (aba Cotações) — a de cada item fica no próprio item (product.observacao). */
+  observacao?: string
   /** Data em que o cliente pediu a cotação (editável) — diferente de createdAt, que é quando o registro foi criado no sistema. */
   dataSolicitacao?: number
   /** Número da cotação de frete que a transportadora informou, pra referência depois. */

@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type DragEvent,
+  type KeyboardEvent,
   type MouseEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
@@ -990,6 +991,31 @@ export function QuoteItemsList({
 
   const totalColunas = colunasVisiveis.length + 2
 
+  /** ↑/↓ em qualquer campo de um item vão pro mesmo campo do item de cima/de baixo, como no Excel
+   * (e não mexem mais no número nem na opção escolhida). */
+  function navegarComSetas(e: KeyboardEvent<HTMLTableSectionElement>) {
+    if ((e.key !== 'ArrowDown' && e.key !== 'ArrowUp') || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return
+    const origem = e.target as HTMLElement
+    if (origem instanceof HTMLTextAreaElement) return
+    const celula = origem.closest('td')
+    const linha = origem.closest<HTMLTableRowElement>('tr[data-item-linha]')
+    if (!celula || !linha) return
+    const linhas = Array.from(e.currentTarget.querySelectorAll<HTMLTableRowElement>('tr[data-item-linha]'))
+    const destino = linhas[linhas.indexOf(linha) + (e.key === 'ArrowDown' ? 1 : -1)]
+    const campo = destino?.cells[celula.cellIndex]?.querySelector<HTMLElement>('input, select, textarea, button')
+    if (!campo) return
+    e.preventDefault()
+    setFornecedorAbertoId(null)
+    campo.focus({ preventScroll: true })
+    if (campo instanceof HTMLInputElement && campo.type !== 'checkbox') campo.select()
+    // rola o mínimo pra linha ficar à vista — sem passar por baixo do cabeçalho fixo nem da barra de baixo
+    const caixa = campo.getBoundingClientRect()
+    const limiteTopo = (cabecalhoRef.current?.getBoundingClientRect().bottom ?? 0) + 8
+    const limiteBaixo = window.innerHeight - 48
+    if (caixa.top < limiteTopo) window.scrollBy({ top: caixa.top - limiteTopo })
+    else if (caixa.bottom > limiteBaixo) window.scrollBy({ top: caixa.bottom - limiteBaixo })
+  }
+
   function renderLinha(item: QuoteItem) {
     const totalItens = (item.product.qtd || 0) * (item.product.valorUnt || 0)
     return (
@@ -1394,7 +1420,7 @@ export function QuoteItemsList({
           >
             <table className="text-sm border-collapse" style={estiloTabela}>
               {colgroup}
-              <tbody>
+              <tbody onKeyDown={navegarComSetas}>
                 {itensFiltrados.length === 0 && (
                   <tr>
                     <td colSpan={totalColunas} className="py-6 text-center text-sm text-ink-400">
@@ -1877,6 +1903,7 @@ function LinhaItem({
   return (
     <>
       <tr
+        data-item-linha={item.id}
         onClick={onSelect}
         onFocus={onEntrar}
         onBlur={(e) => {

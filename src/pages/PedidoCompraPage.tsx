@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEstadoPersistente } from '../estadoPersistente'
 import { Button } from '../components/ui/Basics'
 import { SelectField } from '../components/ui/Field'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { PedidoCompraFornecedorModal, type BasePedidoCompraFornecedor } from '../components/PedidoCompraFornecedorModal'
 import {
   CartaoTransporte,
+  ResumoTransporteModal,
   SeloPrevisao,
   TRANSPORTE_VAZIO,
   TransporteModal,
@@ -40,6 +42,8 @@ const INDICE_EM_TRANSPORTE = QUOTE_STATUSES.indexOf('EM TRANSPORTE')
 const STATUS_A_CAMINHO: QuoteStatus[] = ['EM TRANSPORTE', 'CADASTRO DE PRODUTO', 'PARCIALMENTE ENTREGUE']
 // desfazer uma entrega marcada por engano: só até ENTREGUE (de CONFERIDO em diante, já foi conferida)
 const STATUS_DA_ENTREGA: QuoteStatus[] = [...STATUS_A_CAMINHO, 'ENTREGUE']
+// "Pedidos em transporte": de EM TRANSPORTE em diante (as já entregues só quando pedidas)
+const STATUS_DEPOIS_DO_TRANSPORTE: QuoteStatus[] = QUOTE_STATUSES.filter((s, i) => i >= INDICE_EM_TRANSPORTE && s !== 'ARQUIVO')
 
 /** Frete digitado em R$ (por unidade, ou o total do fornecedor) ou em % do valor dos produtos —
  * guardado do mesmo jeito (freteRate, fração do valor) nos dois casos. Preferência deste aparelho. */
@@ -76,6 +80,28 @@ function freteMaisBarato(cotacao: QuoteRecord, remetente: RemetenteFrete): [stri
 /** Chave dos dados de transporte de um grupo (a do frete; itens sem fornecedor ficam juntos). */
 function chaveTransporte(chaveGrupo: string): string {
   return chaveGrupo || 'SEM FORNECEDOR'
+}
+
+/** Divide os itens do pedido por fornecedor (+ UF de origem) — um pedido de compra pode ter saído
+ * fechado com mais de um fornecedor, e cada um tem seu próprio frete (origem diferente, cotação
+ * diferente); o mesmo fornecedor saindo de outro estado também é outro pedido, com outro frete. */
+function gruposDoPedido(cotacao: QuoteRecord) {
+  const mapa = new Map<string, { remetente: RemetenteFrete; items: QuoteItem[] }>()
+  for (const item of itensDoPedidoDeCompra(cotacao)) {
+    const nome = item.product.fornecedor.trim()
+    const remetente: RemetenteFrete = nome ? { nome, uf: item.product.estadoOrigem } : { nome: '' }
+    const chave = chaveFornecedorFrete(remetente.nome, remetente.uf)
+    if (!mapa.has(chave)) mapa.set(chave, { remetente, items: [] })
+    mapa.get(chave)!.items.push(item)
+  }
+  const remetentes = Array.from(mapa.values()).map((g) => g.remetente)
+  return Array.from(mapa.entries()).map(([chave, g]) => ({
+    chave,
+    remetente: g.remetente,
+    fornecedor: g.remetente.nome || 'Sem fornecedor definido',
+    rotulo: g.remetente.nome ? rotuloRemetente(g.remetente, remetentes) : 'Sem fornecedor definido',
+    items: g.items,
+  }))
 }
 
 /** Campos de transporte de um fornecedor: o que já foi salvo, ou a transportadora e o nº da cotação
@@ -177,6 +203,26 @@ function valorDeVenda(items: QuoteItem[]): number {
   return items.reduce((s, item) => s + precoDeVenda(item) * (item.product.qtd || 0), 0)
 }
 
+/** Um status da lista de pedidos — recolhível (lembra aberto/fechado neste aparelho). */
+function GrupoDaLista({ status, quantidade, children }: { status: QuoteStatus; quantidade: number; children: ReactNode }) {
+  const [aberto, setAberto] = useEstadoPersistente(`pedidoCompra:grupoAberto:${status}`, true)
+  const cor = corPadraoDoStatus(status)
+  return (
+    <div>
+      <button type="button" aria-expanded={aberto} onClick={() => setAberto((v) => !v)} className="mb-1.5 flex w-full items-center gap-2 text-left">
+        <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold" style={{ backgroundColor: cor, color: corTexto(cor) }}>
+          {status}
+        </span>
+        <span className="text-xs text-ink-400">{quantidade}</span>
+        <span aria-hidden className={`ml-auto text-ink-400 transition-transform ${aberto ? 'rotate-180' : ''}`}>
+          ▾
+        </span>
+      </button>
+      {aberto && <div className="space-y-1.5">{children}</div>}
+    </div>
+  )
+}
+
 /** Valor de venda (não tem negociado × fechado — é o que foi passado ao cliente). */
 function StatVenda({ label, valor, detalhe }: { label: string; valor: number; detalhe?: string }) {
   return (
@@ -223,6 +269,18 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
   const [transporteModalAberto, setTransporteModalAberto] = useState(false)
   const [pedidoFornecedorAberto, setPedidoFornecedorAberto] = useState<string | undefined>(undefined)
   const [modoFrete, setModoFrete] = useState<ModoFrete>(lerModoFrete)
+  // pedidos de fornecedor recolhidos (só o cabeçalho à vista) — vale pra cotação aberta
+  const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set())
+  useEffect(() => setRecolhidos(new Set()), [cotacaoId])
+
+  function alternarRecolhido(chaveGrupo: string) {
+    setRecolhidos((prev) => {
+      const proximo = new Set(prev)
+      if (proximo.has(chaveGrupo)) proximo.delete(chaveGrupo)
+      else proximo.add(chaveGrupo)
+      return proximo
+    })
+  }
 
   function mudarModoFrete(modo: ModoFrete) {
     setModoFrete(modo)
@@ -258,6 +316,28 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
   )
 
   const cotacao = useMemo(() => quotes.find((q) => q.id === cotacaoId), [quotes, cotacaoId])
+
+  // consulta rápida do que está a caminho: clicar abre a janela com NF, transportadora, rastreio e previsão
+  const [mostrarJaEntregues, setMostrarJaEntregues] = useEstadoPersistente('pedidoCompra:transporteMostrarEntregues', false)
+  const [resumoTransporteId, setResumoTransporteId] = useState<string | undefined>(undefined)
+  const pedidosEmTransporte = useMemo(
+    () =>
+      quotes
+        .filter((q) => (mostrarJaEntregues ? STATUS_DEPOIS_DO_TRANSPORTE : STATUS_A_CAMINHO).includes(q.status))
+        .sort((a, b) => {
+          // a caminho primeiro, e entre eles a previsão mais próxima (ou atrasada) no topo
+          const aCaminho = Number(STATUS_A_CAMINHO.includes(b.status)) - Number(STATUS_A_CAMINHO.includes(a.status))
+          if (aCaminho) return aCaminho
+          const pa = previsaoDaCotacao(a)
+          const pb = previsaoDaCotacao(b)
+          if (pa && pb) return pa.localeCompare(pb)
+          if (pa || pb) return pa ? -1 : 1
+          return b.updatedAt - a.updatedAt
+        }),
+    [quotes, mostrarJaEntregues],
+  )
+  const resumoTransporte = useMemo(() => quotes.find((q) => q.id === resumoTransporteId), [quotes, resumoTransporteId])
+  const fecharResumoTransporte = useCallback(() => setResumoTransporteId(undefined), [])
 
   // só os itens que realmente entraram no pedido de compra (ver PedidoCompraModal) — uma cotação
   // pode ter sido fechada só com "alguns itens", e o resto (que não foi pedido) não deve aparecer
@@ -353,6 +433,21 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
     }
   }
 
+  /** Previsão de finalização digitada direto no cartão Produção — grava na hora, o resto da produção fica igual. */
+  async function handlePrevisaoProducao(data: string) {
+    if (!cotacao?.producao) return
+    // só data completa e com ano de verdade (ou vazia, pra apagar) — e só se mudou
+    if (data && !(/^\d{4}-\d{2}-\d{2}$/.test(data) && Number(data.slice(0, 4)) >= 2000)) return
+    if (data === (cotacao.producao.previsaoFinalizacao ?? '')) return
+    const { em: _em, por: _por, ...producao } = cotacao.producao
+    try {
+      const atualizado = await salvarProducao(cotacao.id, { ...producao, previsaoFinalizacao: data }, currentAdmin)
+      setQuotes((prev) => prev.map((q) => (q.id === atualizado.id ? atualizado : q)))
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
+    }
+  }
+
   /** Marca (ou desfaz) a entrega da mercadoria dos fornecedores `chaves` — o status acompanha
    * (todos entregues: ENTREGUE; só alguns: PARCIALMENTE ENTREGUE). */
   async function handleEntrega(chaves: string[], entregue: boolean) {
@@ -440,27 +535,7 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
     }
   }
 
-  // divide os itens do pedido por fornecedor (+ UF de origem) — um pedido de compra pode ter saído
-  // fechado com mais de um fornecedor, e cada um tem seu próprio frete (origem diferente, cotação
-  // diferente); o mesmo fornecedor saindo de outro estado também é outro pedido, com outro frete
-  const gruposPorFornecedor = useMemo(() => {
-    const mapa = new Map<string, { remetente: RemetenteFrete; items: QuoteItem[] }>()
-    for (const item of itensDoPedido) {
-      const nome = item.product.fornecedor.trim()
-      const remetente: RemetenteFrete = nome ? { nome, uf: item.product.estadoOrigem } : { nome: '' }
-      const chave = chaveFornecedorFrete(remetente.nome, remetente.uf)
-      if (!mapa.has(chave)) mapa.set(chave, { remetente, items: [] })
-      mapa.get(chave)!.items.push(item)
-    }
-    const remetentes = Array.from(mapa.values()).map((g) => g.remetente)
-    return Array.from(mapa.entries()).map(([chave, g]) => ({
-      chave,
-      remetente: g.remetente,
-      fornecedor: g.remetente.nome || 'Sem fornecedor definido',
-      rotulo: g.remetente.nome ? rotuloRemetente(g.remetente, remetentes) : 'Sem fornecedor definido',
-      items: g.items,
-    }))
-  }, [itensDoPedido])
+  const gruposPorFornecedor = useMemo(() => (cotacao ? gruposDoPedido(cotacao) : []), [cotacao])
 
   // fornecedores do pedido (chave do transporte) e os que ainda não entregaram
   const chavesTransporte = gruposPorFornecedor.map((g) => chaveTransporte(g.chave))
@@ -535,6 +610,50 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
         </p>
       </div>
 
+      <div className="card" aria-label="Pedidos em transporte">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-display text-base font-semibold text-ink-900">Pedidos em transporte</h3>
+          <label className="inline-flex items-center gap-1.5 text-xs text-ink-500">
+            <input type="checkbox" checked={mostrarJaEntregues} onChange={(e) => setMostrarJaEntregues(e.target.checked)} />
+            Mostrar também os já entregues
+          </label>
+        </div>
+        {loading ? (
+          <p className="py-2 text-center text-sm text-ink-400">Carregando…</p>
+        ) : pedidosEmTransporte.length === 0 ? (
+          <p className="py-2 text-center text-sm text-ink-400">Nada em transporte no momento.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {pedidosEmTransporte.map((q) => {
+              const envios = Object.values(q.transportePorFornecedor ?? {})
+              const transportadoras = Array.from(new Set(envios.map((t) => t.transportadora.trim()).filter(Boolean)))
+              const previsao = previsaoDaCotacao(q)
+              const cor = corPadraoDoStatus(q.status)
+              return (
+                <button
+                  key={q.id}
+                  type="button"
+                  onClick={() => setResumoTransporteId(q.id)}
+                  title="Ver nota, transportadora, rastreio e previsão"
+                  className="flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border border-ink-100 px-3 py-2 text-left text-sm transition hover:border-ink-300 hover:bg-ink-50"
+                >
+                  <span className="flex min-w-0 flex-wrap items-center gap-2">
+                    <span className="font-medium text-ink-800">
+                      {q.codigo || 'sem código'} — {q.cliente || 'sem cliente'}
+                    </span>
+                    <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: cor, color: corTexto(cor) }}>
+                      {q.status}
+                    </span>
+                    {previsao && STATUS_A_CAMINHO.includes(q.status) && <SeloPrevisao previsao={previsao} />}
+                  </span>
+                  <span className="shrink-0 text-xs text-ink-400">{transportadoras.length > 0 ? transportadoras.join(', ') : 'transportadora não informada'}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="card">
         <div className="flex items-center justify-between gap-3 mb-3">
           <h3 className="font-display text-base font-semibold text-ink-900">Cotações em Pedido de Compra</h3>
@@ -544,34 +663,36 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
         ) : cotacoesEmPedido.length === 0 ? (
           <p className="text-sm text-ink-400 py-4 text-center">Nenhuma cotação em Pedido de Compra no momento.</p>
         ) : (
-          <div className="space-y-1.5">
-            {cotacoesEmPedido.map((q) => (
-              <button
-                key={q.id}
-                type="button"
-                onClick={() => setCotacaoId(q.id)}
-                className={`w-full flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition ${
-                  cotacaoId === q.id ? 'border-ink-400 bg-ink-100' : 'border-ink-100 hover:border-ink-300 hover:bg-ink-50'
-                }`}
-              >
-                <span className="flex items-center gap-2 min-w-0">
-                  <span className="font-medium text-ink-800 truncate">
-                    {q.codigo || 'sem código'} — {q.cliente || 'sem cliente'}
-                  </span>
-                  <span
-                    className="shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
-                    style={{ backgroundColor: corPadraoDoStatus(q.status), color: corTexto(corPadraoDoStatus(q.status)) }}
-                  >
-                    {q.status}
-                  </span>
-                  {q.status === 'PEDIDO CONFIRMADO' && q.producao && (
-                    <SeloProducao producao={q.producao} totalItens={itensDoPedidoDeCompra(q).length} />
-                  )}
-                  {previsaoDaCotacao(q) && <SeloPrevisao previsao={previsaoDaCotacao(q)!} />}
-                </span>
-                <span className="text-ink-400 shrink-0">{q.maquina}</span>
-              </button>
-            ))}
+          <div className="space-y-4">
+            {QUOTE_STATUSES.map((status) => {
+              const doStatus = cotacoesEmPedido.filter((q) => q.status === status)
+              if (doStatus.length === 0) return null
+              return (
+                <GrupoDaLista key={status} status={status} quantidade={doStatus.length}>
+                  {doStatus.map((q) => (
+                    <button
+                      key={q.id}
+                      type="button"
+                      onClick={() => setCotacaoId(q.id)}
+                      className={`w-full flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2.5 text-left text-sm transition ${
+                        cotacaoId === q.id ? 'border-ink-400 bg-ink-100' : 'border-ink-100 hover:border-ink-300 hover:bg-ink-50'
+                      }`}
+                    >
+                      <span className="flex flex-wrap items-center gap-2 min-w-0">
+                        <span className="font-medium text-ink-800 truncate">
+                          {q.codigo || 'sem código'} — {q.cliente || 'sem cliente'}
+                        </span>
+                        {q.status === 'PEDIDO CONFIRMADO' && q.producao && (
+                          <SeloProducao producao={q.producao} totalItens={itensDoPedidoDeCompra(q).length} />
+                        )}
+                        {previsaoDaCotacao(q) && <SeloPrevisao previsao={previsaoDaCotacao(q)!} />}
+                      </span>
+                      <span className="text-ink-400 shrink-0">{q.maquina}</span>
+                    </button>
+                  ))}
+                </GrupoDaLista>
+              )
+            })}
           </div>
         )}
         <div className="mt-3 pt-3 border-t border-ink-100">
@@ -629,7 +750,24 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
               <div className="min-w-0">
                 <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Produção</h3>
                 {cotacao.producao ? (
-                  <DetalheProducao producao={cotacao.producao} itens={itensDoPedido} />
+                  <>
+                    <DetalheProducao producao={cotacao.producao} itens={itensDoPedido} mostrarPrevisao={false} />
+                    <label className="mt-3 flex flex-wrap items-center gap-2 text-ink-600" htmlFor="previsao-finalizacao">
+                      Previsão de finalização da produção:
+                      {/* não controlado (ver DateField) e gravando ao sair do campo: enquanto o ano é
+                       * digitado, o campo passa por datas pela metade ("0202-…") que não podem ir pro servidor */}
+                      <input
+                        id="previsao-finalizacao"
+                        key={cotacao.producao.em}
+                        type="date"
+                        className="field-input w-auto py-1 text-sm"
+                        defaultValue={cotacao.producao.previsaoFinalizacao ?? ''}
+                        onBlur={(e) => void handlePrevisaoProducao(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                      />
+                      {cotacao.producao.previsaoFinalizacao && <SeloPrevisao previsao={cotacao.producao.previsaoFinalizacao} tipo="producao" />}
+                    </label>
+                  </>
                 ) : (
                   <p className="text-ink-500">Ainda não foi informado se o pedido está todo ou só em parte em produção.</p>
                 )}
@@ -683,21 +821,52 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
 
           {gruposPorFornecedor.map((grupo) => {
             const est = estatisticasGrupo(grupo.items, fechados)
+            const recolhido = recolhidos.has(grupo.chave)
+            const transporte = cotacao.transportePorFornecedor?.[chaveTransporte(grupo.chave)]
             return (
-              <div key={grupo.chave || '__sem_fornecedor__'} className="card">
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
-                  <h3 className="font-display text-base font-semibold text-ink-900">
-                    Fornecedor: {grupo.rotulo}
-                    {grupo.remetente.uf && grupo.rotulo === grupo.fornecedor && (
-                      <span className="ml-2 rounded border border-ink-300 px-1 py-px font-mono text-[11px] font-semibold text-ink-600">
-                        {grupo.remetente.uf}
+              <div key={grupo.chave || '__sem_fornecedor__'} className="card" aria-label={`Pedido de ${grupo.rotulo}`}>
+                <div className={`flex flex-wrap items-center justify-between gap-3 ${recolhido ? '' : 'mb-3'}`}>
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => alternarRecolhido(grupo.chave)}
+                      aria-expanded={!recolhido}
+                      aria-label={`${recolhido ? 'Mostrar' : 'Recolher'} o pedido de ${grupo.rotulo}`}
+                      title={recolhido ? 'Mostrar o pedido desse fornecedor' : 'Recolher o pedido desse fornecedor'}
+                      className="flex h-7 w-7 items-center justify-center rounded text-ink-400 transition hover:bg-ink-100 hover:text-ink-700"
+                    >
+                      <span aria-hidden className={`transition-transform ${recolhido ? '-rotate-90' : ''}`}>
+                        ▾
+                      </span>
+                    </button>
+                    <h3 className="cursor-pointer font-display text-base font-semibold text-ink-900" onClick={() => alternarRecolhido(grupo.chave)}>
+                      Fornecedor: {grupo.rotulo}
+                      {grupo.remetente.uf && grupo.rotulo === grupo.fornecedor && (
+                        <span className="ml-2 rounded border border-ink-300 px-1 py-px font-mono text-[11px] font-semibold text-ink-600">
+                          {grupo.remetente.uf}
+                        </span>
+                      )}
+                    </h3>
+                    {recolhido && (
+                      <span className="flex flex-wrap items-center gap-2 text-xs text-ink-500">
+                        {grupo.items.length} {grupo.items.length === 1 ? 'item' : 'itens'} · total fechado{' '}
+                        <strong className="font-mono tabular-nums text-ink-800">{formatCurrency(est.valorFechado + est.freteFechado)}</strong>
+                        {transporte?.entregueEm ? (
+                          <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-800">
+                            ✓ entregue
+                          </span>
+                        ) : (
+                          transporte?.previsaoEntrega && <SeloPrevisao previsao={transporte.previsaoEntrega} />
+                        )}
                       </span>
                     )}
-                  </h3>
+                  </div>
                   <Button variant="secondary" onClick={() => setPedidoFornecedorAberto(grupo.chave)}>
                     Gerar pedido de compra
                   </Button>
                 </div>
+                {!recolhido && (
+                <>
                 {QUOTE_STATUSES.indexOf(cotacao.status) >= INDICE_EM_TRANSPORTE && (
                   <CartaoTransporte
                     key={`${grupo.chave}-${cotacao.transportePorFornecedor?.[chaveTransporte(grupo.chave)]?.atualizadoEm ?? 0}`}
@@ -851,6 +1020,8 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
                     </tbody>
                   </table>
                 </div>
+                </>
+                )}
               </div>
             )
           })}
@@ -867,6 +1038,31 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
           }))}
           onConfirmar={handleConfirmarTransporte}
           onCancelar={() => setTransporteModalAberto(false)}
+        />
+      )}
+
+      {resumoTransporte && (
+        <ResumoTransporteModal
+          titulo={`${resumoTransporte.codigo || 'sem código'} — ${resumoTransporte.cliente || 'sem cliente'}`}
+          subtitulo={[resumoTransporte.maquina, resumoTransporte.vendedor].filter(Boolean).join(' · ') || undefined}
+          selos={
+            <span
+              className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
+              style={{ backgroundColor: corPadraoDoStatus(resumoTransporte.status), color: corTexto(corPadraoDoStatus(resumoTransporte.status)) }}
+            >
+              {resumoTransporte.status}
+            </span>
+          }
+          fornecedores={gruposDoPedido(resumoTransporte).map((g) => ({
+            chave: chaveTransporte(g.chave),
+            rotulo: g.rotulo,
+            transporte: resumoTransporte.transportePorFornecedor?.[chaveTransporte(g.chave)],
+          }))}
+          onAbrirPedido={() => {
+            setCotacaoId(resumoTransporte.id)
+            setResumoTransporteId(undefined)
+          }}
+          onFechar={fecharResumoTransporte}
         />
       )}
 

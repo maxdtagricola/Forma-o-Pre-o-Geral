@@ -23,6 +23,7 @@ import { RecuperarRascunhoModal } from './components/RecuperarRascunhoModal'
 import { DialogHost } from './components/DialogHost'
 import { lerRascunho, limparRascunho, salvarRascunho, type RascunhoCotacao } from './rascunhoCotacao'
 import { calculateItem, definirTabelasCustomizadas } from './calc/calculator'
+import { mesmoFornecedor, valoresDaCotacaoDoFornecedor } from './utils'
 import { buscarQuote, listQuotes, saveQuote, setPlanilhaOriginal, updateQuoteStatus } from './db/analysesRepo'
 import { sincronizarProdutos } from './db/produtosRepo'
 import {
@@ -318,7 +319,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           const id = ativas[perfil]
           const planilha = todas.find((p) => p.id === id)
           if (planilha) {
-            definirTabelasCustomizadas(perfil, planilha.rbc, planilha.icmsSt)
+            definirTabelasCustomizadas(perfil, planilha)
             mudou = true
           }
         }
@@ -436,8 +437,16 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
     setItems((prev) => prev.map((item) => (item.id === activeItemId ? { ...item, pricing: { ...item.pricing, ...patch } } : item)))
   }
   function patchItemProduct(id: string, patch: Partial<ProductInput>) {
-    if (patch.valorUnt !== undefined) promoverStatusPorValorUnitario()
-    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, product: { ...item.product, ...patch } } : item)))
+    // trocar só o fornecedor (digitando, escolhendo na lista ou aplicando aos marcados) puxa o preço,
+    // a marca, o prazo e o NCM da cotação desse fornecedor na comparação, se ele tiver uma
+    const atual = items.find((item) => item.id === id)
+    const daCotacao =
+      atual && patch.fornecedor !== undefined && patch.valorUnt === undefined && !mesmoFornecedor(patch.fornecedor, atual.product.fornecedor)
+        ? valoresDaCotacaoDoFornecedor(atual.product.cotacoesFornecedores, patch.fornecedor)
+        : {}
+    const completo = { ...patch, ...daCotacao }
+    if (completo.valorUnt !== undefined) promoverStatusPorValorUnitario()
+    setItems((prev) => prev.map((item) => (item.id === id ? { ...item, product: { ...item.product, ...completo } } : item)))
   }
   function handleApplyMarginToAll(lucroPct: number) {
     setItems((prev) => prev.map((item) => ({ ...item, pricing: { ...item.pricing, lucroPct } })))
@@ -612,10 +621,18 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
     changeTab('dashboard')
   }
 
-  async function handleCreateQuote(vendedorNovo: string, clienteNovo: string, maquinaNova: string, tipo: TipoReferencia) {
+  async function handleCreateQuote(
+    vendedorNovo: string,
+    clienteNovo: string,
+    maquinaNova: string,
+    tipo: TipoReferencia,
+    observacao: string,
+  ) {
     if (!currentAdmin) return
     try {
-      const record = await saveQuote(currentAdmin, vendedorNovo, tipo, clienteNovo, maquinaNova, [], undefined)
+      const record = await saveQuote(currentAdmin, vendedorNovo, tipo, clienteNovo, maquinaNova, [], undefined, undefined, undefined, {
+        observacao,
+      })
       setHistoryRefreshKey((k) => k + 1)
       handleLoad(record)
     } catch (err) {
@@ -629,16 +646,25 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
     maquinaNova: string,
     itensImportados: ItemCotacaoImportado[],
     planilha: { nomeArquivo: string; conteudoBase64: string },
+    observacao: string,
   ) {
     if (!currentAdmin) return
     const itens: QuoteItem[] = itensImportados.map((it) => {
       const item = criarItemComGlobais()
       return {
         ...item,
-        product: { ...item.product, referencia: it.referencia, descricao: it.descricao, qtd: it.quantidade || 1 },
+        product: {
+          ...item.product,
+          referencia: it.referencia,
+          descricao: it.descricao,
+          qtd: it.quantidade || 1,
+          ...(it.observacao?.trim() ? { observacao: it.observacao.trim() } : {}),
+        },
       }
     })
-    const record = await saveQuote(currentAdmin, vendedorNovo, 'itens', clienteNovo, maquinaNova, itens, undefined)
+    const record = await saveQuote(currentAdmin, vendedorNovo, 'itens', clienteNovo, maquinaNova, itens, undefined, undefined, undefined, {
+      observacao,
+    })
     const registroFinal = await setPlanilhaOriginal(record.id, planilha)
     setHistoryRefreshKey((k) => k + 1)
     handleLoad(registroFinal)
@@ -748,6 +774,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           currentAdmin={currentAdmin}
           pricingGlobal={pricingGlobal}
           onSavePricingGlobal={handleSavePricingGlobal}
+          onTabelasAtualizadas={() => setTabelasVersion((v) => v + 1)}
         />
       )}
       {tab === 'acompanhamentoNotas' && currentAdmin === 'Max' && (

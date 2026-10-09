@@ -49,8 +49,9 @@ export function ResultPanel({
       {!result.ncmCadastrado && (
         <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
           <p className="text-sm text-amber-800">
-            Este NCM não está vinculado à planilha de MARKUP — confira se foi digitado corretamente ou se falta
-            cadastrar esse NCM.
+            Este NCM não aparece na planilha de MARKUP (abas ICMS ST, RBC, PIS/COFINS nem na lista de NCMs) — foi
+            calculado como tributação normal (ICMS 19,5% na venda, PIS/COFINS não monofásico). Confira se foi digitado
+            corretamente ou se falta cadastrar esse NCM na planilha.
           </p>
         </div>
       )}

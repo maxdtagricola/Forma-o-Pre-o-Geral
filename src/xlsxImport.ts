@@ -13,10 +13,37 @@ function sheetMaxRow(ws: XLSX.WorkSheet): number {
   return XLSX.utils.decode_range(ref).e.r + 1
 }
 
+/** NCM da coluna A como a fórmula da planilha compara: só os dígitos ("8544.42.00" e 85444200 são o
+ * mesmo NCM). Vazio quando a célula não é um NCM (título, cabeçalho...). */
+function ncmDaCelula(valor: unknown): string {
+  if (valor === undefined || valor === null || valor === '') return ''
+  const digitos = String(valor).replace(/\D/g, '')
+  // NCM tem 8 dígitos — 7 é número que perdeu o zero da frente (ou erro de digitação na planilha,
+  // que a fórmula também só acharia digitando igual); menos que isso é título/numeração
+  return digitos.length >= 7 && digitos.length <= 8 ? digitos : ''
+}
+
+/** Texto da célula, sem espaços nas pontas e em maiúsculas — pra comparar com "ST", "RBC", "Mono". */
+function marca(valor: unknown): string {
+  return typeof valor === 'string' ? valor.trim().toUpperCase() : ''
+}
+
+/** MVA da célula: número (0,6099), ou texto de porcentagem ("70,69 %", que o Excel em português
+ * também converte sozinho na conta). Sem número nenhum (ex.: "PMPF", preço por pauta) fica null — a
+ * fórmula da planilha dá erro nesse caso e a base do ST vira 0. */
+function mvaDaCelula(valor: unknown): number | null {
+  if (typeof valor === 'number') return valor
+  if (typeof valor !== 'string' || !/\d/.test(valor)) return null
+  const texto = valor.replace(/\s/g, '')
+  const numero = Number(texto.replace('%', '').replace(/\./g, '').replace(',', '.'))
+  if (!Number.isFinite(numero)) return null
+  return texto.includes('%') ? numero / 100 : numero
+}
+
 /**
- * Aba "RBC" (Convênio 52/91): coluna A tem os NCMs elegíveis à redução de
- * base de cálculo; colunas 37/38 trazem a alíquota interestadual "normal"
- * por estado de origem, e 41/42 a alíquota reduzida (RBC) por estado — uma
+ * Aba "RBC" (Convênio 52/91): coluna A tem os NCMs e a coluna F marca "RBC" nos elegíveis à redução
+ * de base de cálculo (é o que a fórmula da aba Analise confere); colunas 37/38 trazem a alíquota
+ * interestadual "normal" por estado de origem, e 41/42 a alíquota reduzida (RBC) por estado — uma
  * linha por estado, a partir da linha 2.
  */
 function parseRbc(ws: XLSX.WorkSheet): RbcData {
@@ -37,13 +64,14 @@ function parseRbc(ws: XLSX.WorkSheet): RbcData {
     }
   }
 
+  // a fórmula procura o NCM (PROCV) e usa a primeira linha que achar
   const rbcNcms = new Set<string>()
+  const vistos = new Set<string>()
   for (let r = 1; r <= maxRow; r++) {
-    const valor = cellValue(ws, r, 1)
-    if (valor === undefined || valor === null || valor === '') continue
-    const texto = String(valor).trim()
-    if (!/^\d+$/.test(texto)) continue // ignora linhas de título/cabeçalho
-    rbcNcms.add(texto)
+    const ncm = ncmDaCelula(cellValue(ws, r, 1))
+    if (!ncm || vistos.has(ncm)) continue
+    vistos.add(ncm)
+    if (marca(cellValue(ws, r, 6)) === 'RBC') rbcNcms.add(ncm)
   }
 
   if (Object.keys(rateNormal).length === 0 || Object.keys(rateRbc).length === 0) {
@@ -57,76 +85,73 @@ function parseRbc(ws: XLSX.WorkSheet): RbcData {
 }
 
 /**
- * Aba "ICMS ST" — cada linha é um NCM dentro de uma categoria (col. 3) com
- * seu MVA por alíquota interestadual (col. 9/10/11) e a marcação de ST
- * (col. 12). O mesmo NCM pode aparecer em mais de uma categoria com MVA
- * diferente; nesse caso prioriza "Autopeças" — se não houver, fica com a
- * primeira ocorrência encontrada na planilha. Linhas com preço por PMPF (ou
- * outro texto no lugar do MVA) são ignoradas, por não serem representáveis
- * como um percentual só.
+ * Aba "ICMS ST" — cada linha é um NCM dentro de uma categoria (col. 3) com seu MVA por alíquota
+ * interestadual (col. 9/10/11) e a marcação "ST" (col. 12). Lida do jeito que a fórmula da aba
+ * Analise lê: o NCM que aparece mais de uma vez vale pela primeira linha (CORRESP/ÍNDICE), e é ST
+ * quando a coluna 12 diz "ST". MVA em texto ("70,69 %") vira número; sem número (ex.: "PMPF") fica
+ * null — antes essas linhas eram descartadas e o NCM saía como tributação normal, cobrando ICMS na
+ * venda de um item que a planilha trata como ST.
  */
 function parseIcmsSt(ws: XLSX.WorkSheet): Record<string, StInfo> {
   const maxRow = sheetMaxRow(ws)
-  interface Entrada {
-    mva04: number
-    mva07: number
-    mva12: number
-    st: boolean
-    categoria: string
-  }
-  const porNcm = new Map<string, Entrada[]>()
-
-  for (let r = 3; r <= maxRow; r++) {
-    const ncmRaw = cellValue(ws, r, 1)
-    if (ncmRaw === undefined || ncmRaw === null || ncmRaw === '') continue
-    const ncm = String(ncmRaw).trim()
-
-    const mva04raw = cellValue(ws, r, 9)
-    const mva07raw = cellValue(ws, r, 10)
-    const mva12raw = cellValue(ws, r, 11)
-    const algumNaoNumerico = [mva04raw, mva07raw, mva12raw].some(
-      (v) => v !== undefined && v !== null && v !== '' && typeof v !== 'number',
-    )
-    if (algumNaoNumerico) continue // ex.: preço por PMPF
-
-    const stRaw = cellValue(ws, r, 12)
-    const categoria = String(cellValue(ws, r, 3) ?? '')
-
-    const entrada: Entrada = {
-      mva04: typeof mva04raw === 'number' ? mva04raw : 0,
-      mva07: typeof mva07raw === 'number' ? mva07raw : 0,
-      mva12: typeof mva12raw === 'number' ? mva12raw : 0,
-      st: !!stRaw,
-      categoria,
-    }
-    const lista = porNcm.get(ncm) ?? []
-    lista.push(entrada)
-    porNcm.set(ncm, lista)
-  }
-
   const resultado: Record<string, StInfo> = {}
-  for (const [ncm, entradas] of porNcm) {
-    const distintos = new Set(entradas.map((e) => `${e.mva04}|${e.mva07}|${e.mva12}`))
-    let escolhida: Entrada
-    if (distintos.size <= 1) {
-      escolhida = entradas[0]
-    } else {
-      escolhida = entradas.find((e) => e.categoria.toUpperCase().includes('AUTOPE')) ?? entradas[0]
+  for (let r = 3; r <= maxRow; r++) {
+    const ncm = ncmDaCelula(cellValue(ws, r, 1))
+    if (!ncm || resultado[ncm]) continue
+    resultado[ncm] = {
+      mva04: mvaDaCelula(cellValue(ws, r, 9)),
+      mva07: mvaDaCelula(cellValue(ws, r, 10)),
+      mva12: mvaDaCelula(cellValue(ws, r, 11)),
+      st: marca(cellValue(ws, r, 12)) === 'ST',
     }
-    resultado[ncm] = { mva04: escolhida.mva04, mva07: escolhida.mva07, mva12: escolhida.mva12, st: escolhida.st }
   }
-
   if (Object.keys(resultado).length === 0) {
     throw new Error('Não encontrei NCMs válidos na aba de ICMS-ST.')
   }
   return resultado
 }
 
+/** Aba "PISCOFINS": NCMs com PIS/COFINS monofásico — a coluna E diz "Mono" (o que a fórmula confere). */
+function parsePisCofins(ws: XLSX.WorkSheet): Record<string, boolean> {
+  const maxRow = sheetMaxRow(ws)
+  const resultado: Record<string, boolean> = {}
+  const vistos = new Set<string>()
+  for (let r = 1; r <= maxRow; r++) {
+    const ncm = ncmDaCelula(cellValue(ws, r, 1))
+    if (!ncm || vistos.has(ncm)) continue
+    vistos.add(ncm)
+    if (marca(cellValue(ws, r, 5)) === 'MONO') resultado[ncm] = true
+  }
+  return resultado
+}
+
+/** A lista de NCMs da planilha (aba com "NCM" em A1 e as colunas RBC / ST — hoje a "Planilha1"): os
+ * NCMs que a empresa já trabalha, inclusive os de tributação normal, que não aparecem nas abas de
+ * ICMS ST, RBC nem PIS/COFINS. Não muda o cálculo — só evita o aviso de "NCM não vinculado". */
+function parseListaNcms(workbook: XLSX.WorkBook): string[] {
+  for (const nome of workbook.SheetNames) {
+    const ws = workbook.Sheets[nome]
+    if (marca(cellValue(ws, 1, 1)) !== 'NCM') continue
+    const cabecalho = Array.from({ length: 12 }, (_, i) => marca(cellValue(ws, 1, i + 1)))
+    if (!cabecalho.includes('ST') || !cabecalho.includes('RBC')) continue
+    const ncms = new Set<string>()
+    for (let r = 2; r <= sheetMaxRow(ws); r++) {
+      const ncm = ncmDaCelula(cellValue(ws, r, 1))
+      if (ncm) ncms.add(ncm)
+    }
+    return Array.from(ncms)
+  }
+  return []
+}
+
 export interface ResultadoImportacao {
   rbc: RbcData
   icmsSt: Record<string, StInfo>
+  pisCofins: Record<string, boolean>
+  ncmsLista: string[]
   totalNcmsRbc: number
   totalNcmsIcmsSt: number
+  totalNcmsPisCofins: number
 }
 
 export async function lerPlanilhaMarkup(arquivo: File): Promise<ResultadoImportacao> {
@@ -140,13 +165,21 @@ export async function lerPlanilhaMarkup(arquivo: File): Promise<ResultadoImporta
   const wsIcms = nomeAbaIcms ? workbook.Sheets[nomeAbaIcms] : undefined
   if (!wsIcms) throw new Error('Não encontrei uma aba "ICMS ST" nesse arquivo.')
 
+  const wsPisCofins = workbook.Sheets[workbook.SheetNames.find((n) => n.toUpperCase().replace(/[\s/]/g, '') === 'PISCOFINS') ?? '']
+  if (!wsPisCofins) throw new Error('Não encontrei a aba "PISCOFINS" nesse arquivo.')
+
   const rbc = parseRbc(wsRbc)
   const icmsSt = parseIcmsSt(wsIcms)
+  const pisCofins = parsePisCofins(wsPisCofins)
+  const ncmsLista = parseListaNcms(workbook)
 
   return {
     rbc,
     icmsSt,
+    pisCofins,
+    ncmsLista,
     totalNcmsRbc: rbc.rbcNcms.length,
     totalNcmsIcmsSt: Object.keys(icmsSt).length,
+    totalNcmsPisCofins: Object.keys(pisCofins).length,
   }
 }

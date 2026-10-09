@@ -14,7 +14,7 @@ import {
 import { deleteEmpresa, listEmpresas, saveEmpresa } from '../db/empresasRepo'
 import { excluirPastaDoJogador, listPartidasXadrez } from '../db/xadrezRepo'
 import { definirTabelasCustomizadas } from '../calc/calculator'
-import { lerPlanilhaMarkup } from '../xlsxImport'
+import { lerPlanilhaMarkup, type ResultadoImportacao } from '../xlsxImport'
 import { baixarWorkbookMarkup } from '../planilhaMarkupDownload'
 import { corPadraoDoStatus } from '../statusColors'
 import { formatDate } from '../utils'
@@ -35,10 +35,13 @@ export function ConfiguracoesPage({
   currentAdmin,
   pricingGlobal,
   onSavePricingGlobal,
+  onTabelasAtualizadas,
 }: {
   currentAdmin: string
   pricingGlobal: PricingGlobal
   onSavePricingGlobal: (valores: PricingGlobal) => Promise<void>
+  /** A planilha de markup em uso mudou — quem mostra cálculos refaz a conta com as tabelas novas. */
+  onTabelasAtualizadas: () => void
 }) {
   // (o tema claro/escuro saiu daqui — agora é um botão fixo na barra lateral, ver Layout.tsx)
 
@@ -212,7 +215,7 @@ export function ConfiguracoesPage({
   const [previaArquivo, setPreviaArquivo] = useState<PreviaPlanilha | undefined>(undefined)
   const [arquivoConfirmado, setArquivoConfirmado] = useState(false)
   const [importando, setImportando] = useState(false)
-  const [pendente, setPendente] = useState<{ nomeArquivo: string; rbc: PlanilhaImportada['rbc']; icmsSt: PlanilhaImportada['icmsSt']; totalNcmsRbc: number; totalNcmsIcmsSt: number } | undefined>(undefined)
+  const [pendente, setPendente] = useState<(ResultadoImportacao & { nomeArquivo: string }) | undefined>(undefined)
   const [senhaSalvar, setSenhaSalvar] = useState('')
   const [salvandoPlanilha, setSalvandoPlanilha] = useState(false)
 
@@ -267,13 +270,7 @@ export function ConfiguracoesPage({
     try {
       await verificarSenhaAdmin(senhaImportar)
       const resultado = await lerPlanilhaMarkup(arquivo)
-      setPendente({
-        nomeArquivo: arquivo.name,
-        rbc: resultado.rbc,
-        icmsSt: resultado.icmsSt,
-        totalNcmsRbc: resultado.totalNcmsRbc,
-        totalNcmsIcmsSt: resultado.totalNcmsIcmsSt,
-      })
+      setPendente({ ...resultado, nomeArquivo: arquivo.name })
       setSenhaImportar('')
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao ler a planilha.')
@@ -292,9 +289,12 @@ export function ConfiguracoesPage({
         importadoPor: currentAdmin,
         rbc: pendente.rbc,
         icmsSt: pendente.icmsSt,
+        pisCofins: pendente.pisCofins,
+        ncmsLista: pendente.ncmsLista,
       }, senhaSalvar)
       await setPlanilhaAtivaId(perfilImportacao, registro.id, senhaSalvar)
-      definirTabelasCustomizadas(perfilImportacao, registro.rbc, registro.icmsSt)
+      definirTabelasCustomizadas(perfilImportacao, registro)
+      onTabelasAtualizadas()
       setPendente(undefined)
       setSenhaSalvar('')
       setArquivo(undefined)
@@ -329,7 +329,8 @@ export function ConfiguracoesPage({
     try {
       if (tipo === 'usar') {
         await setPlanilhaAtivaId(planilha.perfil, planilha.id, senhaAcaoPlanilha)
-        definirTabelasCustomizadas(planilha.perfil, planilha.rbc, planilha.icmsSt)
+        definirTabelasCustomizadas(planilha.perfil, planilha)
+        onTabelasAtualizadas()
         setPlanilhaAtivaIds((prev) => ({ ...prev, [planilha.perfil]: planilha.id }))
         void avisar(`Planilha "${planilha.nomeArquivo}" aplicada pro perfil ${planilha.perfil}.`)
       } else {
@@ -625,7 +626,9 @@ export function ConfiguracoesPage({
               Planilha lida: {pendente.nomeArquivo} (perfil {perfilImportacao})
             </p>
             <p className="text-xs text-ink-600 mb-3">
-              {pendente.totalNcmsRbc} NCMs na tabela RBC · {pendente.totalNcmsIcmsSt} NCMs na tabela ICMS-ST. Ainda não
+              {pendente.totalNcmsRbc} NCMs na tabela RBC · {pendente.totalNcmsIcmsSt} NCMs na tabela ICMS-ST ·{' '}
+              {pendente.totalNcmsPisCofins} NCMs com PIS/COFINS monofásico
+              {pendente.ncmsLista.length > 0 ? ` · ${pendente.ncmsLista.length} NCMs na lista de NCMs` : ''}. Ainda não
               foi aplicada — confirme a senha de novo pra substituir a planilha atual desse perfil.
             </p>
             <div className="flex flex-wrap items-center gap-2">

@@ -25,13 +25,15 @@ export interface RbcData {
   rbcNcms: string[]
 }
 export interface StInfo {
-  mva04: number
-  mva07: number
-  mva12: number
+  /** MVA por alíquota interestadual — null quando a planilha não traz um percentual (ex.: "PMPF",
+   * preço por pauta): continua ST, mas sem base de substituição, como a fórmula da planilha faz. */
+  mva04: number | null
+  mva07: number | null
+  mva12: number | null
   st: boolean
 }
 
-const pisCofinsMono = pisCofinsRaw as Record<string, boolean>
+const PIS_COFINS_PADRAO = pisCofinsRaw as Record<string, boolean>
 
 const RBC_PADRAO: Record<EstadoDestino, RbcData> = {
   RO: rbcRoRaw as RbcData,
@@ -42,30 +44,51 @@ const ICMS_ST_PADRAO: Record<EstadoDestino, Record<string, StInfo>> = {
   AC: icmsStAcRaw as Record<string, StInfo>,
 }
 
+/** O que vem de uma planilha de markup importada. PIS/COFINS e a lista de NCMs só existem nas
+ * importadas a partir de out/2026 — nas de antes, o PIS/COFINS segue a tabela padrão. */
+export interface TabelasMarkup {
+  rbc: RbcData
+  icmsSt: Record<string, StInfo>
+  pisCofins?: Record<string, boolean>
+  ncmsLista?: string[]
+}
+
 // Substitutas em memória — aplicadas quando uma planilha de markup nova é
 // importada e salva pela aba Configurações. Enquanto o app não for
 // recarregado, o cálculo passa a usar essas tabelas em vez das originais.
-const rbcSubstituto: Partial<Record<EstadoDestino, RbcData>> = {}
-const icmsStSubstituto: Partial<Record<EstadoDestino, Record<string, StInfo>>> = {}
+const tabelasSubstitutas: Partial<Record<EstadoDestino, TabelasMarkup & { rbcSet: Set<string>; listaSet: Set<string> }>> = {}
 
-export function definirTabelasCustomizadas(perfil: EstadoDestino, rbc: RbcData, icmsSt: Record<string, StInfo>): void {
-  rbcSubstituto[perfil] = rbc
-  icmsStSubstituto[perfil] = icmsSt
+export function definirTabelasCustomizadas(perfil: EstadoDestino, tabelas: TabelasMarkup): void {
+  tabelasSubstitutas[perfil] = { ...tabelas, rbcSet: new Set(tabelas.rbc.rbcNcms), listaSet: new Set(tabelas.ncmsLista ?? []) }
 }
 
 function getRbcData(perfil: EstadoDestino): RbcData {
-  return rbcSubstituto[perfil] ?? RBC_PADRAO[perfil]
+  return tabelasSubstitutas[perfil]?.rbc ?? RBC_PADRAO[perfil]
 }
 function getIcmsStData(perfil: EstadoDestino): Record<string, StInfo> {
-  return icmsStSubstituto[perfil] ?? ICMS_ST_PADRAO[perfil]
+  return tabelasSubstitutas[perfil]?.icmsSt ?? ICMS_ST_PADRAO[perfil]
 }
 function getRbcNcmSet(perfil: EstadoDestino): Set<string> {
-  return new Set(getRbcData(perfil).rbcNcms)
+  return tabelasSubstitutas[perfil]?.rbcSet ?? new Set(RBC_PADRAO[perfil].rbcNcms)
+}
+function getPisCofinsData(perfil: EstadoDestino): Record<string, boolean> {
+  return tabelasSubstitutas[perfil]?.pisCofins ?? PIS_COFINS_PADRAO
 }
 
 /** Remove tudo que não for dígito — a planilha usa o NCM "cru" para os lookups. */
 export function normalizeNcm(raw: string): string {
   return (raw || '').replace(/\D/g, '')
+}
+
+/** Procura o NCM numa tabela como a planilha compara (por número): "04012000" digitado acha
+ * 4012000 numa célula que perdeu o zero da frente. */
+function procurar<T>(tabela: Record<string, T>, ncm: string): T | undefined {
+  if (!ncm) return undefined
+  return tabela[ncm] ?? (ncm.startsWith('0') ? tabela[ncm.replace(/^0+/, '')] : undefined)
+}
+function contem(conjunto: Set<string>, ncm: string): boolean {
+  if (!ncm) return false
+  return conjunto.has(ncm) || (ncm.startsWith('0') && conjunto.has(ncm.replace(/^0+/, '')))
 }
 
 /** Reproduz TRUNC(valor, 2) do Excel (trunca, não arredonda). */
@@ -91,7 +114,8 @@ export interface NcmInfo {
   isRbcElegivel: boolean
   isSTemRO: boolean
   isMonoPisCofins: boolean
-  /** Falso quando o NCM não aparece em nenhuma das tabelas (RBC, ICMS-ST, PIS/COFINS) da planilha de MARKUP do perfil. */
+  /** Falso quando o NCM não aparece em nenhuma das tabelas (RBC, ICMS-ST, PIS/COFINS) nem na lista
+   * de NCMs da planilha de MARKUP do perfil. */
   cadastrado: boolean
   stInfo: StInfo | null
 }
@@ -99,16 +123,19 @@ export interface NcmInfo {
 /** Informações de classificação de um NCM, sem depender de estado/valores. */
 export function getNcmInfo(ncmRaw: string, perfil: EstadoDestino = 'RO'): NcmInfo {
   const ncm = normalizeNcm(ncmRaw)
-  const stInfo = getIcmsStData(perfil)[ncm] ?? null
-  const isRbcElegivel = getRbcNcmSet(perfil).has(ncm)
+  const naTabelaSt = procurar(getIcmsStData(perfil), ncm) ?? null
+  // na tabela de ST sem a marca "ST" não é ST (a fórmula confere a coluna "ST")
+  const stInfo = naTabelaSt?.st ? naTabelaSt : null
+  const isRbcElegivel = contem(getRbcNcmSet(perfil), ncm)
   const isSTemRO = !!stInfo
-  const isMonoPisCofins = !!pisCofinsMono[ncm]
+  const isMonoPisCofins = !!procurar(getPisCofinsData(perfil), ncm)
+  const naLista = contem(tabelasSubstitutas[perfil]?.listaSet ?? new Set(), ncm)
   return {
     ncm,
     isRbcElegivel,
     isSTemRO,
     isMonoPisCofins,
-    cadastrado: !ncm || isRbcElegivel || isSTemRO || isMonoPisCofins,
+    cadastrado: !ncm || isRbcElegivel || !!naTabelaSt || isMonoPisCofins || naLista,
     stInfo,
   }
 }

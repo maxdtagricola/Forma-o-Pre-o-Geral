@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { listQuotes, updateQuoteStatus } from '../db/analysesRepo'
+import { listQuotes, salvarObservacaoCotacao, updateQuoteStatus } from '../db/analysesRepo'
+import { CelulaObservacao } from '../components/CelulaObservacao'
 import { getStatusColors } from '../db/configRepo'
 import { Button } from '../components/ui/Basics'
 import { SelectField, TextField } from '../components/ui/Field'
@@ -151,6 +152,56 @@ function TempoPendente({ r }: { r: QuoteRecord }) {
   )
 }
 
+/** Observação já na criação da cotação (opcional) — depois ela fica no balão do cartão da cotação. */
+function CampoObservacaoNova({ valor, onChange }: { valor: string; onChange: (valor: string) => void }) {
+  return (
+    <label className="mb-4 block">
+      <span className="field-label">Observação (opcional)</span>
+      <textarea
+        className="field-input min-h-[3.5rem] text-sm"
+        placeholder="Ex.: cliente pediu entrega até sexta; conferir referência do item 3…"
+        value={valor}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </label>
+  )
+}
+
+/** Observação da cotação, no balão igual ao da Precificação — grava sozinha quando o balão fecha. */
+function ObservacaoDaCotacao({ r }: { r: QuoteRecord }) {
+  const [texto, setTexto] = useState(r.observacao ?? '')
+  const salvo = useRef(r.observacao ?? '')
+  useEffect(() => {
+    salvo.current = r.observacao ?? ''
+    setTexto(r.observacao ?? '')
+  }, [r.observacao])
+
+  async function gravar() {
+    const novo = texto.trim()
+    if (novo === salvo.current.trim()) return
+    salvo.current = novo
+    try {
+      await salvarObservacaoCotacao(r.id, novo)
+    } catch (err) {
+      salvo.current = r.observacao ?? ''
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar a observação no servidor.')
+    }
+  }
+
+  return (
+    <div className="w-28 shrink-0">
+      <CelulaObservacao
+        valor={texto}
+        onChange={setTexto}
+        onFechar={() => void gravar()}
+        idLinha={r.id}
+        descricaoItem={r.codigo || r.cliente || 'cotação'}
+        placeholder="Escreva a observação dessa cotação…"
+      />
+    </div>
+  )
+}
+
 function QuoteCard({
   r,
   corDoStatus,
@@ -219,6 +270,8 @@ function QuoteCard({
             {r.summary.precoVendaTotalGeral > 0 ? formatCurrency(r.summary.precoVendaTotalGeral) : '—'}
           </span>
         </button>
+
+        <ObservacaoDaCotacao r={r} />
 
         <div className="relative shrink-0" ref={menuRef}>
           <button
@@ -379,13 +432,14 @@ export function CotacoesPage({
   currentAdmin: string
   /** Como "Nova cotação" já abre — 'importar' quando se chega pelo atalho "Importar cotação" da Tela Inicial. */
   modoNovoInicial?: 'manual' | 'importar'
-  onCreateQuote: (vendedor: string, cliente: string, maquina: string, tipo: TipoReferencia) => Promise<void>
+  onCreateQuote: (vendedor: string, cliente: string, maquina: string, tipo: TipoReferencia, observacao: string) => Promise<void>
   onImportQuote: (
     vendedor: string,
     cliente: string,
     maquina: string,
     itens: ItemCotacaoImportado[],
     planilhaOriginal: { nomeArquivo: string; conteudoBase64: string },
+    observacao: string,
   ) => Promise<void>
   onOpenQuote: (record: QuoteRecord) => void
 }) {
@@ -397,6 +451,8 @@ export function CotacoesPage({
   const [vendedor, setVendedor] = useState('')
   const [cliente, setCliente] = useState('')
   const [maquina, setMaquina] = useState('')
+  // observação da cotação nova — a mesma caixa serve pro manual e pra importação
+  const [observacaoNova, setObservacaoNova] = useState('')
   const [criando, setCriando] = useState(false)
   const [pedidoModalRecord, setPedidoModalRecord] = useState<QuoteRecord | undefined>(undefined)
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
@@ -517,11 +573,16 @@ export function CotacoesPage({
     setConfirmandoImport(true)
     try {
       const conteudoBase64 = await arquivoParaBase64(arquivoImportado)
-      await onImportQuote(vendedorImport, clienteFinal, maquinaFinal, itensImportados, {
-        nomeArquivo: arquivoImportado.name,
-        conteudoBase64,
-      })
+      await onImportQuote(
+        vendedorImport,
+        clienteFinal,
+        maquinaFinal,
+        itensImportados,
+        { nomeArquivo: arquivoImportado.name, conteudoBase64 },
+        observacaoNova,
+      )
       resetImportacao()
+      setObservacaoNova('')
       setModoNovo('manual')
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao importar a cotação.')
@@ -573,10 +634,11 @@ export function CotacoesPage({
     }
     setCriando(true)
     try {
-      await onCreateQuote(vendedor, cliente, maquina, 'itens')
+      await onCreateQuote(vendedor, cliente, maquina, 'itens', observacaoNova)
       setVendedor('')
       setCliente('')
       setMaquina('')
+      setObservacaoNova('')
     } finally {
       setCriando(false)
     }
@@ -656,6 +718,7 @@ export function CotacoesPage({
               <TextField label="Cliente" value={cliente} onChange={setCliente} uppercase />
               <TextField label="Máquina" value={maquina} onChange={setMaquina} />
             </div>
+            <CampoObservacaoNova valor={observacaoNova} onChange={setObservacaoNova} />
             <Button variant="primary" onClick={handleCriar} disabled={criando}>
               Criar cotação e registrar itens
             </Button>
@@ -749,6 +812,8 @@ export function CotacoesPage({
                   options={vendedorOptions}
                 />
 
+                <CampoObservacaoNova valor={observacaoNova} onChange={setObservacaoNova} />
+
                 <div>
                   <p className="field-label mb-2">Itens a cotar encontrados na planilha</p>
                   <div className="overflow-x-auto rounded-xl border border-ink-100">
@@ -759,13 +824,14 @@ export function CotacoesPage({
                           <th className="py-2 px-2 font-medium min-w-[10rem]">Referência</th>
                           <th className="py-2 px-2 font-medium min-w-[14rem]">Descrição</th>
                           <th className="py-2 px-2 font-medium w-28 text-right">Quantidade</th>
+                          <th className="py-2 px-2 font-medium w-28">Observação</th>
                           <th className="w-10"></th>
                         </tr>
                       </thead>
                       <tbody>
                         {itensImportados.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="py-6 text-center text-ink-400 border-t border-ink-100">
+                            <td colSpan={6} className="py-6 text-center text-ink-400 border-t border-ink-100">
                               Nenhum item restante.
                             </td>
                           </tr>
@@ -799,6 +865,14 @@ export function CotacoesPage({
                                     handlePatchItemImportado(index, { quantidade: Number(e.target.value) || 0 })
                                   }
                                   onFocus={selecionarTudoAoFocar}
+                                />
+                              </td>
+                              <td className="px-1 py-1 border-t border-ink-100">
+                                <CelulaObservacao
+                                  valor={item.observacao ?? ''}
+                                  onChange={(observacao) => handlePatchItemImportado(index, { observacao })}
+                                  idLinha={`importado-${index}`}
+                                  descricaoItem={item.referencia.trim() || item.descricao.trim() || `item ${index + 1}`}
                                 />
                               </td>
                               <td className="px-1 py-1 border-t border-ink-100 text-center">

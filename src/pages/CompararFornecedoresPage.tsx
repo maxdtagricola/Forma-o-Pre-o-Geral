@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { Button } from '../components/ui/Basics'
 import { ImportarCotacaoFornecedorModal, type ItemImportadoConfirmado } from '../components/ImportarCotacaoFornecedorModal'
 import { listFornecedores } from '../db/fornecedoresRepo'
@@ -369,6 +369,18 @@ export function CompararFornecedoresPage({
   const [busca, setBusca] = useState('')
   const [filtroFornecedor, setFiltroFornecedor] = useState('')
   const [soSemCotacao, setSoSemCotacao] = useState(false)
+  // "Voltar para Precificação" acompanha a tela: quando o botão do topo sai de vista, aparece um
+  // igual flutuando no canto de baixo
+  const voltarRef = useRef<HTMLDivElement>(null)
+  const [voltarNoTopoVisivel, setVoltarNoTopoVisivel] = useState(true)
+
+  useEffect(() => {
+    const alvo = voltarRef.current
+    if (!alvo) return
+    const observador = new IntersectionObserver(([entrada]) => setVoltarNoTopoVisivel(entrada.isIntersecting))
+    observador.observe(alvo)
+    return () => observador.disconnect()
+  }, [isEditing])
 
   useEffect(() => {
     listFornecedores()
@@ -502,7 +514,7 @@ export function CompararFornecedoresPage({
               "Qtd atende", quanto o fornecedor tem do item — vazio quer dizer que ele atende a quantidade toda.
             </p>
           </div>
-          <div className="flex gap-2 shrink-0">
+          <div ref={voltarRef} className="flex gap-2 shrink-0">
             {!travadaPorOutro && items.length > 0 && (
               <Button variant="secondary" onClick={() => setImportAberto(true)}>
                 Importar cotação (planilha, PDF, foto…)
@@ -720,6 +732,16 @@ export function CompararFornecedoresPage({
           onConfirmar={handleImportarConfirmado}
           onClose={() => setImportAberto(false)}
         />
+      )}
+
+      {!voltarNoTopoVisivel && (
+        <button
+          type="button"
+          onClick={onGoToPrecificacao}
+          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-1.5 rounded-full bg-ink-950 px-4 py-2.5 text-sm font-medium text-white shadow-lg transition hover:bg-ink-800"
+        >
+          <span aria-hidden>←</span> Voltar para Precificação
+        </button>
       )}
     </div>
   )

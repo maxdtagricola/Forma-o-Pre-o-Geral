@@ -3,7 +3,9 @@ import { listQuotes, updateQuoteStatus } from '../db/analysesRepo'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { avisar, pedirMotivoArquivamento } from '../dialogs'
 import { DIAS_PARA_RETORNO, cotacoesEsperandoRetorno, diasDesdeOEnvio } from '../retornoCotacao'
-import { SeloPrevisao, previsaoDaCotacao } from '../components/TransporteFornecedor'
+import { SeloPrevisao, previsaoDaCotacao, situacaoDaPrevisao } from '../components/TransporteFornecedor'
+import { SeloProducao } from '../components/SeloProducao'
+import { itensDoPedidoDeCompra } from '../mudancaDeStatus'
 import { getStatusColors } from '../db/configRepo'
 import { listNotasFiscais } from '../db/notasFiscaisRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
@@ -30,6 +32,8 @@ const STATUS_EM_ANDAMENTO: QuoteStatus[] = ['AGUARDANDO FORNECEDOR', 'ANALISANDO
 const STATUS_EM_TRANSPORTE: QuoteStatus[] = ['EM TRANSPORTE', 'PARCIALMENTE ENTREGUE']
 /** PENDENTE há mais dias úteis que isso fica marcado como atrasado. */
 const DIAS_PENDENTE_ALERTA = 2
+/** Produção com previsão de finalização a até esse tanto de dias úteis (ou já atrasada) vira aviso no topo. */
+const DIAS_AVISO_PRODUCAO = 1
 const ITENS_POR_BLOCO = 6
 
 const DIA = 24 * 60 * 60 * 1000
@@ -155,6 +159,22 @@ export function TelaInicialPage({
         return desdeStatusAtual(a) - desdeStatusAtual(b)
       })
 
+    // pedidos confirmados (em produção no fornecedor): com previsão de finalização primeiro, a mais
+    // próxima/atrasada no topo
+    const previsaoProducao = (r: QuoteRecord) => r.producao?.previsaoFinalizacao || ''
+    const emProducao = cotacoes
+      .filter((r) => r.status === 'PEDIDO CONFIRMADO')
+      .sort((a, b) => {
+        const pa = previsaoProducao(a)
+        const pb = previsaoProducao(b)
+        if (pa && pb) return pa.localeCompare(pb)
+        if (pa || pb) return pa ? -1 : 1
+        return desdeStatusAtual(a) - desdeStatusAtual(b)
+      })
+    const producaoChegando = emProducao.filter(
+      (r) => previsaoProducao(r) && situacaoDaPrevisao(previsaoProducao(r), agora, 'producao').diasUteis <= DIAS_AVISO_PRODUCAO,
+    )
+
     const eventos: Evento[] = []
     for (const r of cotacoes) {
       eventos.push({ chave: `${r.id}-criada`, quando: r.createdAt, cotacao: r, texto: 'criada', quem: r.criadoPor })
@@ -171,6 +191,8 @@ export function TelaInicialPage({
       retorno: cotacoesEsperandoRetorno(cotacoes, currentAdmin, agora),
       pendentes,
       minhas,
+      emProducao,
+      producaoChegando,
       emTransporte,
       atividade: eventos.slice(0, 8),
       novasHoje: cotacoes.filter((r) => r.createdAt >= hoje).length,
@@ -317,6 +339,34 @@ export function TelaInicialPage({
             </section>
           )}
 
+          {blocos.producaoChegando.length > 0 && (
+            <section className="card border-sky-300 bg-sky-50/60" aria-label="Produção — previsão de finalização">
+              <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+                <h3 className="font-display text-base font-semibold text-ink-900">
+                  Produção — previsão de finalização
+                  <span className="ml-2 rounded-full bg-sky-200 px-2 py-0.5 text-xs font-semibold text-sky-900">{blocos.producaoChegando.length}</span>
+                </h3>
+                <button type="button" onClick={() => onIrPara('pedidoCompra')} className="text-xs font-medium text-ink-500 hover:text-ink-800">
+                  Ver no Pedido de Compra →
+                </button>
+              </div>
+              <p className="mb-3 text-sm text-ink-600">
+                Pedidos confirmados com a produção ficando pronta {DIAS_AVISO_PRODUCAO === 1 ? 'até o próximo dia útil' : `em até ${DIAS_AVISO_PRODUCAO} dias úteis`}
+                {' '}ou já atrasada — confirme com o fornecedor.
+              </p>
+              <div className="space-y-1">
+                {blocos.producaoChegando.map((r) => (
+                  <LinhaCotacao
+                    key={r.id}
+                    r={r}
+                    onClick={() => onOpenQuote(r)}
+                    direita={<SeloPrevisao previsao={r.producao!.previsaoFinalizacao!} agora={agora} tipo="producao" />}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <Numero valor={blocos.novasHoje} rotulo={blocos.novasHoje === 1 ? 'cotação nova hoje' : 'cotações novas hoje'} />
             <Numero valor={blocos.enviadasHoje} rotulo={blocos.enviadasHoje === 1 ? 'enviada ao cliente hoje' : 'enviadas ao cliente hoje'} />
@@ -361,6 +411,32 @@ export function TelaInicialPage({
                     <span className="flex flex-col items-end gap-0.5">
                       <SeloStatus status={r.status} cor={corDoStatus(r.status)} />
                       <span className="text-[11px] text-ink-400">{haDiasUteis(desdeStatusAtual(r), agora)}</span>
+                    </span>
+                  }
+                />
+              ))}
+            </Bloco>
+
+            <Bloco
+              titulo="EM PRODUÇÃO"
+              total={blocos.emProducao.length}
+              vazio="Nenhum pedido confirmado em produção."
+              onVerTodas={() => onIrPara('pedidoCompra')}
+              rotuloVerTodas="Ver no Pedido de Compra"
+            >
+              {blocos.emProducao.slice(0, ITENS_POR_BLOCO).map((r) => (
+                <LinhaCotacao
+                  key={r.id}
+                  r={r}
+                  onClick={() => onOpenQuote(r)}
+                  direita={
+                    <span className="flex flex-col items-end gap-0.5">
+                      {r.producao ? (
+                        <SeloProducao producao={r.producao} totalItens={itensDoPedidoDeCompra(r).length} agora={agora} />
+                      ) : (
+                        <span className="text-[11px] text-ink-400">produção não informada · {haDiasUteis(desdeStatusAtual(r), agora)}</span>
+                      )}
+                      {r.producao && !r.producao.previsaoFinalizacao && <span className="text-[11px] text-ink-400">sem previsão</span>}
                     </span>
                   }
                 />
