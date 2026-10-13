@@ -612,8 +612,9 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
     ]
   }, [items, itensExcluidosPendentes, itensExcluidosSalvos])
 
-  async function handleSave() {
-    if (!currentAdmin) return
+  /** Salva a cotação aberta — true se gravou (usado por quem precisa saber, ex.: "Salvar e fechar"). */
+  async function handleSave(): Promise<boolean> {
+    if (!currentAdmin) return false
     try {
       const record = await saveQuote(
         currentAdmin,
@@ -641,9 +642,36 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       setTemAlteracoesNaoSalvas(false)
       setCotacaoRecemSalva(true)
       setTimeout(() => setCotacaoRecemSalva(false), 2500)
+      return true
     } catch (err) {
       await avisar(err instanceof Error ? err.message : 'Erro ao salvar a cotação no servidor.')
+      return false
     }
+  }
+
+  /** Fecha a cotação aberta na Precificação (ela continua salva em Cotações): a Precificação fica
+   * vazia e as outras telas deixam de carregar essa cotação ("Continuar", Frete…). Havendo alteração
+   * não salva, pergunta antes — e nunca descarta sem uma confirmação explícita. */
+  async function fecharCotacao() {
+    if (temAlteracoesNaoSalvas) {
+      const salvar = await confirmar('Esta cotação tem alterações que ainda não foram salvas. Salvar antes de fechar?', {
+        titulo: 'Fechar cotação',
+        confirmText: 'Salvar e fechar',
+        cancelText: 'Não salvar',
+      })
+      if (salvar) {
+        if (!(await handleSave())) return
+      } else {
+        const descartar = await confirmar('Fechar sem salvar? O que foi alterado desde o último salvamento vai se perder.', {
+          titulo: 'Fechar sem salvar',
+          confirmText: 'Fechar sem salvar',
+          cancelText: 'Continuar editando',
+          tone: 'danger',
+        })
+        if (!descartar) return
+      }
+    }
+    handleNew()
   }
 
   function handleNew() {
@@ -831,7 +859,8 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           onApplyPerfilToAll={protegido(handleApplyPerfilToAll)}
           onPricingChange={protegido(patchActivePricing)}
           onSave={handleSave}
-          onNew={handleNew}
+          onNew={() => void fecharCotacao()}
+          onFechar={() => void fecharCotacao()}
           onGoToCotacoes={() => changeTab('cotacoes')}
           onGoToComparar={() => changeTab('comparar')}
           onGoToFrete={() => changeTab('frete')}

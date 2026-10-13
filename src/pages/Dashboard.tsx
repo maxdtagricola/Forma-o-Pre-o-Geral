@@ -53,6 +53,7 @@ export function Dashboard({
   onPricingChange,
   onSave,
   onNew,
+  onFechar,
   onGoToCotacoes,
   onGoToComparar,
   onGoToFrete,
@@ -97,6 +98,8 @@ export function Dashboard({
   onPricingChange: (patch: Partial<PricingConfig>) => void
   onSave: () => void
   onNew: () => void
+  /** Fecha a cotação aberta (continua salva em Cotações) — a Precificação fica vazia. */
+  onFechar: () => void
   onGoToCotacoes: () => void
   onGoToComparar: () => void
   onGoToFrete: () => void
@@ -156,11 +159,11 @@ export function Dashboard({
       )}
 
       <div className="card">
-        <div className="flex items-center justify-between gap-3 mb-1">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
           <h2 className="font-display text-lg font-semibold text-ink-900">
             Dados da cotação{codigo && <span className="ml-2 font-mono text-sm text-ink-400">{codigo}</span>}
           </h2>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex flex-wrap gap-2">
             {temPlanilhaCliente && (
               <Button variant="ghost" onClick={onVerPlanilhaCliente}>
                 Planilha do cliente
@@ -168,6 +171,9 @@ export function Dashboard({
             )}
             <Button variant="secondary" onClick={() => setMostrarEnvioCotacao(true)} disabled={items.length === 0}>
               Enviar cotação
+            </Button>
+            <Button variant="ghost" onClick={onFechar} title="Fechar esta cotação — ela continua salva em Cotações">
+              ✕ Fechar cotação
             </Button>
           </div>
         </div>

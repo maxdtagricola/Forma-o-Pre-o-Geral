@@ -426,6 +426,11 @@ function GrupoCotacoesCard({
   )
 }
 
+/** Texto pra busca: sem acento, minúsculo, sem espaços nas pontas. */
+function normalizarBusca(texto: string | undefined): string {
+  return (texto ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+}
+
 export function CotacoesPage({
   refreshKey,
   currentAdmin,
@@ -677,6 +682,26 @@ export function CotacoesPage({
     }
   }
 
+  // busca ampla: pela cotação (COT-0070, 0070 ou 70), pelo vendedor ou pelo cliente — sem diferença de
+  // acento ou maiúscula; com mais de uma palavra, todas precisam bater ("edson silvernane")
+  const [busca, setBusca] = useState('')
+  const resultadosBusca = useMemo(() => {
+    const termos = normalizarBusca(busca).split(/\s+/).filter(Boolean)
+    if (termos.length === 0) return []
+    return records
+      .filter((r) => {
+        const codigo = normalizarBusca(r.codigo || '')
+        const numero = (r.codigo || '').replace(/\D/g, '').replace(/^0+/, '')
+        const nomes = [normalizarBusca(r.vendedor), normalizarBusca(r.cliente)]
+        return termos.every((t) =>
+          /^\d+$/.test(t)
+            ? numero === t.replace(/^0+/, '') || nomes.some((n) => n.includes(t))
+            : codigo.includes(t) || nomes.some((n) => n.includes(t)),
+        )
+      })
+      .sort((a, b) => b.createdAt - a.createdAt)
+  }, [records, busca])
+
   const grupos = useMemo(() => {
     return QUOTE_STATUSES.map((status) => ({
       status,
@@ -686,6 +711,67 @@ export function CotacoesPage({
 
   return (
     <div className="space-y-6">
+      <div className="card" role="search">
+        <label htmlFor="busca-cotacoes" className="sr-only">
+          Buscar cotação, vendedor ou cliente
+        </label>
+        <div className="relative">
+          <svg
+            aria-hidden
+            className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-ink-400"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
+            <circle cx="11" cy="11" r="7" />
+            <path d="m20 20-3.5-3.5" />
+          </svg>
+          <input
+            id="busca-cotacoes"
+            type="search"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            onKeyDown={(e) => e.key === 'Escape' && setBusca('')}
+            placeholder="Buscar cotação, vendedor ou cliente — ex.: COT-0070, 70, EDSON, SILVERNANE"
+            autoComplete="off"
+            className="field-input h-14 pl-12 pr-12 text-base sm:text-lg [&::-webkit-search-cancel-button]:hidden"
+          />
+          {busca && (
+            <button
+              type="button"
+              onClick={() => setBusca('')}
+              aria-label="Limpar busca"
+              className="absolute right-3 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full text-xl leading-none text-ink-400 transition hover:bg-ink-100 hover:text-ink-800"
+            >
+              ×
+            </button>
+          )}
+        </div>
+        {busca.trim() && (
+          <div className="mt-4" aria-label="Resultado da busca">
+            <p className="mb-2 text-xs text-ink-500">
+              {resultadosBusca.length === 0
+                ? `Nenhuma cotação encontrada pra "${busca.trim()}".`
+                : `${resultadosBusca.length} ${resultadosBusca.length === 1 ? 'cotação encontrada' : 'cotações encontradas'}`}
+            </p>
+            <div className="space-y-2">
+              {resultadosBusca.map((r) => (
+                <QuoteCard
+                  key={r.id}
+                  r={r}
+                  corDoStatus={corDoStatus}
+                  currentAdmin={currentAdmin}
+                  onOpenQuote={onOpenQuote}
+                  onStatusChange={handleStatusChange}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="card">
         <div className="flex items-center justify-between gap-3 mb-1">
           <h2 className="font-display text-lg font-semibold text-ink-900">Nova cotação</h2>
