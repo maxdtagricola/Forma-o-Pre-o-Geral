@@ -375,6 +375,10 @@ export const MOTIVOS_ARQUIVAMENTO = [
 export interface StatusChange {
   status: QuoteStatus
   changedAt: number
+  /** Status de onde veio (registros antigos não têm — vale o da mudança anterior). */
+  de?: QuoteStatus
+  /** Quem mudou (registros antigos não têm — era sempre o responsável pela cotação). */
+  por?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -400,8 +404,12 @@ export interface ProducaoPedido {
   /** Itens do pedido que já estão em produção — no total, todos. */
   itemIds: string[]
   observacao: string
-  /** Quando o fornecedor diz que a produção fica pronta ("AAAA-MM-DD"; vazio = sem previsão). */
+  /** Quando o fornecedor diz que a produção fica pronta ("AAAA-MM-DD"; vazio = sem previsão) — pedido
+   * com um fornecedor só (ou informado antes de existir a previsão por fornecedor). */
   previsaoFinalizacao?: string
+  /** Pedido com mais de um fornecedor: a previsão de cada um, pela chave do pedido dele
+   * (fornecedor + UF, a mesma do transporte). */
+  previsaoPorFornecedor?: Record<string, string>
   em: number
   por: string
 }

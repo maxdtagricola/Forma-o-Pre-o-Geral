@@ -1,19 +1,14 @@
 import { pedirMotivoArquivamento, pedirProducao, type RespostaProducao } from './dialogs'
+import { fornecedoresDoPedido, itensDoPedidoDeCompra } from './fornecedoresDoPedido'
 import type { QuoteItem, QuoteRecord, QuoteStatus } from './types'
+
+export { itensDoPedidoDeCompra }
 
 // -----------------------------------------------------------------------
 // O que é perguntado antes de mudar o status de uma cotação — igual em
 // todas as telas que mudam status (Cotações, Histórico, Pedido de Compra,
 // Faturamento): o motivo, ao arquivar; a produção, ao confirmar o pedido.
 // -----------------------------------------------------------------------
-
-/** Itens que entraram no pedido de compra — cotações de antes desse controle não têm a lista: todos. */
-export function itensDoPedidoDeCompra(cotacao: Pick<QuoteRecord, 'items' | 'pedidoCompra'>): QuoteItem[] {
-  const ids = cotacao.pedidoCompra?.itemIds
-  if (!ids) return cotacao.items
-  const permitidos = new Set(ids)
-  return cotacao.items.filter((item) => permitidos.has(item.id))
-}
 
 function rotuloDoItem(item: QuoteItem, indice: number): string {
   const nome = [item.product.referencia, item.product.descricao].filter((x) => x?.trim()).join(' — ') || `Item ${indice + 1}`
@@ -24,12 +19,21 @@ function rotuloDoItem(item: QuoteItem, indice: number): string {
 export function perguntarProducao(cotacao: Pick<QuoteRecord, 'codigo' | 'items' | 'pedidoCompra' | 'producao'>): Promise<RespostaProducao | null> {
   const itens = itensDoPedidoDeCompra(cotacao)
   const atual = cotacao.producao
+  // mais de um fornecedor no pedido: a previsão de finalização é pedida pra cada um
+  const fornecedores = fornecedoresDoPedido(cotacao)
   return pedirProducao(
     `${cotacao.codigo ? `${cotacao.codigo} — ` : ''}o pedido já está todo em produção no fornecedor, ou só uma parte?`,
     itens.map((item, i) => ({ id: item.id, rotulo: rotuloDoItem(item, i) })),
     atual
-      ? { tipo: atual.tipo, itemIds: atual.itemIds, observacao: atual.observacao, previsaoFinalizacao: atual.previsaoFinalizacao ?? '' }
+      ? {
+          tipo: atual.tipo,
+          itemIds: atual.itemIds,
+          observacao: atual.observacao,
+          previsaoFinalizacao: atual.previsaoFinalizacao ?? '',
+          previsaoPorFornecedor: atual.previsaoPorFornecedor,
+        }
       : undefined,
+    fornecedores.length > 1 ? fornecedores.map((f) => ({ chave: f.chaveDados, rotulo: f.rotulo })) : undefined,
   )
 }
 

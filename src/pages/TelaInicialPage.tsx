@@ -3,8 +3,9 @@ import { listQuotes, updateQuoteStatus } from '../db/analysesRepo'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { avisar, pedirMotivoArquivamento } from '../dialogs'
 import { DIAS_PARA_RETORNO, cotacoesEsperandoRetorno, diasDesdeOEnvio } from '../retornoCotacao'
-import { SeloPrevisao, previsaoDaCotacao, situacaoDaPrevisao } from '../components/TransporteFornecedor'
+import { SelosPrevisao, previsaoDaCotacao, situacaoDaPrevisao } from '../components/TransporteFornecedor'
 import { SeloProducao } from '../components/SeloProducao'
+import { previsoesDeEntrega, previsoesDeProducao } from '../fornecedoresDoPedido'
 import { itensDoPedidoDeCompra } from '../mudancaDeStatus'
 import { getStatusColors } from '../db/configRepo'
 import { listNotasFiscais } from '../db/notasFiscaisRepo'
@@ -15,6 +16,8 @@ import { diasUteisDesde, textoDiasUteis, useVersaoFeriados } from '../diasUteis'
 import { NOTA_FISCAL_STATUSES, QUOTE_STATUSES } from '../types'
 import type { NotaFiscal, PedidoCompraInfo, QuoteRecord, QuoteStatus } from '../types'
 import type { TabKey } from '../components/Layout'
+import { FundoEmVideo } from '../components/FundoEmVideo'
+import { useEstadoPersistente } from '../estadoPersistente'
 
 // -----------------------------------------------------------------------
 // Tela Inicial — a fila de trabalho de quem cota: as pendentes (esperando
@@ -161,7 +164,8 @@ export function TelaInicialPage({
 
     // pedidos confirmados (em produção no fornecedor): com previsão de finalização primeiro, a mais
     // próxima/atrasada no topo
-    const previsaoProducao = (r: QuoteRecord) => r.producao?.previsaoFinalizacao || ''
+    // a mais próxima entre os fornecedores do pedido
+    const previsaoProducao = (r: QuoteRecord) => previsoesDeProducao(r)[0]?.previsao || ''
     const emProducao = cotacoes
       .filter((r) => r.status === 'PEDIDO CONFIRMADO')
       .sort((a, b) => {
@@ -247,20 +251,34 @@ export function TelaInicialPage({
     }
   }
 
+  // vídeo de fundo pausado (preferência deste aparelho)
+  const [fundoPausado, setFundoPausado] = useEstadoPersistente('telaInicial:fundoPausado', false)
+
   function corDoStatus(status: string, lista: readonly string[] = QUOTE_STATUSES): string {
     return coresStatus[status] || corPadraoDoStatus(status, lista)
   }
 
   return (
-    <div className="space-y-6">
+    <>
+    <FundoEmVideo pausado={fundoPausado} />
+    <div className="tela-inicial-video relative space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+        <div className="min-w-0">
           <h2 className="font-display text-2xl font-bold text-ink-900">
             {saudacao(agora)}, {nomeExibido}
           </h2>
-          <p className="text-sm text-ink-400">O que precisa de atenção nas cotações hoje.</p>
+          <p className="text-sm text-ink-600">O que precisa de atenção nas cotações hoje.</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setFundoPausado((v) => !v)}
+            aria-pressed={fundoPausado}
+            title={fundoPausado ? 'Voltar a animar o vídeo de fundo' : 'Pausar o vídeo de fundo'}
+            className="rounded-lg border border-ink-200 bg-surface/80 px-3 py-2 text-sm font-medium text-ink-700 backdrop-blur transition hover:bg-ink-50"
+          >
+            {fundoPausado ? '▶ Animar fundo' : '❚❚ Pausar fundo'}
+          </button>
           <button
             type="button"
             onClick={() => onNovaCotacao('manual')}
@@ -295,16 +313,18 @@ export function TelaInicialPage({
       ) : (
         <>
           {blocos.producaoChegando.length > 0 && (
-            <section className="card border-sky-300 bg-sky-50/60" aria-label="Produção — previsão de finalização">
-              <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="font-display text-base font-semibold text-ink-900">
-                  Produção — previsão de finalização
-                  <span className="ml-2 rounded-full bg-sky-200 px-2 py-0.5 text-xs font-semibold text-sky-900">{blocos.producaoChegando.length}</span>
-                </h3>
+            <Topico
+              id="producao"
+              titulo="Produção — previsão de finalização"
+              total={blocos.producaoChegando.length}
+              className="card border-sky-300 bg-sky-50/60"
+              classeContagem="bg-sky-200 text-sky-900"
+              extra={
                 <button type="button" onClick={() => onIrPara('pedidoCompra')} className="text-xs font-medium text-ink-500 hover:text-ink-800">
                   Ver no Pedido de Compra →
                 </button>
-              </div>
+              }
+            >
               <p className="mb-3 text-sm text-ink-600">
                 Pedidos confirmados com a produção ficando pronta {DIAS_AVISO_PRODUCAO === 1 ? 'até o próximo dia útil' : `em até ${DIAS_AVISO_PRODUCAO} dias úteis`}
                 {' '}ou já atrasada — confirme com o fornecedor.
@@ -315,14 +335,22 @@ export function TelaInicialPage({
                     key={r.id}
                     r={r}
                     onClick={() => onOpenQuote(r)}
-                    direita={<SeloPrevisao previsao={r.producao!.previsaoFinalizacao!} agora={agora} tipo="producao" />}
+                    direita={
+                      <span className="flex flex-col items-end gap-0.5">
+                        <SelosPrevisao
+                          previsoes={previsoesDeProducao(r).filter((p) => situacaoDaPrevisao(p.previsao, agora, 'producao').diasUteis <= DIAS_AVISO_PRODUCAO)}
+                          agora={agora}
+                          tipo="producao"
+                        />
+                      </span>
+                    }
                   />
                 ))}
               </div>
-            </section>
+            </Topico>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-3 gap-2 sm:gap-3">
             <Numero valor={blocos.novasHoje} rotulo={blocos.novasHoje === 1 ? 'cotação nova hoje' : 'cotações novas hoje'} />
             <Numero valor={blocos.enviadasHoje} rotulo={blocos.enviadasHoje === 1 ? 'enviada ao cliente hoje' : 'enviadas ao cliente hoje'} />
             <Numero
@@ -331,7 +359,7 @@ export function TelaInicialPage({
             />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 sm:gap-6 items-start">
             <Bloco
               titulo="Pendentes"
               total={blocos.pendentes.length}
@@ -387,11 +415,11 @@ export function TelaInicialPage({
                   direita={
                     <span className="flex flex-col items-end gap-0.5">
                       {r.producao ? (
-                        <SeloProducao producao={r.producao} totalItens={itensDoPedidoDeCompra(r).length} agora={agora} />
+                        <SeloProducao producao={r.producao} totalItens={itensDoPedidoDeCompra(r).length} agora={agora} previsoes={previsoesDeProducao(r)} />
                       ) : (
                         <span className="text-[11px] text-ink-400">produção não informada · {haDiasUteis(desdeStatusAtual(r), agora)}</span>
                       )}
-                      {r.producao && !r.producao.previsaoFinalizacao && <span className="text-[11px] text-ink-400">sem previsão</span>}
+                      {r.producao && previsoesDeProducao(r).length === 0 && <span className="text-[11px] text-ink-400">sem previsão</span>}
                     </span>
                   }
                 />
@@ -405,7 +433,7 @@ export function TelaInicialPage({
               onVerTodas={() => onIrPara('cotacoes')}
             >
               {blocos.emTransporte.slice(0, ITENS_POR_BLOCO).map((r) => {
-                const previsao = previsaoDaCotacao(r)
+                const previsoes = previsoesDeEntrega(r)
                 return (
                   <LinhaCotacao
                     key={r.id}
@@ -414,8 +442,8 @@ export function TelaInicialPage({
                     direita={
                       <span className="flex flex-col items-end gap-0.5">
                         <SeloStatus status={r.status} cor={corDoStatus(r.status)} />
-                        {previsao ? (
-                          <SeloPrevisao previsao={previsao} agora={agora} />
+                        {previsoes.length > 0 ? (
+                          <SelosPrevisao previsoes={previsoes} agora={agora} />
                         ) : (
                           <span className="text-[11px] text-ink-400">sem previsão · {haDiasUteis(desdeStatusAtual(r), agora)}</span>
                         )}
@@ -480,11 +508,13 @@ export function TelaInicialPage({
 
           {/* por último, depois de todos os blocos */}
           {blocos.retorno.length > 0 && (
-            <section className="card border-amber-300 bg-amber-50/60" aria-label="Retorno do cliente">
-              <h3 className="font-display text-base font-semibold text-ink-900 mb-1">
-                Retorno do cliente
-                <span className="ml-2 rounded-full bg-amber-200 px-2 py-0.5 text-xs font-semibold text-amber-900">{blocos.retorno.length}</span>
-              </h3>
+            <Topico
+              id="retorno"
+              titulo="Retorno do cliente"
+              total={blocos.retorno.length}
+              className="card border-amber-300 bg-amber-50/60"
+              classeContagem="bg-amber-200 text-amber-900"
+            >
               <p className="mb-3 text-sm text-ink-600">
                 Enviadas por você há {DIAS_PARA_RETORNO} dias ou mais — atualize: se fechou, siga pro pedido de compra; se não
                 fechou, arquive com o motivo.
@@ -521,7 +551,7 @@ export function TelaInicialPage({
                   </div>
                 ))}
               </div>
-            </section>
+            </Topico>
           )}
         </>
       )}
@@ -530,6 +560,7 @@ export function TelaInicialPage({
         <PedidoCompraModal quote={pedidoDoRetorno} onConfirm={handleFechouConfirmado} onCancel={() => setPedidoDoRetorno(undefined)} />
       )}
     </div>
+    </>
   )
 }
 
@@ -537,9 +568,10 @@ export function TelaInicialPage({
 
 function Numero({ valor, rotulo }: { valor: number; rotulo: string }) {
   return (
-    <div className="card flex items-baseline gap-3 py-4">
-      <span className="font-display text-3xl font-bold tabular-nums text-ink-900">{valor}</span>
-      <span className="text-sm text-ink-500">{rotulo}</span>
+    // no celular, os três lado a lado: número em cima, texto embaixo
+    <div className="card flex flex-col gap-1 px-3 py-3 sm:flex-row sm:items-baseline sm:gap-3 sm:px-5 sm:py-4">
+      <span className="font-display text-2xl font-bold tabular-nums text-ink-900 sm:text-3xl">{valor}</span>
+      <span className="text-xs leading-tight text-ink-500 sm:text-sm">{rotulo}</span>
     </div>
   )
 }
@@ -560,19 +592,66 @@ function Bloco({
   children: ReactNode
 }) {
   return (
-    <section className="card" aria-label={titulo}>
-      <div className="mb-3 flex items-baseline justify-between gap-2">
-        <h3 className="font-display text-base font-semibold text-ink-900">
-          {titulo}
-          {total > 0 && <span className="ml-2 rounded-full bg-ink-100 px-2 py-0.5 text-xs font-semibold text-ink-600">{total}</span>}
-        </h3>
-        {onVerTodas && total > ITENS_POR_BLOCO && (
+    <Topico
+      id={titulo}
+      titulo={titulo}
+      total={total}
+      extra={
+        onVerTodas &&
+        total > ITENS_POR_BLOCO && (
           <button type="button" onClick={onVerTodas} className="shrink-0 text-xs text-ink-800 underline-offset-2 hover:underline">
             {rotuloVerTodas} (+{total - ITENS_POR_BLOCO})
           </button>
-        )}
-      </div>
+        )
+      }
+    >
       {total === 0 ? <p className="py-4 text-center text-sm text-ink-400">{vazio}</p> : <div className="space-y-1">{children}</div>}
+    </Topico>
+  )
+}
+
+/** Quadro da Tela Inicial que recolhe (fica só o título e a contagem) clicando no título — cada um
+ * lembra, neste aparelho, se estava recolhido. */
+function Topico({
+  id,
+  titulo,
+  total,
+  className = 'card',
+  classeContagem = 'bg-ink-100 text-ink-600',
+  extra,
+  children,
+}: {
+  id: string
+  titulo: string
+  total: number
+  className?: string
+  classeContagem?: string
+  /** O que fica à direita do título (ex.: "Ver no Pedido de Compra →"). */
+  extra?: ReactNode
+  children: ReactNode
+}) {
+  const [recolhido, setRecolhido] = useEstadoPersistente(`telaInicial:recolhido:${id}`, false)
+  return (
+    <section className={className} aria-label={titulo}>
+      <div className={`flex flex-wrap items-center justify-between gap-2 ${recolhido ? '' : 'mb-3'}`}>
+        <h3 className="min-w-0 font-display text-base font-semibold text-ink-900">
+          <button
+            type="button"
+            onClick={() => setRecolhido((v) => !v)}
+            aria-expanded={!recolhido}
+            title={recolhido ? 'Mostrar' : 'Recolher'}
+            className="flex min-w-0 items-center gap-2 rounded text-left transition hover:text-ink-700"
+          >
+            <span aria-hidden className={`text-sm text-ink-400 transition-transform ${recolhido ? '-rotate-90' : ''}`}>
+              ▾
+            </span>
+            <span className="min-w-0">{titulo}</span>
+            {total > 0 && <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${classeContagem}`}>{total}</span>}
+          </button>
+        </h3>
+        {!recolhido && extra}
+      </div>
+      {!recolhido && children}
     </section>
   )
 }
@@ -583,9 +662,9 @@ function LinhaCotacao({ r, direita, onClick }: { r: QuoteRecord; direita: ReactN
       type="button"
       onClick={onClick}
       title="Abrir na Precificação"
-      className="flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition hover:bg-ink-50"
+      className="flex w-full flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-2 py-2 text-left transition hover:bg-ink-50"
     >
-      <span className="min-w-0 flex-1">
+      <span className="min-w-[10rem] flex-1">
         <span className="block truncate text-sm text-ink-900">
           <span className="font-mono text-xs text-ink-500">{r.codigo || '—'}</span> <span className="font-medium">{r.cliente || '(sem cliente)'}</span>
         </span>
@@ -593,7 +672,7 @@ function LinhaCotacao({ r, direita, onClick }: { r: QuoteRecord; direita: ReactN
           {[r.vendedor, r.maquina].filter(Boolean).join(' · ') || '—'}
         </span>
       </span>
-      <span className="shrink-0 text-right">{direita}</span>
+      <span className="ml-auto shrink-0 text-right">{direita}</span>
     </button>
   )
 }

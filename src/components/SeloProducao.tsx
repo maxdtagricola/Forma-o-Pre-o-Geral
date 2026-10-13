@@ -1,4 +1,5 @@
-import { SeloPrevisao } from './TransporteFornecedor'
+import { SeloPrevisao, SelosPrevisao } from './TransporteFornecedor'
+import type { PrevisaoDoFornecedor } from '../fornecedoresDoPedido'
 import type { ProducaoPedido, QuoteItem } from '../types'
 
 /** "Em produção: pedido todo" ou "Em produção: 2 de 5 itens". */
@@ -7,9 +8,25 @@ export function textoProducao(producao: ProducaoPedido, totalItens: number): str
   return `Em produção: ${producao.itemIds.length} de ${totalItens} ${totalItens === 1 ? 'item' : 'itens'}`
 }
 
+/** A previsão única do pedido, no formato da lista por fornecedor (pra quem não passa `previsoes`). */
+function previsaoUnica(producao: ProducaoPedido): PrevisaoDoFornecedor[] {
+  return producao.previsaoFinalizacao ? [{ chave: '', rotulo: '', previsao: producao.previsaoFinalizacao }] : []
+}
+
 /** Selo da produção do pedido confirmado (verde: todo em produção; âmbar: só parte) — e, ao lado, o
- * da previsão de finalização, quando informada. */
-export function SeloProducao({ producao, totalItens, agora }: { producao: ProducaoPedido; totalItens: number; agora?: number }) {
+ * da previsão de finalização (uma por fornecedor, com o nome dele, quando o pedido tem mais de um). */
+export function SeloProducao({
+  producao,
+  totalItens,
+  agora,
+  previsoes,
+}: {
+  producao: ProducaoPedido
+  totalItens: number
+  agora?: number
+  /** Previsões por fornecedor (previsoesDeProducao) — sem isso, a previsão única do pedido. */
+  previsoes?: PrevisaoDoFornecedor[]
+}) {
   const total = producao.tipo === 'total'
   const quando = new Date(producao.em).toLocaleDateString('pt-BR')
   return (
@@ -23,7 +40,7 @@ export function SeloProducao({ producao, totalItens, agora }: { producao: Produc
         <span aria-hidden>{total ? '●' : '◐'}</span>
         {textoProducao(producao, totalItens)}
       </span>
-      {producao.previsaoFinalizacao && <SeloPrevisao previsao={producao.previsaoFinalizacao} agora={agora} tipo="producao" />}
+      <SelosPrevisao previsoes={previsoes ?? previsaoUnica(producao)} agora={agora} tipo="producao" />
     </>
   )
 }
@@ -33,15 +50,19 @@ export function DetalheProducao({
   producao,
   itens,
   mostrarPrevisao = true,
+  previsoes,
 }: {
   producao: ProducaoPedido
   itens: QuoteItem[]
   /** Falso quando a tela já mostra a previsão num campo editável. */
   mostrarPrevisao?: boolean
+  /** Previsões por fornecedor (previsoesDeProducao) — sem isso, a previsão única do pedido. */
+  previsoes?: PrevisaoDoFornecedor[]
 }) {
   const emProducao = new Set(producao.itemIds)
   const nome = (item: QuoteItem) => item.product.referencia || item.product.descricao || 'Item sem descrição'
   const faltam = itens.filter((item) => !emProducao.has(item.id))
+  const datas = previsoes ?? previsaoUnica(producao)
   return (
     <div className="space-y-0.5">
       <p className="font-medium text-ink-800">{producao.tipo === 'total' ? 'Todo o pedido em produção' : 'Pedido parcialmente em produção'}</p>
@@ -61,21 +82,20 @@ export function DetalheProducao({
           )}
         </>
       )}
-      {mostrarPrevisao && (
-        <p className="flex flex-wrap items-center gap-1.5 text-ink-600">
-          Previsão de finalização:{' '}
-          {producao.previsaoFinalizacao ? (
-            <>
-              <strong className="font-medium text-ink-800">
-                {new Date(`${producao.previsaoFinalizacao}T00:00:00`).toLocaleDateString('pt-BR')}
-              </strong>
-              <SeloPrevisao previsao={producao.previsaoFinalizacao} tipo="producao" />
-            </>
-          ) : (
-            <span className="text-ink-400">não informada</span>
-          )}
-        </p>
-      )}
+      {mostrarPrevisao &&
+        (datas.length === 0 ? (
+          <p className="text-ink-600">
+            Previsão de finalização: <span className="text-ink-400">não informada</span>
+          </p>
+        ) : (
+          datas.map((p) => (
+            <p key={`${p.chave}-${p.previsao}`} className="flex flex-wrap items-center gap-1.5 text-ink-600">
+              Previsão de finalização{p.rotulo ? ` — ${p.rotulo}` : ''}:{' '}
+              <strong className="font-medium text-ink-800">{new Date(`${p.previsao}T00:00:00`).toLocaleDateString('pt-BR')}</strong>
+              <SeloPrevisao previsao={p.previsao} tipo="producao" />
+            </p>
+          ))
+        ))}
       {producao.observacao && <p className="text-ink-600">{producao.observacao}</p>}
       <p className="text-[11px] text-ink-400">
         por {producao.por} em {new Date(producao.em).toLocaleDateString('pt-BR')}

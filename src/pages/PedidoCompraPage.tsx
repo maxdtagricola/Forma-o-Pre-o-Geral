@@ -8,6 +8,7 @@ import {
   CartaoTransporte,
   ResumoTransporteModal,
   SeloPrevisao,
+  SelosPrevisao,
   TRANSPORTE_VAZIO,
   TransporteModal,
   normalizarLinkRastreio,
@@ -19,7 +20,6 @@ import {
   freteDoFornecedor,
   listQuotes,
   registrarEntrega,
-  rotuloRemetente,
   salvarItensFechados,
   salvarProducao,
   salvarTransporte,
@@ -33,7 +33,10 @@ import { formatarNumeroBR, parseNumeroFlexivel } from '../numeros'
 import { avisar, confirmar } from '../dialogs'
 import { itensDoPedidoDeCompra, perguntarAntesDoStatus, perguntarProducao } from '../mudancaDeStatus'
 import { DetalheProducao, SeloProducao } from '../components/SeloProducao'
+import { AndamentoDoPedido } from '../components/AndamentoDoPedido'
+import { entradaNoPedidoDeCompra } from '../historicoStatus'
 import { STATUS_A_CAMINHO } from '../avisosEntrega'
+import { fornecedoresDoPedido, previsoesDeEntrega, previsoesDeProducao } from '../fornecedoresDoPedido'
 import { QUOTE_STATUSES } from '../types'
 import type { DadosFreteTransportadora, DadosTransporte, ItemFechado, PedidoCompraInfo, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
 
@@ -86,22 +89,7 @@ function chaveTransporte(chaveGrupo: string): string {
  * fechado com mais de um fornecedor, e cada um tem seu próprio frete (origem diferente, cotação
  * diferente); o mesmo fornecedor saindo de outro estado também é outro pedido, com outro frete. */
 function gruposDoPedido(cotacao: QuoteRecord) {
-  const mapa = new Map<string, { remetente: RemetenteFrete; items: QuoteItem[] }>()
-  for (const item of itensDoPedidoDeCompra(cotacao)) {
-    const nome = item.product.fornecedor.trim()
-    const remetente: RemetenteFrete = nome ? { nome, uf: item.product.estadoOrigem } : { nome: '' }
-    const chave = chaveFornecedorFrete(remetente.nome, remetente.uf)
-    if (!mapa.has(chave)) mapa.set(chave, { remetente, items: [] })
-    mapa.get(chave)!.items.push(item)
-  }
-  const remetentes = Array.from(mapa.values()).map((g) => g.remetente)
-  return Array.from(mapa.entries()).map(([chave, g]) => ({
-    chave,
-    remetente: g.remetente,
-    fornecedor: g.remetente.nome || 'Sem fornecedor definido',
-    rotulo: g.remetente.nome ? rotuloRemetente(g.remetente, remetentes) : 'Sem fornecedor definido',
-    items: g.items,
-  }))
+  return fornecedoresDoPedido(cotacao)
 }
 
 /** Campos de transporte de um fornecedor: o que já foi salvo, ou a transportadora e o nº da cotação
@@ -447,15 +435,21 @@ export function PedidoCompraPage({
     }
   }
 
-  /** Previsão de finalização digitada direto no cartão Produção — grava na hora, o resto da produção fica igual. */
-  async function handlePrevisaoProducao(data: string) {
+  /** Previsão de finalização digitada direto no cartão Produção — grava na hora, o resto da produção
+   * fica igual. Com `chaveFornecedor`, é a previsão do pedido daquele fornecedor. */
+  async function handlePrevisaoProducao(data: string, chaveFornecedor?: string) {
     if (!cotacao?.producao) return
     // só data completa e com ano de verdade (ou vazia, pra apagar) — e só se mudou
     if (data && !(/^\d{4}-\d{2}-\d{2}$/.test(data) && Number(data.slice(0, 4)) >= 2000)) return
-    if (data === (cotacao.producao.previsaoFinalizacao ?? '')) return
+    const anterior = chaveFornecedor ? cotacao.producao.previsaoPorFornecedor?.[chaveFornecedor] : cotacao.producao.previsaoFinalizacao
+    if (data === (anterior ?? '')) return
     const { em: _em, por: _por, ...producao } = cotacao.producao
+    const novaProducao = chaveFornecedor
+      ? // a data única de antes (de quando a previsão era do pedido todo) sai: agora cada fornecedor tem a sua
+        { ...producao, previsaoFinalizacao: '', previsaoPorFornecedor: { ...producao.previsaoPorFornecedor, [chaveFornecedor]: data } }
+      : { ...producao, previsaoFinalizacao: data }
     try {
-      const atualizado = await salvarProducao(cotacao.id, { ...producao, previsaoFinalizacao: data }, currentAdmin)
+      const atualizado = await salvarProducao(cotacao.id, novaProducao, currentAdmin)
       setQuotes((prev) => prev.map((q) => (q.id === atualizado.id ? atualizado : q)))
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao salvar no servidor.')
@@ -550,6 +544,9 @@ export function PedidoCompraPage({
   }
 
   const gruposPorFornecedor = useMemo(() => (cotacao ? gruposDoPedido(cotacao) : []), [cotacao])
+  /** Previsão de finalização da produção do pedido de um fornecedor (a dele, ou a única do pedido). */
+  const previsaoProducaoDoGrupo = (chaveDados: string): string | undefined =>
+    cotacao?.producao?.previsaoPorFornecedor?.[chaveDados] || cotacao?.producao?.previsaoFinalizacao || undefined
 
   // fornecedores do pedido (chave do transporte) e os que ainda não entregaram
   const chavesTransporte = gruposPorFornecedor.map((g) => chaveTransporte(g.chave))
@@ -641,7 +638,6 @@ export function PedidoCompraPage({
             {pedidosEmTransporte.map((q) => {
               const envios = Object.values(q.transportePorFornecedor ?? {})
               const transportadoras = Array.from(new Set(envios.map((t) => t.transportadora.trim()).filter(Boolean)))
-              const previsao = previsaoDaCotacao(q)
               const cor = corPadraoDoStatus(q.status)
               return (
                 <button
@@ -658,7 +654,7 @@ export function PedidoCompraPage({
                     <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: cor, color: corTexto(cor) }}>
                       {q.status}
                     </span>
-                    {previsao && STATUS_A_CAMINHO.includes(q.status) && <SeloPrevisao previsao={previsao} />}
+                    {STATUS_A_CAMINHO.includes(q.status) && <SelosPrevisao previsoes={previsoesDeEntrega(q)} />}
                   </span>
                   <span className="shrink-0 text-xs text-ink-400">{transportadoras.length > 0 ? transportadoras.join(', ') : 'transportadora não informada'}</span>
                 </button>
@@ -697,11 +693,18 @@ export function PedidoCompraPage({
                           {q.codigo || 'sem código'} — {q.cliente || 'sem cliente'}
                         </span>
                         {q.status === 'PEDIDO CONFIRMADO' && q.producao && (
-                          <SeloProducao producao={q.producao} totalItens={itensDoPedidoDeCompra(q).length} />
+                          <SeloProducao producao={q.producao} totalItens={itensDoPedidoDeCompra(q).length} previsoes={previsoesDeProducao(q)} />
                         )}
-                        {previsaoDaCotacao(q) && <SeloPrevisao previsao={previsaoDaCotacao(q)!} />}
+                        <SelosPrevisao previsoes={previsoesDeEntrega(q)} />
                       </span>
-                      <span className="text-ink-400 shrink-0">{q.maquina}</span>
+                      <span className="text-ink-400 shrink-0">
+                        {q.maquina}
+                        {entradaNoPedidoDeCompra(q) && (
+                          <span className="ml-2 text-xs" title="Quando virou pedido de compra">
+                            pedido em {new Date(entradaNoPedidoDeCompra(q)!.em).toLocaleDateString('pt-BR')}
+                          </span>
+                        )}
+                      </span>
                     </button>
                   ))}
                 </GrupoDaLista>
@@ -724,6 +727,9 @@ export function PedidoCompraPage({
               <p className="text-sm text-ink-400">
                 {cotacao.maquina} · {cotacao.vendedor || 'sem vendedor'}
               </p>
+              <div className="mt-2 text-sm">
+                <AndamentoDoPedido cotacao={cotacao} />
+              </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               {STATUS_A_CAMINHO.includes(cotacao.status) && chavesAEntregar.length > 0 && (
@@ -766,21 +772,45 @@ export function PedidoCompraPage({
                 {cotacao.producao ? (
                   <>
                     <DetalheProducao producao={cotacao.producao} itens={itensDoPedido} mostrarPrevisao={false} />
-                    <label className="mt-3 flex flex-wrap items-center gap-2 text-ink-600" htmlFor="previsao-finalizacao">
-                      Previsão de finalização da produção:
-                      {/* não controlado (ver DateField) e gravando ao sair do campo: enquanto o ano é
-                       * digitado, o campo passa por datas pela metade ("0202-…") que não podem ir pro servidor */}
-                      <input
-                        id="previsao-finalizacao"
-                        key={cotacao.producao.em}
-                        type="date"
-                        className="field-input w-auto py-1 text-sm"
-                        defaultValue={cotacao.producao.previsaoFinalizacao ?? ''}
-                        onBlur={(e) => void handlePrevisaoProducao(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
-                      />
-                      {cotacao.producao.previsaoFinalizacao && <SeloPrevisao previsao={cotacao.producao.previsaoFinalizacao} tipo="producao" />}
-                    </label>
+                    {gruposPorFornecedor.length > 1 ? (
+                      <div className="mt-3 space-y-1.5" role="group" aria-label="Previsão de finalização por fornecedor">
+                        <p className="text-ink-600">Previsão de finalização da produção — de cada fornecedor:</p>
+                        {gruposPorFornecedor.map((grupo) => {
+                          const data = cotacao.producao?.previsaoPorFornecedor?.[grupo.chaveDados] ?? ''
+                          return (
+                            <label key={grupo.chaveDados} className="flex flex-wrap items-center gap-2 text-ink-600">
+                              <span className="min-w-[9rem] font-medium text-ink-800">{grupo.rotulo}</span>
+                              <input
+                                key={`${cotacao.producao!.em}-${grupo.chaveDados}`}
+                                type="date"
+                                aria-label={`Previsão de finalização — ${grupo.rotulo}`}
+                                className="field-input w-auto py-1 text-sm"
+                                defaultValue={data}
+                                onBlur={(e) => void handlePrevisaoProducao(e.target.value, grupo.chaveDados)}
+                                onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                              />
+                              {data && <SeloPrevisao previsao={data} tipo="producao" />}
+                            </label>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <label className="mt-3 flex flex-wrap items-center gap-2 text-ink-600" htmlFor="previsao-finalizacao">
+                        Previsão de finalização da produção:
+                        {/* não controlado (ver DateField) e gravando ao sair do campo: enquanto o ano é
+                         * digitado, o campo passa por datas pela metade ("0202-…") que não podem ir pro servidor */}
+                        <input
+                          id="previsao-finalizacao"
+                          key={cotacao.producao.em}
+                          type="date"
+                          className="field-input w-auto py-1 text-sm"
+                          defaultValue={cotacao.producao.previsaoFinalizacao ?? ''}
+                          onBlur={(e) => void handlePrevisaoProducao(e.target.value)}
+                          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+                        />
+                        {cotacao.producao.previsaoFinalizacao && <SeloPrevisao previsao={cotacao.producao.previsaoFinalizacao} tipo="producao" />}
+                      </label>
+                    )}
                   </>
                 ) : (
                   <p className="text-ink-500">Ainda não foi informado se o pedido está todo ou só em parte em produção.</p>
@@ -874,6 +904,9 @@ export function PedidoCompraPage({
                         )}
                       </span>
                     )}
+                    {cotacao.status === 'PEDIDO CONFIRMADO' && previsaoProducaoDoGrupo(grupo.chaveDados) && (
+                      <SeloPrevisao previsao={previsaoProducaoDoGrupo(grupo.chaveDados)!} tipo="producao" />
+                    )}
                   </div>
                   <Button variant="secondary" onClick={() => setPedidoFornecedorAberto(grupo.chave)}>
                     Gerar pedido de compra
@@ -943,7 +976,7 @@ export function PedidoCompraPage({
                         return (
                           <tr key={item.id} className="border-t border-ink-100">
                             <td className="py-1.5 px-2 text-ink-800">
-                              {item.product.descricao || item.product.referencia || 'Item sem descrição'}
+                              {item.product.descricao || 'Item sem descrição'}
                               {cotacao.status === 'PEDIDO CONFIRMADO' && cotacao.producao?.tipo === 'parcial' && (
                                 <span
                                   className={`ml-2 inline-flex rounded-full border px-1.5 py-px text-[10px] font-semibold ${
@@ -954,6 +987,9 @@ export function PedidoCompraPage({
                                 >
                                   {cotacao.producao.itemIds.includes(item.id) ? 'em produção' : 'ainda não em produção'}
                                 </span>
+                              )}
+                              {item.product.referencia.trim() && (
+                                <span className="block font-mono text-xs text-ink-500">Ref. {item.product.referencia.trim()}</span>
                               )}
                             </td>
                             <td className="py-1.5 px-2 text-right font-mono tabular-nums text-ink-500">

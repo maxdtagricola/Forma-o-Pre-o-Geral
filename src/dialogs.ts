@@ -57,6 +57,8 @@ export type PedidoDialog =
       titulo?: string
       /** Itens do pedido, pra marcar quais já estão em produção. */
       itens: { id: string; rotulo: string }[]
+      /** Pedido com mais de um fornecedor: a previsão de finalização é pedida pra cada um. */
+      fornecedores?: { chave: string; rotulo: string }[]
       inicial?: RespostaProducao
       resolver: (valor: RespostaProducao | null) => void
     }
@@ -68,6 +70,8 @@ export interface RespostaProducao {
   observacao: string
   /** "AAAA-MM-DD", ou vazio sem previsão. */
   previsaoFinalizacao: string
+  /** Pedido com mais de um fornecedor: a previsão de cada um (chave do pedido dele → "AAAA-MM-DD"). */
+  previsaoPorFornecedor?: Record<string, string>
 }
 
 let pedidoAtual: PedidoDialog | null = null
@@ -172,9 +176,10 @@ export function pedirProducao(
   mensagem: string,
   itens: { id: string; rotulo: string }[],
   inicial?: RespostaProducao,
+  fornecedores?: { chave: string; rotulo: string }[],
 ): Promise<RespostaProducao | null> {
   return new Promise((resolve) => {
-    abrir({ tipo: 'producao', id: ++proximoId, mensagem, titulo: 'Produção do pedido', itens, inicial, resolver: resolve })
+    abrir({ tipo: 'producao', id: ++proximoId, mensagem, titulo: 'Produção do pedido', itens, fornecedores, inicial, resolver: resolve })
   })
 }
 

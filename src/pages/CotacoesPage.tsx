@@ -19,6 +19,8 @@ import { diasUteisDesde, textoDiasUteis, useVersaoFeriados } from '../diasUteis'
 import { avisar, confirmar } from '../dialogs'
 import { itensDoPedidoDeCompra, perguntarAntesDoStatus } from '../mudancaDeStatus'
 import { DetalheProducao, SeloProducao } from '../components/SeloProducao'
+import { previsoesDeProducao } from '../fornecedoresDoPedido'
+import { AndamentoDoPedido } from '../components/AndamentoDoPedido'
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
 const NOVO = '__novo__'
@@ -264,7 +266,7 @@ function QuoteCard({
           </span>
           {r.status === 'PENDENTE' && <TempoPendente r={r} />}
           {r.status === 'PEDIDO CONFIRMADO' && r.producao && (
-            <SeloProducao producao={r.producao} totalItens={itensDoPedidoDeCompra(r).length} />
+            <SeloProducao producao={r.producao} totalItens={itensDoPedidoDeCompra(r).length} previsoes={previsoesDeProducao(r)} />
           )}
           <span className="ml-auto text-sm font-mono tabular-nums text-ink-800">
             {r.summary.precoVendaTotalGeral > 0 ? formatCurrency(r.summary.precoVendaTotalGeral) : '—'}
@@ -324,6 +326,10 @@ function QuoteCard({
               </div>
             )}
           </div>
+          <div className="rounded-lg border border-ink-100 px-3 py-2">
+            <p className="mb-1 text-ink-400">Datas do processamento</p>
+            <AndamentoDoPedido cotacao={r} corDoStatus={corDoStatus} />
+          </div>
           {r.status === 'ARQUIVO' && r.motivoArquivamento && (
             <div className="rounded-lg border border-ink-200 bg-ink-50 px-3 py-2">
               <p className="text-ink-400">Arquivada sem fechar — motivo</p>
@@ -339,7 +345,7 @@ function QuoteCard({
           {r.status === 'PEDIDO CONFIRMADO' && r.producao && (
             <div className="rounded-lg border border-ink-200 bg-ink-50 px-3 py-2">
               <p className="text-ink-400">Produção</p>
-              <DetalheProducao producao={r.producao} itens={itensDoPedidoDeCompra(r)} />
+              <DetalheProducao producao={r.producao} itens={itensDoPedidoDeCompra(r)} previsoes={previsoesDeProducao(r)} />
             </div>
           )}
           <div>

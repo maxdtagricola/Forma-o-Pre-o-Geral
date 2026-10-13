@@ -118,8 +118,8 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   // o nome com que o app conhece o usuário (cotações, histórico, abas exclusivas) — MÁXIMUS é "Max"
   const currentAdmin: AdminName = usuario.nome
   const [mostrarMinhaConta, setMostrarMinhaConta] = useState(false)
-  // o admin Max começa direto em "Acompanhamento de notas" — é a aba que ele mais usa
-  const [tab, setTab] = useState<TabKey>(() => (currentAdmin === 'Max' ? 'acompanhamentoNotas' : 'telaInicial'))
+  // todo mundo (o Max também) começa na Tela Inicial
+  const [tab, setTab] = useState<TabKey>('telaInicial')
   // atalhos "Nova cotação" / "Importar cotação" da Tela Inicial: a aba Cotações já abre no modo certo
   const [modoNovoCotacao, setModoNovoCotacao] = useState<'manual' | 'importar'>('manual')
   useEffect(() => {

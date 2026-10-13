@@ -109,6 +109,13 @@ function CamposProducao({ pedido }: { pedido: Extract<PedidoDialog, { tipo: 'pro
   )
   const [observacao, setObservacao] = useState(pedido.inicial?.observacao ?? '')
   const [previsao, setPrevisao] = useState(pedido.inicial?.previsaoFinalizacao ?? '')
+  // mais de um fornecedor: uma previsão pra cada (começa pela dele, ou pela única informada antes)
+  const porFornecedor = pedido.fornecedores && pedido.fornecedores.length > 1 ? pedido.fornecedores : undefined
+  const [previsoes, setPrevisoes] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      (porFornecedor ?? []).map((f) => [f.chave, pedido.inicial?.previsaoPorFornecedor?.[f.chave] ?? pedido.inicial?.previsaoFinalizacao ?? '']),
+    ),
+  )
   const [erro, setErro] = useState<string | null>(null)
 
   function alternar(id: string) {
@@ -129,6 +136,11 @@ function CamposProducao({ pedido }: { pedido: Extract<PedidoDialog, { tipo: 'pro
         // a ordem dos itens segue a do pedido, não a dos cliques
         const itemIds = tipo === 'total' ? pedido.itens.map((i) => i.id) : pedido.itens.filter((i) => selecionados.has(i.id)).map((i) => i.id)
         if (tipo === 'parcial' && itemIds.length === 0) return setErro('Marque os itens que já estão em produção.')
+        if (porFornecedor) {
+          const datas = Object.fromEntries(Object.entries(previsoes).filter(([, d]) => d))
+          if (Object.values(datas).some((d) => Number(d.slice(0, 4)) < 2000)) return setErro('Confira o ano das previsões de finalização.')
+          return resolverProducao({ tipo, itemIds, observacao: observacao.trim(), previsaoFinalizacao: '', previsaoPorFornecedor: datas })
+        }
         if (previsao && Number(previsao.slice(0, 4)) < 2000) return setErro('Confira o ano da previsão de finalização.')
         resolverProducao({ tipo, itemIds, observacao: observacao.trim(), previsaoFinalizacao: previsao })
       }}
@@ -157,11 +169,30 @@ function CamposProducao({ pedido }: { pedido: Extract<PedidoDialog, { tipo: 'pro
           ))}
         </div>
       )}
-      <label className="block">
-        <span className="mb-1 block text-xs font-medium text-ink-600">Previsão de finalização da produção (a que o fornecedor informa)</span>
-        {/* não controlado — ver DateField */}
-        <input type="date" className="field-input py-1.5 text-sm" defaultValue={previsao} onChange={(e) => setPrevisao(e.target.value)} />
-      </label>
+      {porFornecedor ? (
+        <fieldset className="space-y-1.5 rounded-lg border border-ink-100 p-2">
+          <legend className="px-1 text-xs font-medium text-ink-600">Previsão de finalização da produção — a que cada fornecedor informa</legend>
+          {porFornecedor.map((f) => (
+            <label key={f.chave} className="flex flex-wrap items-center justify-between gap-2 text-sm text-ink-700">
+              <span className="min-w-0 truncate font-medium">{f.rotulo}</span>
+              {/* não controlado — ver DateField */}
+              <input
+                type="date"
+                aria-label={`Previsão de finalização — ${f.rotulo}`}
+                className="field-input w-auto py-1 text-sm"
+                defaultValue={previsoes[f.chave]}
+                onChange={(e) => setPrevisoes((prev) => ({ ...prev, [f.chave]: e.target.value }))}
+              />
+            </label>
+          ))}
+        </fieldset>
+      ) : (
+        <label className="block">
+          <span className="mb-1 block text-xs font-medium text-ink-600">Previsão de finalização da produção (a que o fornecedor informa)</span>
+          {/* não controlado — ver DateField */}
+          <input type="date" className="field-input py-1.5 text-sm" defaultValue={previsao} onChange={(e) => setPrevisao(e.target.value)} />
+        </label>
+      )}
       <textarea
         className="field-input min-h-[3.5rem] text-sm"
         placeholder="Observação (opcional) — ex.: o restante entra em produção semana que vem"

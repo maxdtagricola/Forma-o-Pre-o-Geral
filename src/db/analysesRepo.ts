@@ -258,7 +258,8 @@ export const updateQuoteStatus = emFila(async function updateQuoteStatus(
     status: novoStatus,
     transportePorFornecedor: entregasConformeStatus(normalizado, novoStatus, atorAdmin, now),
     responsavelStatus: novoStatus === 'PENDENTE' ? '' : atorAdmin,
-    statusHistory: [...normalizado.statusHistory, { status: novoStatus, changedAt: now }],
+    // cada mudança fica registrada à parte (de onde veio, quem mudou, quando) — não mexe no resto da cotação
+    statusHistory: [...normalizado.statusHistory, { status: novoStatus, changedAt: now, de: normalizado.status, por: atorAdmin }],
     pedidoCompra: novoStatus === 'PEDIDO DE COMPRA' ? pedidoCompra : normalizado.pedidoCompra,
     motivoArquivamento:
       novoStatus === 'ARQUIVO' && arquivamento ? { ...arquivamento, em: now, por: atorAdmin } : normalizado.motivoArquivamento,
@@ -388,7 +389,10 @@ export const registrarEntrega = emFila(async function registrarEntrega(
     transportePorFornecedor: transporte,
     status,
     responsavelStatus: status !== normalizado.status ? atorAdmin : normalizado.responsavelStatus,
-    statusHistory: status !== normalizado.status ? [...normalizado.statusHistory, { status, changedAt: now }] : normalizado.statusHistory,
+    statusHistory:
+      status !== normalizado.status
+        ? [...normalizado.statusHistory, { status, changedAt: now, de: normalizado.status, por: atorAdmin }]
+        : normalizado.statusHistory,
     updatedAt: now,
   }
   await dbPut(STORE_ANALISES, atualizado)

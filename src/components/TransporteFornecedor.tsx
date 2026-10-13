@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Button } from './ui/Basics'
 import { diasUteisAte, textoDiasUteis } from '../diasUteis'
 import { mercadoriaRecebida } from '../avisosEntrega'
+import type { PrevisaoDoFornecedor } from '../fornecedoresDoPedido'
 import type { DadosTransporte, QuoteRecord } from '../types'
 
 // -----------------------------------------------------------------------
@@ -58,22 +59,45 @@ export function situacaoDaPrevisao(
   return { texto: `atrasada ${textoDiasUteis(Math.max(1, -dias))} (previsão ${dataBR})`, atrasada: true, diasUteis: Math.min(-1, dias) }
 }
 
-/** Selo da previsão (cinza no prazo, vermelho atrasada). */
-export function SeloPrevisao({ previsao, agora, tipo = 'entrega' }: { previsao: string; agora?: number; tipo?: TipoPrevisao }) {
+/** Selo da previsão (cinza no prazo, vermelho atrasada) — com o nome do fornecedor na frente quando o
+ * pedido tem mais de um ("PLANTICENTER: chega 10/10"). */
+export function SeloPrevisao({
+  previsao,
+  agora,
+  tipo = 'entrega',
+  fornecedor,
+}: {
+  previsao: string
+  agora?: number
+  tipo?: TipoPrevisao
+  fornecedor?: string
+}) {
   const { texto, atrasada } = situacaoDaPrevisao(previsao, agora, tipo)
+  const descricao =
+    tipo === 'entrega'
+      ? 'Previsão de entrega informada pela transportadora (dias úteis)'
+      : 'Previsão de finalização da produção informada pelo fornecedor (dias úteis)'
   return (
     <span
       className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
         atrasada ? 'border-rose-300 bg-rose-50 text-rose-700' : 'border-sky-200 bg-sky-50 text-sky-800'
       }`}
-      title={
-        tipo === 'entrega'
-          ? 'Previsão de entrega informada pela transportadora (dias úteis)'
-          : 'Previsão de finalização da produção informada pelo fornecedor (dias úteis)'
-      }
+      title={fornecedor ? `${descricao} — pedido de ${fornecedor}` : descricao}
     >
+      {fornecedor && <span className="mr-1 font-bold">{fornecedor}:</span>}
       {texto}
     </span>
+  )
+}
+
+/** Uma previsão por fornecedor do pedido (produção ou entrega), cada uma com o nome dele. */
+export function SelosPrevisao({ previsoes, agora, tipo = 'entrega' }: { previsoes: PrevisaoDoFornecedor[]; agora?: number; tipo?: TipoPrevisao }) {
+  return (
+    <>
+      {previsoes.map((p) => (
+        <SeloPrevisao key={`${p.chave}-${p.previsao}`} previsao={p.previsao} agora={agora} tipo={tipo} fornecedor={p.rotulo || undefined} />
+      ))}
+    </>
   )
 }
 

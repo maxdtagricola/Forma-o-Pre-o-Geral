@@ -263,7 +263,10 @@ export function HistoryPage({
           <ul className="mt-2 space-y-1 border-t border-ink-100 pt-2">
             {r.statusHistory.map((h, i) => (
               <li key={i} className="flex items-center justify-between text-[11px] text-ink-500">
-                <span>{h.status}</span>
+                <span>
+                  {h.status}
+                  {h.por && <span className="text-ink-400"> · {h.por}</span>}
+                </span>
                 <span>{formatDate(h.changedAt)}</span>
               </li>
             ))}
