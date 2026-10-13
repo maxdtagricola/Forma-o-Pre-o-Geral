@@ -94,6 +94,10 @@ function normalizeRecord(record: QuoteRecord | LegacyAnalysisRecord): QuoteRecor
 // o frete da transportadora, salvo logo em seguida) e a que terminasse por último desfazia a outra.
 const filasPorCotacao = new Map<string, Promise<unknown>>()
 
+/** Evento disparado depois que uma cotação já existente é gravada (status, transporte, entrega…) —
+ * quem mostra algo calculado das cotações fora da própria aba (o aviso de entregas) se atualiza. */
+export const EVENTO_COTACAO_ALTERADA = 'cotacao-alterada'
+
 function naFila<T>(id: string, tarefa: () => Promise<T>): Promise<T> {
   const anterior = filasPorCotacao.get(id) ?? Promise.resolve()
   // a anterior ter dado erro não impede a próxima
@@ -103,6 +107,7 @@ function naFila<T>(id: string, tarefa: () => Promise<T>): Promise<T> {
     if (filasPorCotacao.get(id) === proxima) filasPorCotacao.delete(id)
   }
   proxima.then(limpar, limpar)
+  proxima.then(() => window.dispatchEvent(new CustomEvent(EVENTO_COTACAO_ALTERADA, { detail: id })), () => {})
   return proxima
 }
 

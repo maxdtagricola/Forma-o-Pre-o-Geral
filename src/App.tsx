@@ -39,6 +39,7 @@ import { listEmpresas } from './db/empresasRepo'
 import { atualizarUsuarioLogado, listarUsuarios, sair } from './auth'
 import { getSessao, useSessao, type UsuarioLogado } from './sessaoUsuario'
 import { definirFeriadosExtras } from './diasUteis'
+import { AvisoEntregas } from './components/AvisoEntregas'
 import { DIAS_PARA_RETORNO, cotacoesEsperandoRetorno } from './retornoCotacao'
 import { avisar, confirmar } from './dialogs'
 import { createQuoteItem } from './types'
@@ -180,6 +181,8 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       })
       .catch(() => {})
   }, [usuario.gestor])
+  // clique numa nota do aviso de entregas: Pedido de Compra já com a janela do transporte dela
+  const [transporteParaAbrir, setTransporteParaAbrir] = useState<{ cotacaoId: string; vez: number } | undefined>(undefined)
   // pilha de telas visitadas, pro botão "Voltar" — só empilha quando a aba realmente muda (evita
   // entradas repetidas se algo chamar changeTab pra aba em que já se está)
   const [tabHistory, setTabHistory] = useState<TabKey[]>([])
@@ -778,7 +781,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       {tab === 'produtos' && <ProdutosPage currentAdmin={currentAdmin} />}
       {tab === 'fornecedores' && <FornecedoresPage />}
       {tab === 'frete' && <FretePage cotacaoIdInicial={editingQuoteId} />}
-      {tab === 'pedidoCompra' && <PedidoCompraPage currentAdmin={currentAdmin} />}
+      {tab === 'pedidoCompra' && <PedidoCompraPage currentAdmin={currentAdmin} abrirTransporte={transporteParaAbrir} />}
       {tab === 'configuracoes' && (
         <ConfiguracoesPage
           currentAdmin={currentAdmin}
@@ -816,6 +819,13 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       )}
       {mostrarMinhaConta && <MinhaContaModal usuario={usuario} onFechar={() => setMostrarMinhaConta(false)} />}
 
+      <AvisoEntregas
+        aba={tab}
+        onAbrir={(cotacaoId) => {
+          setTransporteParaAbrir((anterior) => ({ cotacaoId, vez: (anterior?.vez ?? 0) + 1 }))
+          changeTab('pedidoCompra')
+        }}
+      />
       <DialogHost />
     </Layout>
   )

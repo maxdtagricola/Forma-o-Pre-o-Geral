@@ -47,7 +47,10 @@ export function situacaoDaPrevisao(
   const dataBR = `${String(dia).padStart(2, '0')}/${String(mes).padStart(2, '0')}`
   const dias = diasUteisAte(data, agora)
   const verbo = tipo === 'entrega' ? 'chega' : 'fica pronto'
-  if (dias === 0) return { texto: `${verbo} hoje (${dataBR})`, atrasada: false, diasUteis: 0 }
+  const inicioDeHoje = new Date(new Date(agora).getFullYear(), new Date(agora).getMonth(), new Date(agora).getDate()).getTime()
+  if (data === inicioDeHoje) return { texto: `${verbo} hoje (${dataBR})`, atrasada: false, diasUteis: 0 }
+  // previsão num fim de semana/feriado logo à frente: 0 dia útil, mas não é hoje
+  if (data > inicioDeHoje && dias <= 0) return { texto: `${verbo} ${dataBR}`, atrasada: false, diasUteis: 0 }
   if (dias > 0) return { texto: `${verbo} ${dataBR} · em ${textoDiasUteis(dias)}`, atrasada: false, diasUteis: dias }
   // previsão passou: num fim de semana/feriado logo depois dela a contagem de dias úteis ainda é 0
   return { texto: `atrasada ${textoDiasUteis(Math.max(1, -dias))} (previsão ${dataBR})`, atrasada: true, diasUteis: Math.min(-1, dias) }

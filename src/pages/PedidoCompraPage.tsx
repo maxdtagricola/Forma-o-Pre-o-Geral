@@ -33,13 +33,13 @@ import { formatarNumeroBR, parseNumeroFlexivel } from '../numeros'
 import { avisar, confirmar } from '../dialogs'
 import { itensDoPedidoDeCompra, perguntarAntesDoStatus, perguntarProducao } from '../mudancaDeStatus'
 import { DetalheProducao, SeloProducao } from '../components/SeloProducao'
+import { STATUS_A_CAMINHO } from '../avisosEntrega'
 import { QUOTE_STATUSES } from '../types'
 import type { DadosFreteTransportadora, DadosTransporte, ItemFechado, PedidoCompraInfo, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
 
 // a partir de EM TRANSPORTE (no fluxo de QUOTE_STATUSES), cada fornecedor mostra o cartão Transporte
 const INDICE_EM_TRANSPORTE = QUOTE_STATUSES.indexOf('EM TRANSPORTE')
-// enquanto a mercadoria está a caminho dá pra marcar a entrega (que leva a PARCIALMENTE ENTREGUE / ENTREGUE)
-const STATUS_A_CAMINHO: QuoteStatus[] = ['EM TRANSPORTE', 'CADASTRO DE PRODUTO', 'PARCIALMENTE ENTREGUE']
+// enquanto a mercadoria está a caminho (STATUS_A_CAMINHO) dá pra marcar a entrega (que leva a PARCIALMENTE ENTREGUE / ENTREGUE)
 // desfazer uma entrega marcada por engano: só até ENTREGUE (de CONFERIDO em diante, já foi conferida)
 const STATUS_DA_ENTREGA: QuoteStatus[] = [...STATUS_A_CAMINHO, 'ENTREGUE']
 // "Pedidos em transporte": de EM TRANSPORTE em diante (as já entregues só quando pedidas)
@@ -258,7 +258,14 @@ function MiniStat({ label, negociado, fechado }: { label: string; negociado: num
  * inicial (feita na correria) e o fechamento final costumam divergir, e é nessa diferença que dá
  * pra enxergar o que se ganhou em cima do produto. É a MESMA cotação (mesmo registro/id) — só o
  * status é compartilhado entre essa aba e a Cotação; os valores de item ficam cada um no seu canto. */
-export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
+export function PedidoCompraPage({
+  currentAdmin,
+  abrirTransporte,
+}: {
+  currentAdmin: string
+  /** Pedido pra já abrir a janela de transporte (clique no aviso de entregas) — `vez` muda a cada clique. */
+  abrirTransporte?: { cotacaoId: string; vez: number }
+}) {
   const [quotes, setQuotes] = useState<QuoteRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [cotacaoId, setCotacaoId] = useState('')
@@ -338,6 +345,13 @@ export function PedidoCompraPage({ currentAdmin }: { currentAdmin: string }) {
   )
   const resumoTransporte = useMemo(() => quotes.find((q) => q.id === resumoTransporteId), [quotes, resumoTransporteId])
   const fecharResumoTransporte = useCallback(() => setResumoTransporteId(undefined), [])
+  useEffect(() => {
+    if (!abrirTransporte) return
+    setResumoTransporteId(abrirTransporte.cotacaoId)
+    // as cotações podem ter mudado desde que a aba abriu (a entrega/previsão vista no aviso)
+    void refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abrirTransporte?.vez])
 
   // só os itens que realmente entraram no pedido de compra (ver PedidoCompraModal) — uma cotação
   // pode ter sido fechada só com "alguns itens", e o resto (que não foi pedido) não deve aparecer
