@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { FundoEmVideo } from './FundoEmVideo'
 import { aplicarTema, getTema, type Tema } from '../theme'
 import { ICONE_MINHA_CONTA, ICONE_SAIR, ICONES_ABAS } from './IconesAbas'
 
@@ -101,6 +102,7 @@ export function Layout({
   onMinhaConta,
   podeVoltar,
   onVoltar,
+  fundo,
   children,
 }: {
   active: TabKey
@@ -113,6 +115,8 @@ export function Layout({
   onMinhaConta: () => void
   podeVoltar: boolean
   onVoltar: () => void
+  /** Vídeo de fundo atrás do conteúdo (todas as abas, menos o Xadrez) — sem isso, fundo liso. */
+  fundo?: { pausado: boolean; onAlternar: () => void; forte: boolean }
   children: ReactNode
 }) {
   // recolhido por padrão (igual ao menu do celular, que começa fechado) — só fica expandido se o usuário escolher
@@ -293,6 +297,18 @@ export function Layout({
               </p>
             </div>
           )}
+          {fundo && (
+            <button
+              type="button"
+              onClick={fundo.onAlternar}
+              aria-pressed={fundo.pausado}
+              title={fundo.pausado ? 'Voltar a animar o vídeo de fundo' : 'Pausar o vídeo de fundo'}
+              aria-label={fundo.pausado ? 'Animar o vídeo de fundo' : 'Pausar o vídeo de fundo'}
+              className="flex h-7 shrink-0 items-center justify-center rounded-lg px-1.5 text-xs text-ink-500 transition hover:bg-ink-100 hover:text-ink-800"
+            >
+              <span aria-hidden>{fundo.pausado ? '▶' : '❚❚'}</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={alternarTema}
@@ -342,7 +358,11 @@ export function Layout({
           <h1 className="font-display text-base font-bold text-ink-900">Formação de Preço</h1>
           <div className="w-9" />
         </header>
-        <main className="flex-1 w-full px-4 sm:px-6 py-6 sm:py-8">{children}</main>
+        <main className={`relative flex-1 w-full px-4 sm:px-6 py-6 sm:py-8 ${fundo ? 'com-fundo-video' : ''}`}>
+          {fundo && <FundoEmVideo pausado={fundo.pausado} forte={fundo.forte} />}
+          {/* "relative" (sem z-index): fica por cima do vídeo e as janelas abertas continuam por cima do menu */}
+          <div className="relative">{children}</div>
+        </main>
       </div>
     </div>
   )

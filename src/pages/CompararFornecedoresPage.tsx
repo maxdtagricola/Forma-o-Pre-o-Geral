@@ -755,7 +755,8 @@ export function CompararFornecedoresPage({
         <button
           type="button"
           onClick={onGoToPrecificacao}
-          className="fixed bottom-6 right-6 z-40 inline-flex items-center gap-1.5 rounded-full bg-ink-950 px-4 py-2.5 text-sm font-medium text-white shadow-lg transition hover:bg-brand-600"
+          className="fixed right-6 z-40 inline-flex items-center gap-1.5 rounded-full bg-ink-950 px-4 py-2.5 text-sm font-medium text-white shadow-lg transition-[bottom,background-color] hover:bg-brand-600"
+          style={{ bottom: 'calc(1.5rem + var(--altura-aviso-entregas, 0px))' }}
         >
           <span aria-hidden>←</span> Voltar para Precificação
         </button>

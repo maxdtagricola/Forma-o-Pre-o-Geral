@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, type TabKey } from './components/Layout'
 import { LoginPage } from './components/LoginPage'
 import { MinhaContaModal } from './components/MinhaContaModal'
@@ -40,6 +40,7 @@ import { atualizarUsuarioLogado, listarUsuarios, sair } from './auth'
 import { getSessao, useSessao, type UsuarioLogado } from './sessaoUsuario'
 import { definirFeriadosExtras } from './diasUteis'
 import { AvisoEntregas } from './components/AvisoEntregas'
+import { useEstadoPersistente } from './estadoPersistente'
 import { DIAS_PARA_RETORNO, cotacoesEsperandoRetorno } from './retornoCotacao'
 import { avisar, confirmar } from './dialogs'
 import { createQuoteItem } from './types'
@@ -120,6 +121,9 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   const [mostrarMinhaConta, setMostrarMinhaConta] = useState(false)
   // todo mundo (o Max também) começa na Tela Inicial
   const [tab, setTab] = useState<TabKey>('telaInicial')
+  // vídeo de fundo (todas as abas, menos o Xadrez): pausado ou não é preferência deste aparelho
+  const [fundoPausado, setFundoPausado] = useEstadoPersistente('telaInicial:fundoPausado', false)
+  const alternarFundo = () => setFundoPausado((v) => !v)
   // atalhos "Nova cotação" / "Importar cotação" da Tela Inicial: a aba Cotações já abre no modo certo
   const [modoNovoCotacao, setModoNovoCotacao] = useState<'manual' | 'importar'>('manual')
   useEffect(() => {
@@ -239,7 +243,13 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   // true logo depois de "Salvar cotação" até a primeira alteração seguinte — enquanto estiver
   // true, qualquer tentativa de mexer num dado já salvo passa primeiro por confirmação (ver
   // confirmarAlteracaoSeJaSalva). Assim que confirmado uma vez, some até o próximo salvamento.
-  const [salvoInalterado, setSalvoInalterado] = useState(false)
+  const [salvoInalterado, setSalvoInalteradoEstado] = useState(false)
+  // espelho síncrono: a guarda da digitação precisa saber na hora (sem esperar o React redesenhar)
+  const salvoInalteradoRef = useRef(false)
+  const setSalvoInalterado = (valor: boolean) => {
+    salvoInalteradoRef.current = valor
+    setSalvoInalteradoEstado(valor)
+  }
   // true só por alguns segundos depois de salvar, pra mostrar "Cotação salva!" ao lado do botão
   const [cotacaoRecemSalva, setCotacaoRecemSalva] = useState(false)
   // true assim que qualquer edição é aplicada (ver protegido) e volta a false só depois de salvar,
@@ -407,13 +417,67 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   // desde então, a primeira tentativa de mexer em qualquer dado pede confirmação ao admin. Uma vez
   // confirmada (ou se a cotação nunca foi salva/já tinha sido alterada), libera normalmente e só
   // volta a perguntar depois do próximo "Salvar cotação".
+  // uma pergunta só por vez: vários toques/teclas antes da caixa abrir esperam a mesma resposta (antes
+  // cada um abria a sua caixa e, confirmando, todos eram aplicados)
+  const confirmacaoPendente = useRef<Promise<boolean> | null>(null)
   async function confirmarAlteracaoSeJaSalva(): Promise<boolean> {
-    if (!salvoInalterado) return true
-    const querAlterar = await confirmar('Esta cotação já foi salva. Tem certeza que quer alterar um dado que já foi salvo?')
-    if (!querAlterar) return false
-    setSalvoInalterado(false)
-    return true
+    if (!salvoInalteradoRef.current) return true
+    if (!confirmacaoPendente.current) {
+      confirmacaoPendente.current = confirmar('Esta cotação já foi salva. Tem certeza que quer alterar um dado que já foi salvo?')
+        .then((querAlterar) => {
+          if (querAlterar) {
+            salvoInalteradoRef.current = false
+            setSalvoInalterado(false)
+          }
+          return querAlterar
+        })
+        .finally(() => {
+          confirmacaoPendente.current = null
+        })
+    }
+    return confirmacaoPendente.current
   }
+
+  // na Precificação, com a cotação salva e sem alteração, nada é digitado antes da confirmação: a
+  // digitação (e colar/arrastar) é barrada já no campo, pergunta uma vez, e depois de confirmar o
+  // cursor volta pro mesmo campo pra digitar de novo. Os campos de apoio (busca, ações nos marcados,
+  // margem única) ficam de fora com data-sem-guarda — eles só mudam algo ao clicar em "Aplicar".
+  const guardaRef = useRef<HTMLDivElement>(null)
+  const confirmarRef = useRef(confirmarAlteracaoSeJaSalva)
+  confirmarRef.current = confirmarAlteracaoSeJaSalva
+  useEffect(() => {
+    const raiz = guardaRef.current
+    if (!raiz) return
+    function barrar(e: Event) {
+      if (!salvoInalteradoRef.current) return
+      const alvo = e.target as HTMLElement | null
+      if (!alvo || alvo.closest('[data-sem-guarda]')) return
+      const campo = alvo.closest('input, textarea, select, [contenteditable="true"]') as HTMLElement | null
+      if (!campo) return
+      if (campo instanceof HTMLInputElement && ['checkbox', 'radio', 'button', 'submit'].includes(campo.type)) return
+      e.preventDefault()
+      e.stopPropagation()
+      void confirmarRef.current().then((ok) => {
+        if (ok) campo.focus()
+      })
+    }
+    // teclas que mexem no valor sem passar por "beforeinput" (setas num campo de número)
+    function barrarTecla(e: KeyboardEvent) {
+      if (!salvoInalteradoRef.current || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return
+      const alvo = e.target as HTMLElement | null
+      if (alvo instanceof HTMLInputElement && alvo.type === 'number' && !alvo.closest('[data-sem-guarda]')) e.preventDefault()
+    }
+    raiz.addEventListener('beforeinput', barrar, true)
+    raiz.addEventListener('paste', barrar, true)
+    raiz.addEventListener('drop', barrar, true)
+    raiz.addEventListener('keydown', barrarTecla, true)
+    return () => {
+      raiz.removeEventListener('beforeinput', barrar, true)
+      raiz.removeEventListener('paste', barrar, true)
+      raiz.removeEventListener('drop', barrar, true)
+      raiz.removeEventListener('keydown', barrarTecla, true)
+    }
+  }, [tab])
 
   // envolve um setter/handler de edição com a guarda acima — usado nos callbacks passados pro
   // Dashboard, pra não duplicar o "if (!(await confirmarAlteracaoSeJaSalva())) return" em cada um
@@ -423,7 +487,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       // novo ainda dentro do evento de digitação — esperar um await aqui fazia o React devolver o
       // valor antigo pro campo e depois aplicar o novo, jogando o cursor pro fim a cada letra (quem
       // corrigia algo no meio do texto só conseguia digitar uma letra por vez)
-      if (!salvoInalterado) {
+      if (!salvoInalteradoRef.current) {
         fn(...args)
         setTemAlteracoesNaoSalvas(true)
         return
@@ -693,6 +757,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       onMinhaConta={() => setMostrarMinhaConta(true)}
       podeVoltar={tabHistory.length > 0}
       onVoltar={handleVoltar}
+      fundo={tab === 'xadrez' ? undefined : { pausado: fundoPausado, onAlternar: alternarFundo, forte: tab !== 'telaInicial' }}
     >
       {tab === 'telaInicial' && (
         <TelaInicialPage
@@ -706,6 +771,8 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           }}
           onContinuar={() => changeTab('dashboard')}
           onIrPara={changeTab}
+          fundoPausado={fundoPausado}
+          onAlternarFundo={alternarFundo}
         />
       )}
       {tab === 'xadrez' && <XadrezPage jogador={currentAdmin} />}
@@ -733,6 +800,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
         />
       )}
       {tab === 'dashboard' && (
+        <div ref={guardaRef}>
         <Dashboard
           currentAdmin={currentAdmin}
           codigo={codigoCotacao}
@@ -776,11 +844,12 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           cotacaoSalva={cotacaoRecemSalva}
           cotacaoId={editingQuoteId}
         />
+        </div>
       )}
       {tab === 'faturamento' && <FaturamentoPage currentAdmin={currentAdmin} />}
       {tab === 'produtos' && <ProdutosPage currentAdmin={currentAdmin} />}
       {tab === 'fornecedores' && <FornecedoresPage />}
-      {tab === 'frete' && <FretePage cotacaoIdInicial={editingQuoteId} />}
+      {tab === 'frete' && <FretePage cotacaoIdInicial={editingQuoteId} onGoToPrecificacao={() => changeTab('dashboard')} />}
       {tab === 'pedidoCompra' && <PedidoCompraPage currentAdmin={currentAdmin} abrirTransporte={transporteParaAbrir} />}
       {tab === 'configuracoes' && (
         <ConfiguracoesPage

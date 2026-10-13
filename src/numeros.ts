@@ -69,6 +69,14 @@ export function formatarNumeroBR(valor: number, casas = 2): string {
   return valor.toLocaleString('pt-BR', { minimumFractionDigits: casas, maximumFractionDigits: casas })
 }
 
+/** Número com no mínimo 2 e no máximo 3 casas decimais, com ponto (valor de campo numérico):
+ * 5 → "5.00", 5.5 → "5.50", 5.2583 → "5.258". */
+export function textoDuasATresCasas(valor: number): string {
+  if (!Number.isFinite(valor)) return '0.00'
+  const tres = (Math.round(valor * 1000) / 1000).toFixed(3)
+  return tres.endsWith('0') ? tres.slice(0, -1) : tres
+}
+
 /** Número no formato brasileiro só com as casas que precisar (até `maxCasas`): 50 → "50", 12.5 → "12,5". */
 export function formatarNumeroCurtoBR(valor: number, maxCasas = 2): string {
   if (!Number.isFinite(valor)) return ''

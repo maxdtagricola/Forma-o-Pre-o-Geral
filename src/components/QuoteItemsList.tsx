@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from 'react'
 import { formatCurrency, formatDate, selecionarTudoAoFocar } from '../utils'
+import { textoDuasATresCasas } from '../numeros'
 import { calculateItem } from '../calc/calculator'
 import { ESTADOS } from '../data/estados'
 import { listFornecedores } from '../db/fornecedoresRepo'
@@ -301,8 +302,8 @@ function textoDaColuna(item: QuoteItem, chave: ColunaKey, modoFrete: ModoFrete):
       return formatCurrency(calculateItem(p, item.pricing).precoVendaUnitario)
     case 'frete':
       return modoFrete === 'pct'
-        ? `${Math.round((p.freteRate || 0) * 10000) / 100}%`
-        : formatCurrency(vlrProduto * (p.freteRate || 0))
+        ? `${textoDuasATresCasas((p.freteRate || 0) * 100).replace('.', ',')}%`
+        : `R$ ${textoDuasATresCasas(vlrProduto * (p.freteRate || 0)).replace('.', ',')}`
     case 'prazo':
       return p.prazoEntrega.trim()
     case 'total':
@@ -1146,7 +1147,7 @@ export function QuoteItemsList({
         </div>
 
         {idsMarcados.length > 0 && (
-          <div className="mt-2.5 rounded-lg border border-ink-300 bg-ink-100 px-3 py-2">
+          <div data-sem-guarda className="mt-2.5 rounded-lg border border-ink-300 bg-ink-100 px-3 py-2">
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-medium text-ink-800">
                 {idsMarcados.length} {idsMarcados.length > 1 ? 'itens marcados' : 'item marcado'}
@@ -1297,7 +1298,7 @@ export function QuoteItemsList({
         </p>
 
         {items.length > 1 && (
-          <div className="flex flex-wrap items-center gap-2 mb-4 rounded-lg border border-ink-100 bg-ink-50 px-3 py-2">
+          <div data-sem-guarda className="flex flex-wrap items-center gap-2 mb-4 rounded-lg border border-ink-100 bg-ink-50 px-3 py-2">
             <span className="text-xs text-ink-500">Margem única pra todos os itens:</span>
             <input
               type="number"
@@ -1581,6 +1582,43 @@ export function QuoteItemsList({
 
       {children}
     </div>
+  )
+}
+
+/** Campo numérico que mostra sempre de 2 a 3 casas decimais ("5.00", "5.258") — enquanto o campo
+ * está sendo editado, fica exatamente o que foi digitado (senão o "5." viraria "5.00" no meio). */
+function CampoDuasATresCasas({
+  valor,
+  step,
+  className,
+  onChange,
+  onClick,
+}: {
+  valor: number
+  step: number
+  className: string
+  onChange: (valor: number) => void
+  onClick: (e: MouseEvent) => void
+}) {
+  const [editando, setEditando] = useState<string | null>(null)
+  return (
+    <input
+      type="number"
+      min={0}
+      step={step}
+      className={className}
+      value={editando ?? textoDuasATresCasas(valor)}
+      onChange={(e) => {
+        setEditando(e.target.value)
+        onChange(Number(e.target.value) || 0)
+      }}
+      onFocus={(e) => {
+        setEditando(textoDuasATresCasas(valor))
+        selecionarTudoAoFocar(e)
+      }}
+      onBlur={() => setEditando(null)}
+      onClick={onClick}
+    />
   )
 }
 
@@ -1883,29 +1921,20 @@ function LinhaItem({
     frete: (
       <td key="frete" className={cellCls}>
         {modoFrete === 'pct' ? (
-          <input
-            type="number"
-            min={0}
+          <CampoDuasATresCasas
+            valor={(item.product.freteRate || 0) * 100}
             step={0.1}
             className={`${inputCls} text-right tabular-nums`}
-            value={Math.round((item.product.freteRate || 0) * 10000) / 100}
-            onChange={(e) => onPatch({ freteRate: (Number(e.target.value) || 0) / 100 })}
+            onChange={(pct) => onPatch({ freteRate: pct / 100 })}
             onClick={stop}
-            onFocus={selecionarTudoAoFocar}
           />
         ) : (
-          <input
-            type="number"
-            min={0}
+          <CampoDuasATresCasas
+            valor={valorFreteAtual}
             step={0.01}
             className={`${inputCls} text-right tabular-nums`}
-            value={Math.round(valorFreteAtual * 100) / 100}
-            onChange={(e) => {
-              const novoValor = Number(e.target.value) || 0
-              onPatch({ freteRate: vlrProduto > 0 ? novoValor / vlrProduto : 0 })
-            }}
+            onChange={(novoValor) => onPatch({ freteRate: vlrProduto > 0 ? novoValor / vlrProduto : 0 })}
             onClick={stop}
-            onFocus={selecionarTudoAoFocar}
           />
         )}
       </td>

@@ -170,14 +170,15 @@
   .sem-barra-rolagem::-webkit-scrollbar {
     display: none;
   }
-  /* Tela Inicial com o vídeo de fundo: os quadros ficam um pouco translúcidos e desfocam o que está
-   * atrás — o fundo aparece sem atrapalhar a leitura (os quadros coloridos de aviso mantêm a cor deles) */
-  .tela-inicial-video .card {
-    -webkit-backdrop-filter: blur(12px);
-    backdrop-filter: blur(12px);
+  /* Com o vídeo de fundo (todas as abas, menos o Xadrez): os quadros ficam um pouco translúcidos e
+   * desfocam o que está atrás — o fundo aparece sem atrapalhar a leitura (os quadros coloridos de
+   * aviso mantêm a cor deles) */
+  .com-fundo-video .card {
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
   }
-  .tela-inicial-video .card:not([class*='bg-']) {
-    background-color: rgb(var(--surface) / 0.86);
+  .com-fundo-video .card:not([class*='bg-']) {
+    background-color: rgb(var(--surface) / 0.88);
   }
   .planilha-preview table {
     @apply w-full border-collapse text-xs text-ink-800;

@@ -14,6 +14,15 @@ import { registrarAprendizadoDaPartida, type ResultadoPartida as ResultadoPartid
 
 const COR_SELECIONADA = 0x2a9d5f
 const COR_DESTINO = 0x2a78d6
+/** Casa do Rei em xeque. */
+const COR_XEQUE = 0xe53935
+/** Meia largura do tabuleiro com a moldura e as coordenadas — o que a câmera precisa enquadrar. */
+const MEIA_LARGURA_TABULEIRO = 4.6
+
+/** Celular (em pé, ou deitado com a tela baixa): ao começar uma partida o tabuleiro vai pra tela cheia. */
+function ehCelular(): boolean {
+  return window.matchMedia?.('(max-width: 767px), (pointer: coarse) and (max-height: 500px)').matches ?? false
+}
 
 function squareToPos(square: string): { x: number; z: number } {
   const file = square.charCodeAt(0) - 97
@@ -2352,6 +2361,48 @@ function arremessarPeca(mesh: THREE.Object3D, direcao: { x: number; z: number },
   requestAnimationFrame(passo)
 }
 
+/** Desistir da partida — pede confirmação no próprio botão (funciona também na tela cheia do
+ * navegador, onde as janelas de diálogo do site não aparecem). */
+function BotaoDesistir({
+  confirmando,
+  onPedir,
+  onConfirmar,
+  sobreTabuleiro = false,
+}: {
+  confirmando: boolean
+  onPedir: (v: boolean) => void
+  onConfirmar: () => void
+  sobreTabuleiro?: boolean
+}) {
+  const base = sobreTabuleiro ? 'rounded-lg px-3 py-1.5 text-sm font-semibold shadow' : 'rounded-lg px-3 py-2 text-sm font-medium transition'
+  if (!confirmando) {
+    return (
+      <button
+        type="button"
+        onClick={() => onPedir(true)}
+        className={`${base} ${sobreTabuleiro ? 'bg-white/90 text-rose-700' : 'border border-rose-300 text-rose-700 hover:bg-rose-50'}`}
+      >
+        Desistir
+      </button>
+    )
+  }
+  return (
+    <span role="group" aria-label="Confirmar desistência" className={`inline-flex items-center gap-1.5 ${sobreTabuleiro ? 'rounded-lg bg-white/90 px-2 py-1 shadow' : ''}`}>
+      <span className={`text-sm ${sobreTabuleiro ? 'text-[#3a2a1a]' : 'text-ink-700'}`}>Desistir? Conta como derrota.</span>
+      <button type="button" onClick={onConfirmar} className="rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-rose-500">
+        Sim, desistir
+      </button>
+      <button
+        type="button"
+        onClick={() => onPedir(false)}
+        className={`rounded-lg px-2 py-1.5 text-sm font-medium ${sobreTabuleiro ? 'text-[#3a2a1a]' : 'text-ink-600 hover:bg-ink-100'}`}
+      >
+        Não
+      </button>
+    </span>
+  )
+}
+
 export function ChessBoard3D({ jogador }: { jogador: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const chessRef = useRef(new Chess())
@@ -2364,6 +2415,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     pararDemo: () => void
     pausarDemo: () => void
     retomarDemo: () => void
+    desistir: () => void
   } | null>(null)
 
   const [statusTexto, setStatusTexto] = useState('Carregando o tabuleiro…')
@@ -2380,7 +2432,13 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
   const [escolhendoCor, setEscolhendoCor] = useState(false)
   const [emDemo, setEmDemo] = useState(false)
   const [demoPausado, setDemoPausado] = useState(false)
-  const [resultadoOverlay, setResultadoOverlay] = useState<'venceu' | 'perdeu' | null>(null)
+  const [resultadoOverlay, setResultadoOverlay] = useState<'venceu' | 'perdeu' | 'desistiu' | null>(null)
+  // partida do jogador em andamento (dá pra desistir) — atualizado a cada lance
+  const [podeDesistir, setPodeDesistir] = useState(false)
+  const [confirmandoDesistencia, setConfirmandoDesistencia] = useState(false)
+  // celular: tabuleiro ocupando a tela toda durante a partida (e a tela cheia do navegador, se der)
+  const [telaCheia, setTelaCheia] = useState(false)
+  const tabuleiroRef = useRef<HTMLDivElement>(null)
 
   // acompanha os lances conforme são registrados — rola a lista pro fim assim que um novo lance
   // entra, pra sempre mostrar o mais recente sem precisar rolar manualmente
@@ -2453,7 +2511,11 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     camera.lookAt(0, 0, 0)
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
-    renderer.setSize(container.clientWidth, container.clientHeight)
+    renderer.setSize(container.clientWidth, container.clientHeight, false)
+    // o desenho sempre preenche o espaço dele (CSS): com largura fixa em pixels ele impedia o espaço de
+    // encolher (abrir o menu, sair da tela cheia) e o tabuleiro ficava descentralizado/cortado — só a
+    // resolução interna acompanha o tamanho (onResize)
+    Object.assign(renderer.domElement.style, { display: 'block', width: '100%', height: '100%' })
     renderer.setPixelRatio(pixelRatioParaFullHD(container.clientWidth, container.clientHeight))
     renderer.shadowMap.enabled = true
     // sombras suaves de verdade (borda esfumada, como a de uma luz real), em alta resolução
@@ -2619,6 +2681,26 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     scene.add(piecesGroup)
     const highlightGroup = new THREE.Group()
     scene.add(highlightGroup)
+
+    // casa do Rei em xeque: vermelha (pulsando de leve), por cima da madeira e por baixo dos destaques
+    // de seleção — fica até o xeque acabar
+    const xequeMat = new THREE.MeshBasicMaterial({ color: COR_XEQUE, transparent: true, opacity: 0.6, depthWrite: false, toneMapped: false })
+    const xequeMesh = new THREE.Mesh(new THREE.PlaneGeometry(0.97, 0.97), xequeMat)
+    xequeMesh.rotation.x = -Math.PI / 2
+    xequeMesh.visible = false
+    scene.add(xequeMesh)
+    function marcarXeque() {
+      const chess = chessRef.current
+      const rei = chess.isCheck() ? chess.board().flat().find((c) => c && c.type === 'k' && c.color === chess.turn()) : undefined
+      if (!rei) {
+        xequeMesh.visible = false
+        return
+      }
+      const { x, z } = squareToPos(rei.square)
+      xequeMesh.position.set(x, 0.006, z)
+      xequeMesh.userData.casa = rei.square
+      xequeMesh.visible = true
+    }
 
     function descartarFilhos(grupo: THREE.Group) {
       for (const filho of grupo.children) {
@@ -2808,9 +2890,14 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     function atualizarStatusTexto() {
       const chess = chessRef.current
       setHistorico(chess.history())
+      marcarXeque()
+      const partidaDoJogador = partidaAtualRef.current
+      setPodeDesistir(!!partidaDoJogador && partidaDoJogador.status !== 'FINALIZADA' && !chess.isGameOver())
       const corHumano = corHumanoRef.current
       const labelCor = (c: 'w' | 'b') => (c === 'w' ? 'brancas' : 'pretas')
-      if (!partidaAtualRef.current) {
+      if (partidaDoJogador?.status === 'FINALIZADA' && partidaDoJogador.resultado?.includes('desistiu')) {
+        setStatusTexto('Você desistiu — a máquina venceu essa partida.')
+      } else if (!partidaAtualRef.current) {
         setStatusTexto(
           demoPausadaRef.current
             ? 'Modo demonstração pausado.'
@@ -3140,7 +3227,13 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       }
     }
 
+    /** Partida do jogador encerrada por desistência (o tabuleiro ainda teria lances legais). */
+    function partidaDesistida(): boolean {
+      return partidaAtualRef.current?.status === 'FINALIZADA' && !chessRef.current.isGameOver()
+    }
+
     function jogarLanceDaMaquina() {
+      if (partidaDesistida()) return
       const chess = chessRef.current
       // vezDaMaquinaRef.current já true = já tem um cálculo de lance em andamento — chamar de
       // novo nesse meio-tempo (ex: efeito remontado em dev) faria duas buscas concorrentes brigando
@@ -3150,7 +3243,8 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       atualizarStatusTexto()
       window.setTimeout(async () => {
         const lance = await escolherJogadaDaMaquina(chess, livroRef.current)
-        if (!lance) {
+        // o jogador desistiu enquanto a máquina pensava — o lance não entra mais
+        if (!lance || partidaDesistida()) {
           vezDaMaquinaRef.current = false
           atualizarStatusTexto()
           return
@@ -3247,7 +3341,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     }
 
     function tentarSelecionar(square: Square) {
-      if (!partidaAtualRef.current) return
+      if (!partidaAtualRef.current || partidaDesistida()) return
       const chess = chessRef.current
       if (chess.isGameOver()) return
       if (chess.turn() !== corHumanoRef.current || vezDaMaquinaRef.current) {
@@ -3371,6 +3465,44 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         agendarProximoLanceDemo()
       },
       pararDemo,
+      // o jogador desiste: a partida termina como vitória da máquina (conta como derrota), vai pras
+      // finalizadas, as peças da máquina comemoram e o tabuleiro fica parado na posição
+      desistir() {
+        const partida = partidaAtualRef.current
+        const chess = chessRef.current
+        if (!partida || partida.status === 'FINALIZADA' || chess.isGameOver()) return
+        partida.status = 'FINALIZADA'
+        partida.resultado = 'A máquina venceu (você desistiu)'
+        partida.pgn = chess.pgn()
+        partida.atualizadaEm = Date.now()
+        selecionadaRef.current = null
+        destinosRef.current = []
+        limparDestaques()
+        salvarPartida(partida)
+          .then(() => {
+            setPartidasEmAndamento((prev) => prev.filter((p) => p.id !== partida.id))
+            setPartidasFinalizadas((prev) => [partida, ...prev.filter((p) => p.id !== partida.id)])
+          })
+          .catch(() => {
+            // sem servidor no momento — fica marcada aqui e vai no próximo salvamento
+          })
+        const corMaquina: 'w' | 'b' = corHumanoRef.current === 'w' ? 'b' : 'w'
+        registrarAprendizadoDaPartida(chess.history({ verbose: true }), corMaquina === 'w' ? 'BRANCAS' : 'PRETAS', [corMaquina])
+        if (!comemoracaoDisparada) {
+          comemoracaoDisparada = true
+          let atraso = 0
+          for (const linha of chess.board()) {
+            for (const casa of linha) {
+              if (!casa || casa.color !== corMaquina) continue
+              const mesh = pieceMeshBySquare.get(casa.square)
+              if (mesh) animarComemoracao(mesh, atraso)
+              atraso += 60
+            }
+          }
+        }
+        setResultadoOverlay('desistiu')
+        atualizarStatusTexto()
+      },
       pausarDemo() {
         if (partidaAtualRef.current || demoPausadaRef.current) return
         pararDemo()
@@ -3407,20 +3539,71 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         ;(peca.userData.mixer as THREE.AnimationMixer | undefined)?.update(delta)
         atualizarGestoRPG(peca, agora)
       }
+      if (xequeMesh.visible) xequeMat.opacity = 0.45 + 0.25 * ((Math.sin(agora / 260) + 1) / 2)
       controls.update()
       renderer.render(scene, camera)
     }
     animate()
 
+    // distância da câmera que o enquadramento automático escolheu por último — se o jogador não mexeu
+    // no zoom desde então, a próxima mudança de tamanho pode reajustar (aproximar ou afastar)
+    const distanciaPadrao = camera.position.distanceTo(controls.target)
+    let distanciaAutomatica = distanciaPadrao
+
+    /** Menor distância (a partir da padrão) em que o tabuleiro inteiro cabe na tela — numa tela em pé
+     * (celular) a câmera precisa ir mais pra trás pra caber a largura. */
+    function distanciaQueEnquadra(): number {
+      const direcao = camera.position.clone().sub(controls.target).normalize()
+      const cantos = [-1, 1].flatMap((sx) => [-1, 1].map((sz) => new THREE.Vector3(sx * MEIA_LARGURA_TABULEIRO, 0, sz * MEIA_LARGURA_TABULEIRO)))
+      const original = camera.position.clone()
+      let distancia = distanciaPadrao
+      for (; distancia < 90; distancia += 0.5) {
+        camera.position.copy(controls.target).addScaledVector(direcao, distancia)
+        camera.updateMatrixWorld()
+        if (cantos.every((c) => {
+          const p = c.clone().project(camera)
+          return Math.abs(p.x) <= 0.97 && Math.abs(p.y) <= 0.97
+        })) break
+      }
+      camera.position.copy(original)
+      camera.updateMatrixWorld()
+      return distancia
+    }
+
     function onResize() {
       const el = containerRef.current
-      if (!el) return
-      camera.aspect = el.clientWidth / Math.max(el.clientHeight, 1)
+      if (!el || el.clientWidth === 0 || el.clientHeight === 0) return
+      camera.aspect = el.clientWidth / el.clientHeight
       camera.updateProjectionMatrix()
       renderer.setPixelRatio(pixelRatioParaFullHD(el.clientWidth, el.clientHeight))
-      renderer.setSize(el.clientWidth, el.clientHeight)
+      renderer.setSize(el.clientWidth, el.clientHeight, false)
+      const atual = camera.position.distanceTo(controls.target)
+      const necessaria = distanciaQueEnquadra()
+      // só mexe na câmera se o tabuleiro não cabe, ou se a distância ainda é a que o enquadramento
+      // pôs (o jogador não deu zoom desde então)
+      if (atual < necessaria - 0.01 || Math.abs(atual - distanciaAutomatica) < 0.01) {
+        const direcao = camera.position.clone().sub(controls.target).normalize()
+        camera.position.copy(controls.target).addScaledVector(direcao, necessaria)
+        distanciaAutomatica = necessaria
+      }
+      controls.maxDistance = Math.max(20, necessaria * 1.3)
+      // a névoa acompanha a distância: de longe o tabuleiro não some
+      const fog = scene.fog as THREE.Fog
+      fog.near = Math.max(11, necessaria - 2.5)
+      fog.far = Math.max(55, necessaria + 41.5)
     }
     window.addEventListener('resize', onResize)
+    // só no desenvolvimento: os testes conferem o que está dentro do desenho 3D (casa em xeque, câmera)
+    if (import.meta.env.DEV) {
+      ;(window as unknown as { __xadrez?: object }).__xadrez = {
+        casaEmXeque: () => (xequeMesh.visible ? (xequeMesh.userData.casa as string) : null),
+        distanciaCamera: () => camera.position.distanceTo(controls.target),
+      }
+    }
+    // o espaço do tabuleiro também muda sem a janela mudar — recolher/abrir o menu, tela cheia
+    const observador = new ResizeObserver(() => onResize())
+    observador.observe(container)
+    onResize()
 
     // interações casuais entre peças aliadas — de vez em quando (não depende de nenhuma ação do
     // jogador), duas peças do mesmo time que estejam próximas viram uma pra outra e acenam, só pra
@@ -3461,6 +3644,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       pararDemo()
       window.clearTimeout(interacaoTimeoutId)
       window.removeEventListener('resize', onResize)
+      observador.disconnect()
       renderer.domElement.removeEventListener('click', onClick)
       cancelAnimationFrame(frameId)
       controls.dispose()
@@ -3483,8 +3667,47 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     setEscolhendoCor(true)
   }
 
+  function entrarEmTelaCheia() {
+    setTelaCheia(true)
+    // a tela cheia do navegador (some a barra de endereço) precisa ser pedida no próprio clique;
+    // no iPhone não existe pra esse tipo de elemento — aí fica só o tabuleiro ocupando a página
+    const el = tabuleiroRef.current
+    if (el?.requestFullscreen && !document.fullscreenElement) el.requestFullscreen().catch(() => {})
+  }
+
+  function sairDaTelaCheia() {
+    setTelaCheia(false)
+    setConfirmandoDesistencia(false)
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+  }
+
+  // saiu da tela cheia do navegador pelo próprio celular (voltar, gesto): volta à tela normal também
+  useEffect(() => {
+    function aoMudar() {
+      if (!document.fullscreenElement) setTelaCheia(false)
+    }
+    document.addEventListener('fullscreenchange', aoMudar)
+    return () => document.removeEventListener('fullscreenchange', aoMudar)
+  }, [])
+
+  // tabuleiro em tela cheia: a página de trás não rola junto
+  useEffect(() => {
+    if (!telaCheia) return
+    const anterior = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = anterior
+    }
+  }, [telaCheia])
+
+  function handleDesistir() {
+    setConfirmandoDesistencia(false)
+    acoesRef.current?.desistir()
+  }
+
   async function handleEscolherCor(cor: 'w' | 'b') {
     setEscolhendoCor(false)
+    if (ehCelular()) entrarEmTelaCheia()
     const nova = novaPartida(jogador, cor)
     try {
       await salvarPartida(nova)
@@ -3525,7 +3748,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
             </p>
           </div>
         )}
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           {emDemo && (
             <Button
               variant="ghost"
@@ -3535,6 +3758,12 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
               disabled={escolhendoCor}
             >
               {demoPausado ? 'Retomar demonstração' : 'Pausar demonstração'}
+            </Button>
+          )}
+          {podeDesistir && <BotaoDesistir confirmando={confirmandoDesistencia} onPedir={setConfirmandoDesistencia} onConfirmar={handleDesistir} />}
+          {podeDesistir && !telaCheia && ehCelular() && (
+            <Button variant="ghost" onClick={entrarEmTelaCheia}>
+              Tela cheia
             </Button>
           )}
           <Button variant="secondary" onClick={handleNovoJogo} disabled={escolhendoCor}>
@@ -3551,6 +3780,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
           className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border p-4 ${
             resultadoOverlay === 'venceu' ? 'border-emerald-200 bg-emerald-50' : 'border-rose-200 bg-rose-50'
           }`}
+          role="status"
         >
           <div className="flex items-center gap-3">
             <span className="text-3xl" aria-hidden>
@@ -3562,9 +3792,13 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
                   resultadoOverlay === 'venceu' ? 'text-emerald-700' : 'text-rose-700'
                 }`}
               >
-                {resultadoOverlay === 'venceu' ? 'Você venceu!' : 'Você perdeu'}
+                {resultadoOverlay === 'venceu' ? 'Você venceu!' : resultadoOverlay === 'desistiu' ? 'Você desistiu' : 'Você perdeu'}
               </p>
-              <p className="text-xs text-ink-400">Xeque-mate — veja as peças comemorando no tabuleiro.</p>
+              <p className="text-xs text-ink-400">
+                {resultadoOverlay === 'desistiu'
+                  ? 'A partida conta como derrota — as peças da máquina comemoram no tabuleiro.'
+                  : 'Xeque-mate — veja as peças comemorando no tabuleiro.'}
+              </p>
             </div>
           </div>
           <div className="flex gap-2 shrink-0">
@@ -3578,11 +3812,48 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         </div>
       )}
 
-      <div className="relative">
+      <div
+        ref={tabuleiroRef}
+        className={telaCheia ? 'fixed inset-0 z-[65] bg-[#f5f0e6]' : 'relative'}
+        aria-label={telaCheia ? 'Tabuleiro em tela cheia' : undefined}
+      >
         <div
           ref={containerRef}
-          className="w-full aspect-[4/3] sm:aspect-video rounded-xl overflow-hidden border border-ink-100 touch-none"
+          className={
+            telaCheia
+              ? 'h-full w-full touch-none'
+              : 'w-full aspect-[4/3] sm:aspect-video rounded-xl overflow-hidden border border-ink-100 touch-none'
+          }
         />
+
+        {telaCheia && (
+          // por cima do tabuleiro: a situação da partida, desistir e voltar pra tela normal
+          <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-col gap-2 p-3" style={{ paddingTop: 'max(0.75rem, env(safe-area-inset-top))' }}>
+            <div className="pointer-events-auto flex items-start justify-between gap-2">
+              <p className="min-w-0 rounded-lg bg-white/85 px-3 py-1.5 text-sm font-medium text-[#3a2a1a] shadow backdrop-blur">{statusTexto}</p>
+              <button
+                type="button"
+                onClick={sairDaTelaCheia}
+                className="shrink-0 rounded-lg bg-white/90 px-3 py-1.5 text-sm font-semibold text-[#3a2a1a] shadow backdrop-blur"
+              >
+                ✕ Tela normal
+              </button>
+            </div>
+            <div className="pointer-events-auto flex flex-wrap items-center gap-2">
+              {podeDesistir && <BotaoDesistir confirmando={confirmandoDesistencia} onPedir={setConfirmandoDesistencia} onConfirmar={handleDesistir} sobreTabuleiro />}
+              {resultadoOverlay && (
+                <span className={`rounded-lg px-3 py-1.5 text-sm font-bold shadow ${resultadoOverlay === 'venceu' ? 'bg-emerald-600 text-white' : 'bg-rose-600 text-white'}`}>
+                  {resultadoOverlay === 'venceu' ? '🏆 Você venceu!' : resultadoOverlay === 'desistiu' ? 'Você desistiu' : 'Você perdeu'}
+                </span>
+              )}
+              {resultadoOverlay && (
+                <button type="button" onClick={handleNovoJogo} className="rounded-lg bg-white/90 px-3 py-1.5 text-sm font-semibold text-[#3a2a1a] shadow">
+                  Novo jogo
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {escolhendoCor && (
           <div className="absolute inset-0 z-20 flex items-center justify-center bg-ink-950/70 backdrop-blur-sm rounded-xl p-4">

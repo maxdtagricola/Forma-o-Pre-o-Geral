@@ -16,7 +16,6 @@ import { diasUteisDesde, textoDiasUteis, useVersaoFeriados } from '../diasUteis'
 import { NOTA_FISCAL_STATUSES, QUOTE_STATUSES } from '../types'
 import type { NotaFiscal, PedidoCompraInfo, QuoteRecord, QuoteStatus } from '../types'
 import type { TabKey } from '../components/Layout'
-import { FundoEmVideo } from '../components/FundoEmVideo'
 import { useEstadoPersistente } from '../estadoPersistente'
 
 // -----------------------------------------------------------------------
@@ -102,6 +101,8 @@ export function TelaInicialPage({
   onNovaCotacao,
   onContinuar,
   onIrPara,
+  fundoPausado,
+  onAlternarFundo,
 }: {
   /** Nome de login (ex.: "MÁXIMUS"), pra saudação. */
   nomeExibido: string
@@ -113,6 +114,9 @@ export function TelaInicialPage({
   onNovaCotacao: (modo: 'manual' | 'importar') => void
   onContinuar: () => void
   onIrPara: (tab: TabKey) => void
+  /** Vídeo de fundo pausado (o vídeo fica no Layout, atrás de todas as abas menos o Xadrez). */
+  fundoPausado: boolean
+  onAlternarFundo: () => void
 }) {
   const [cotacoes, setCotacoes] = useState<QuoteRecord[]>([])
   // "Fechou" no bloco de retorno do cliente: a mesma janela de sempre (pedido completo ou só alguns itens)
@@ -251,17 +255,13 @@ export function TelaInicialPage({
     }
   }
 
-  // vídeo de fundo pausado (preferência deste aparelho)
-  const [fundoPausado, setFundoPausado] = useEstadoPersistente('telaInicial:fundoPausado', false)
-
   function corDoStatus(status: string, lista: readonly string[] = QUOTE_STATUSES): string {
     return coresStatus[status] || corPadraoDoStatus(status, lista)
   }
 
   return (
     <>
-    <FundoEmVideo pausado={fundoPausado} />
-    <div className="tela-inicial-video relative space-y-6">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
           <h2 className="font-display text-2xl font-bold text-ink-900">
@@ -272,7 +272,7 @@ export function TelaInicialPage({
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={() => setFundoPausado((v) => !v)}
+            onClick={onAlternarFundo}
             aria-pressed={fundoPausado}
             title={fundoPausado ? 'Voltar a animar o vídeo de fundo' : 'Pausar o vídeo de fundo'}
             className="rounded-lg border border-ink-200 bg-surface/80 px-3 py-2 text-sm font-medium text-ink-700 backdrop-blur transition hover:bg-ink-50"

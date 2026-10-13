@@ -597,7 +597,25 @@ function rotuloComUf(r: RemetenteFrete): string {
   return r.uf ? `${r.nome} — ${r.uf}` : r.nome
 }
 
-export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
+export function FretePage({
+  cotacaoIdInicial,
+  onGoToPrecificacao,
+}: {
+  cotacaoIdInicial?: string
+  /** Volta pra Precificação — botão no topo e, rolando a página, um igual flutuando no canto. */
+  onGoToPrecificacao?: () => void
+}) {
+  // "Voltar para Precificação" acompanha a tela: quando o botão do topo sai de vista, aparece um igual
+  // flutuando no canto de baixo
+  const voltarRef = useRef<HTMLDivElement>(null)
+  const [voltarNoTopoVisivel, setVoltarNoTopoVisivel] = useState(true)
+  useEffect(() => {
+    const alvo = voltarRef.current
+    if (!alvo) return
+    const observador = new IntersectionObserver(([entrada]) => setVoltarNoTopoVisivel(entrada.isIntersecting))
+    observador.observe(alvo)
+    return () => observador.disconnect()
+  }, [])
   const [empresas, setEmpresas] = useState<Empresa[]>([])
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([])
   const [quotes, setQuotes] = useState<QuoteRecord[]>([])
@@ -823,7 +841,16 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
   return (
     <div className="space-y-5">
       <div className="card">
-        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Frete</h2>
+        <div className="mb-1 flex flex-wrap items-start justify-between gap-3">
+          <h2 className="font-display text-lg font-semibold text-ink-900">Frete</h2>
+          {onGoToPrecificacao && (
+            <div ref={voltarRef}>
+              <Button variant="ghost" onClick={onGoToPrecificacao}>
+                Voltar para Precificação
+              </Button>
+            </div>
+          )}
+        </div>
         <p className="text-sm text-ink-400">
           Escolha uma cotação e o fornecedor (remetente) pra carregar automaticamente os dados de pedido de frete em
           cada transportadora — CNPJ e CEP do remetente e da empresa destino, peso e valor da nota vêm da cotação.
@@ -932,6 +959,17 @@ export function FretePage({ cotacaoIdInicial }: { cotacaoIdInicial?: string }) {
             />
           ))}
         </div>
+      )}
+
+      {onGoToPrecificacao && !voltarNoTopoVisivel && (
+        <button
+          type="button"
+          onClick={onGoToPrecificacao}
+          className="fixed right-6 z-40 inline-flex items-center gap-1.5 rounded-full bg-ink-950 px-4 py-2.5 text-sm font-medium text-white shadow-lg transition-[bottom,background-color] hover:bg-brand-600"
+          style={{ bottom: 'calc(1.5rem + var(--altura-aviso-entregas, 0px))' }}
+        >
+          <span aria-hidden>←</span> Voltar para Precificação
+        </button>
       )}
 
       {perguntandoFornecedor && (

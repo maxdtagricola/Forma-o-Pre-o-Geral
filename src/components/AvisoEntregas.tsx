@@ -45,6 +45,7 @@ export function AvisoEntregas({ aba, onAbrir }: { aba: string; onAbrir: (cotacao
   const [verTodas, setVerTodas] = useState(false)
   const ultimaBusca = useRef(0)
   const versaoFeriados = useVersaoFeriados()
+  const caixaRef = useRef<HTMLElement>(null)
 
   const buscar = useCallback(() => {
     ultimaBusca.current = Date.now()
@@ -90,7 +91,28 @@ export function AvisoEntregas({ aba, onAbrir }: { aba: string; onAbrir: (cotacao
     [quotes, agora, versaoFeriados],
   )
   const assinatura = assinaturaDosAvisos(avisos, agora)
-  if (avisos.length === 0 || dispensado === assinatura) return null
+  const visivel = avisos.length > 0 && dispensado !== assinatura
+
+  // a altura do aviso vira uma variável CSS: os botões que flutuam no mesmo canto ("Voltar para
+  // Precificação" etc.) ficam logo acima dele em vez de escondidos atrás
+  useEffect(() => {
+    const raiz = document.documentElement
+    const caixa = caixaRef.current
+    if (!visivel || !caixa) {
+      raiz.style.removeProperty('--altura-aviso-entregas')
+      return
+    }
+    const atualizar = () => raiz.style.setProperty('--altura-aviso-entregas', `${caixa.offsetHeight + 12}px`)
+    atualizar()
+    const observador = new ResizeObserver(atualizar)
+    observador.observe(caixa)
+    return () => {
+      observador.disconnect()
+      raiz.style.removeProperty('--altura-aviso-entregas')
+    }
+  }, [visivel])
+
+  if (!visivel) return null
 
   const contagem: Record<SituacaoEntrega, number> = { atrasada: 0, hoje: 0, proxima: 0 }
   for (const a of avisos) contagem[a.situacao]++
@@ -108,6 +130,7 @@ export function AvisoEntregas({ aba, onAbrir }: { aba: string; onAbrir: (cotacao
 
   return (
     <aside
+      ref={caixaRef}
       role="status"
       aria-live="polite"
       aria-label="Aviso de entregas"
