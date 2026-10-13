@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Button } from './ui/Basics'
 import { diasUteisAte, textoDiasUteis } from '../diasUteis'
+import { mercadoriaRecebida } from '../avisosEntrega'
 import type { DadosTransporte, QuoteRecord } from '../types'
 
 // -----------------------------------------------------------------------
@@ -9,7 +10,7 @@ import type { DadosTransporte, QuoteRecord } from '../types'
 // na aba Pedido de Compra e editáveis depois no cartão de cada fornecedor.
 // -----------------------------------------------------------------------
 
-export type DadosTransporteEditaveis = Omit<DadosTransporte, 'atualizadoEm' | 'atualizadoPor' | 'previsaoEntrega'> & {
+export type DadosTransporteEditaveis = Omit<DadosTransporte, 'atualizadoEm' | 'atualizadoPor' | 'previsaoEntrega' | 'entregaPeloStatus'> & {
   previsaoEntrega: string
 }
 
@@ -22,8 +23,9 @@ export const TRANSPORTE_VAZIO: DadosTransporteEditaveis = {
 }
 
 /** A previsão de entrega mais cedo entre os fornecedores da cotação que ainda não entregaram
- * ("AAAA-MM-DD"), se alguma foi informada. */
-export function previsaoDaCotacao(cotacao: Pick<QuoteRecord, 'transportePorFornecedor'>): string | undefined {
+ * ("AAAA-MM-DD"), se alguma foi informada — cotação já ENTREGUE (ou além) não tem mais previsão. */
+export function previsaoDaCotacao(cotacao: Pick<QuoteRecord, 'transportePorFornecedor' | 'status'>): string | undefined {
+  if (mercadoriaRecebida(cotacao.status)) return undefined
   const datas = Object.values(cotacao.transportePorFornecedor ?? {})
     .filter((t) => !t.entregueEm)
     .map((t) => t.previsaoEntrega ?? '')

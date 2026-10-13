@@ -505,6 +505,9 @@ export interface DadosTransporte {
   /** Quando a mercadoria desse fornecedor chegou (marcado no Pedido de Compra) e quem marcou. */
   entregueEm?: number
   entreguePor?: string
+  /** A entrega foi marcada sozinha, quando o status da cotação foi pra ENTREGUE (ou além) — volta a
+   * "não entregue" se o status voltar pra antes disso. Marcada à mão no Pedido de Compra: sem isso. */
+  entregaPeloStatus?: boolean
 }
 
 /** Medidas da carga pro pedido de frete — comprimento/largura/altura sempre em centímetros e peso

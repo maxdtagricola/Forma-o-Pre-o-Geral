@@ -1,4 +1,5 @@
 import { chaveDoDia, diasUteisAte } from './diasUteis'
+import { QUOTE_STATUSES } from './types'
 import type { QuoteRecord, QuoteStatus } from './types'
 
 // -----------------------------------------------------------------------
@@ -10,6 +11,11 @@ import type { QuoteRecord, QuoteStatus } from './types'
 
 /** Status em que a mercadoria ainda está a caminho (dá pra marcar a entrega no Pedido de Compra). */
 export const STATUS_A_CAMINHO: QuoteStatus[] = ['EM TRANSPORTE', 'CADASTRO DE PRODUTO', 'PARCIALMENTE ENTREGUE']
+
+/** ENTREGUE e o que vem depois no fluxo (CONFERIDO, FATURADO): a mercadoria já foi recebida. */
+export function mercadoriaRecebida(status: QuoteStatus): boolean {
+  return status !== 'ARQUIVO' && QUOTE_STATUSES.indexOf(status) >= QUOTE_STATUSES.indexOf('ENTREGUE')
+}
 
 /** Até quantos dias úteis antes a previsão conta como "chega em breve". */
 export const DIAS_UTEIS_ENTREGA_PROXIMA = 2

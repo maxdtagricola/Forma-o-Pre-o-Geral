@@ -2,6 +2,7 @@ import { calculateItem } from '../calc/calculator'
 import { dbDelete, dbGet, dbGetAll, dbPut, STORE_ANALISES } from './db'
 import { proximoCodigoCotacao } from './configRepo'
 import { makeId } from '../utils'
+import { mercadoriaRecebida } from '../avisosEntrega'
 import type {
   DadosFreteTransportadora,
   DadosTransporte,
@@ -255,6 +256,7 @@ export const updateQuoteStatus = emFila(async function updateQuoteStatus(
   const atualizado: QuoteRecord = {
     ...normalizado,
     status: novoStatus,
+    transportePorFornecedor: entregasConformeStatus(normalizado, novoStatus, atorAdmin, now),
     responsavelStatus: novoStatus === 'PENDENTE' ? '' : atorAdmin,
     statusHistory: [...normalizado.statusHistory, { status: novoStatus, changedAt: now }],
     pedidoCompra: novoStatus === 'PEDIDO DE COMPRA' ? pedidoCompra : normalizado.pedidoCompra,
@@ -266,6 +268,50 @@ export const updateQuoteStatus = emFila(async function updateQuoteStatus(
   await dbPut(STORE_ANALISES, atualizado)
   return atualizado
 })
+
+/** As chaves de transporte (fornecedor + UF) dos itens que entraram no pedido de compra — o mesmo
+ * agrupamento da aba Pedido de Compra; itens sem fornecedor ficam juntos em "SEM FORNECEDOR". */
+function chavesDeTransporteDoPedido(quote: QuoteRecord): string[] {
+  const ids = quote.pedidoCompra?.itemIds
+  const itens = ids ? quote.items.filter((it) => ids.includes(it.id)) : quote.items
+  return Array.from(new Set(itens.map((it) => chaveFornecedorFrete(it.product.fornecedor, it.product.estadoOrigem) || 'SEM FORNECEDOR')))
+}
+
+/** Status indo pra ENTREGUE (ou além): a mercadoria de todo fornecedor do pedido fica como recebida
+ * (sem aviso de atrasada/a caminho). Voltando pra antes de ENTREGUE: desfaz só essas marcações
+ * automáticas — as entregas marcadas à mão no Pedido de Compra continuam. */
+function entregasConformeStatus(
+  quote: QuoteRecord,
+  novoStatus: QuoteStatus,
+  atorAdmin: string,
+  now: number,
+): QuoteRecord['transportePorFornecedor'] {
+  const recebidaAntes = mercadoriaRecebida(quote.status)
+  const recebidaDepois = mercadoriaRecebida(novoStatus)
+  if (recebidaDepois && !recebidaAntes) {
+    const transporte = { ...quote.transportePorFornecedor }
+    for (const chave of new Set([...chavesDeTransporteDoPedido(quote), ...Object.keys(transporte)])) {
+      const anterior: DadosTransporte = transporte[chave] ?? {
+        numeroNotaFiscal: '',
+        numeroCotacaoFrete: '',
+        transportadora: '',
+        linkRastreio: '',
+        atualizadoEm: now,
+        atualizadoPor: atorAdmin,
+      }
+      if (!anterior.entregueEm) transporte[chave] = { ...anterior, entregueEm: now, entreguePor: atorAdmin, entregaPeloStatus: true }
+    }
+    return transporte
+  }
+  if (recebidaAntes && !recebidaDepois && novoStatus !== 'ARQUIVO' && quote.transportePorFornecedor) {
+    const transporte = { ...quote.transportePorFornecedor }
+    for (const [chave, dados] of Object.entries(transporte)) {
+      if (dados.entregaPeloStatus) transporte[chave] = { ...dados, entregueEm: undefined, entreguePor: undefined, entregaPeloStatus: undefined }
+    }
+    return transporte
+  }
+  return quote.transportePorFornecedor
+}
 
 /** Fora de PENDENTE, só quem pegou a cotação (responsavelStatus) muda o status dela. */
 function exigirResponsavel(cotacao: QuoteRecord, atorAdmin: string) {
@@ -325,8 +371,8 @@ export const registrarEntrega = emFila(async function registrarEntrega(
       atualizadoPor: atorAdmin,
     }
     transporte[chave] = alvo.entregue
-      ? { ...anterior, entregueEm: now, entreguePor: atorAdmin }
-      : { ...anterior, entregueEm: undefined, entreguePor: undefined }
+      ? { ...anterior, entregueEm: now, entreguePor: atorAdmin, entregaPeloStatus: undefined }
+      : { ...anterior, entregueEm: undefined, entreguePor: undefined, entregaPeloStatus: undefined }
   }
 
   let status = normalizado.status
