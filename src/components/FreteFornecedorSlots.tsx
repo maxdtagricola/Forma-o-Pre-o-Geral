@@ -77,6 +77,9 @@ function EspacoFrete({
     setTransportadora(cotacao?.transportadora ?? '')
     setNumero(cotacao?.dados.numeroCotacao ?? '')
     setValor(cotacao ? valorParaTexto(cotacao.dados.valorCotacao) : '')
+    // só pelos valores: o objeto `cotacao` é recriado a cada redesenho, e depender dele apagaria o que
+    // está sendo digitado
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cotacao?.transportadora, cotacao?.dados.numeroCotacao, cotacao?.dados.valorCotacao])
 
   async function executar(acao: () => Promise<void>) {
@@ -142,6 +145,7 @@ function EspacoFrete({
         disabled={!habilitado || salvando}
         onChange={(e) => void handleTrocarTransportadora(e.target.value)}
         title="Transportadora dessa cotação de frete"
+        aria-label="Transportadora dessa cotação de frete"
         className={`${inputCls} w-[5.75rem] sm:w-[6.25rem] font-medium`}
       >
         <option value="">Transportad.…</option>
@@ -159,6 +163,7 @@ function EspacoFrete({
         onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
         placeholder="Nº"
         title={numero ? `Nº da cotação de frete: ${numero}` : 'Número da cotação de frete'}
+        aria-label={`Número da cotação de frete${transportadora ? ` da ${transportadora}` : ''}`}
         style={{ width: larguraNumero }}
         className={`${inputCls} max-w-full font-mono transition-[width] duration-100`}
       />
@@ -174,6 +179,7 @@ function EspacoFrete({
           onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
           placeholder="0,00"
           title={valorNumerico !== undefined ? formatCurrency(valorNumerico) : 'Valor da cotação de frete'}
+          aria-label={`Valor da cotação de frete${transportadora ? ` da ${transportadora}` : ''}`}
           className={`${inputCls} w-full pl-5 text-right font-mono tabular-nums`}
         />
       </div>

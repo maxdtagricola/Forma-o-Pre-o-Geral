@@ -1542,6 +1542,8 @@ function animarAtaqueEspada(
 /** Duração da queda (tomba) e do afundamento+desaparecimento da peça capturada, depois do golpe. */
 const DURACAO_QUEDA_MS = 500
 const DURACAO_SUMIR_MS = 650
+/** Quanto a peça derrubada desliza na direção do golpe (em casas). */
+const DESLIZE_NOCAUTE = 0.45
 
 /**
  * A peça capturada tomba pro chão e depois afunda no tabuleiro sumindo aos poucos — clona os
@@ -1598,12 +1600,26 @@ function animarQuedaEDesaparecimento(
     return
   }
 
+  // derrubada: tomba PRA LONGE do golpe (gira em torno do eixo deitado perpendicular à direção — o topo
+  // vai pra onde o golpe empurrou) e desliza nessa direção enquanto cai
+  const comprimento = direcaoNocaute ? Math.hypot(direcaoNocaute.x, direcaoNocaute.z) : 0
+  const nocaute = direcaoNocaute && comprimento > 1e-6 ? { x: direcaoNocaute.x / comprimento, z: direcaoNocaute.z / comprimento } : undefined
+  const eixoNocaute = nocaute ? new THREE.Vector3(nocaute.z, 0, -nocaute.x) : undefined
+  const rotacaoInicial = mesh.quaternion.clone()
+  const giroNocaute = new THREE.Quaternion()
+
   function passo(agora: number) {
     const decorrido = agora - inicio
     const tQueda = Math.min(1, decorrido / DURACAO_QUEDA_MS)
     const quedaSuave = 1 - Math.pow(1 - tQueda, 3)
-    const anguloQueda = quedaSuave * (Math.PI / 2) * sinalQueda
-    mesh.rotation[eixoQueda] = anguloQueda
+    if (nocaute && eixoNocaute) {
+      giroNocaute.setFromAxisAngle(eixoNocaute, quedaSuave * (Math.PI / 2))
+      mesh.quaternion.copy(giroNocaute).multiply(rotacaoInicial)
+      mesh.position.x = posOriginal.x + nocaute.x * DESLIZE_NOCAUTE * quedaSuave
+      mesh.position.z = posOriginal.z + nocaute.z * DESLIZE_NOCAUTE * quedaSuave
+    } else {
+      mesh.rotation[eixoQueda] = quedaSuave * (Math.PI / 2) * sinalQueda
+    }
 
     if (decorrido > DURACAO_QUEDA_MS) {
       const tSumir = Math.min(1, (decorrido - DURACAO_QUEDA_MS) / DURACAO_SUMIR_MS)

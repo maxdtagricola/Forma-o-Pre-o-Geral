@@ -1,30 +1,16 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, type TabKey } from './components/Layout'
 import { LoginPage } from './components/LoginPage'
 import { MinhaContaModal } from './components/MinhaContaModal'
 import { TelaInicialPage } from './pages/TelaInicialPage'
-import { XadrezPage } from './pages/XadrezPage'
-import { CotacoesPage } from './pages/CotacoesPage'
-import { AnalyticsPage } from './pages/AnalyticsPage'
-import { ConfiguracoesPage } from './pages/ConfiguracoesPage'
 import { Dashboard } from './pages/Dashboard'
-import { CompararFornecedoresPage } from './pages/CompararFornecedoresPage'
-import { FaturamentoPage } from './pages/FaturamentoPage'
-import { ProdutosPage } from './pages/ProdutosPage'
-import { FornecedoresPage } from './pages/FornecedoresPage'
-import { FretePage } from './pages/FretePage'
-import { PedidoCompraPage } from './pages/PedidoCompraPage'
-import { AcompanhamentoNotasPage } from './pages/AcompanhamentoNotasPage'
-import { NotasFiscaisPage } from './pages/NotasFiscaisPage'
-import { NotasFiscaisDashboardPage } from './pages/NotasFiscaisDashboardPage'
-import { HistoryPage } from './pages/HistoryPage'
-import { PlanilhaClienteModal } from './components/PlanilhaClienteModal'
 import { RecuperarRascunhoModal } from './components/RecuperarRascunhoModal'
 import { DialogHost } from './components/DialogHost'
 import { lerRascunho, limparRascunho, salvarRascunho, type RascunhoCotacao } from './rascunhoCotacao'
 import { calculateItem, definirTabelasCustomizadas } from './calc/calculator'
 import { mesmoFornecedor, valoresDaCotacaoDoFornecedor } from './utils'
 import { buscarQuote, listQuotes, saveQuote, setPlanilhaOriginal, updateQuoteStatus } from './db/analysesRepo'
+import { lerPlanilhaCliente } from './db/planilhasClienteRepo'
 import { sincronizarProdutos } from './db/produtosRepo'
 import {
   DEFAULT_PRICING_GLOBAL,
@@ -57,6 +43,37 @@ import type {
   QuoteStatus,
   TipoReferencia,
 } from './types'
+
+// Cada aba (menos a Tela Inicial e a Precificação, as mais usadas) só é baixada quando é aberta pela
+// primeira vez — com elas vão as bibliotecas pesadas de planilha e PDF, que deixam de atrasar a
+// abertura do site (o pacote inicial tinha 2,7 MB)
+const XadrezPage = lazy(() => import('./pages/XadrezPage').then((m) => ({ default: m.XadrezPage })))
+const CotacoesPage = lazy(() => import('./pages/CotacoesPage').then((m) => ({ default: m.CotacoesPage })))
+const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage })))
+const ConfiguracoesPage = lazy(() => import('./pages/ConfiguracoesPage').then((m) => ({ default: m.ConfiguracoesPage })))
+const CompararFornecedoresPage = lazy(() =>
+  import('./pages/CompararFornecedoresPage').then((m) => ({ default: m.CompararFornecedoresPage })),
+)
+const FaturamentoPage = lazy(() => import('./pages/FaturamentoPage').then((m) => ({ default: m.FaturamentoPage })))
+const ProdutosPage = lazy(() => import('./pages/ProdutosPage').then((m) => ({ default: m.ProdutosPage })))
+const FornecedoresPage = lazy(() => import('./pages/FornecedoresPage').then((m) => ({ default: m.FornecedoresPage })))
+const FretePage = lazy(() => import('./pages/FretePage').then((m) => ({ default: m.FretePage })))
+const PedidoCompraPage = lazy(() => import('./pages/PedidoCompraPage').then((m) => ({ default: m.PedidoCompraPage })))
+const AcompanhamentoNotasPage = lazy(() =>
+  import('./pages/AcompanhamentoNotasPage').then((m) => ({ default: m.AcompanhamentoNotasPage })),
+)
+const NotasFiscaisPage = lazy(() => import('./pages/NotasFiscaisPage').then((m) => ({ default: m.NotasFiscaisPage })))
+const NotasFiscaisDashboardPage = lazy(() =>
+  import('./pages/NotasFiscaisDashboardPage').then((m) => ({ default: m.NotasFiscaisDashboardPage })),
+)
+const HistoryPage = lazy(() => import('./pages/HistoryPage').then((m) => ({ default: m.HistoryPage })))
+const PlanilhaClienteModal = lazy(() =>
+  import('./components/PlanilhaClienteModal').then((m) => ({ default: m.PlanilhaClienteModal })),
+)
+
+function CarregandoAba() {
+  return <p className="py-16 text-center text-sm text-ink-400">Carregando…</p>
+}
 
 /** Entrada do app: sem usuário logado, a tela de login; com usuário, o site todo (administrador) ou
  * só a Tela Inicial (quem se cadastrou e ainda não ganhou outra função do Max). */
@@ -107,7 +124,9 @@ function AreaDoJogador({ usuario }: { usuario: UsuarioLogado }) {
             Seu cadastro está com o administrador, que vai definir sua função no site. Por enquanto, seu acesso é ao xadrez.
           </p>
         )}
-        <XadrezPage jogador={usuario.nome} />
+        <Suspense fallback={<CarregandoAba />}>
+          <XadrezPage jogador={usuario.nome} />
+        </Suspense>
       </main>
       {mostrarMinhaConta && <MinhaContaModal usuario={usuario} onFechar={() => setMostrarMinhaConta(false)} />}
       <DialogHost />
@@ -235,20 +254,16 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   const [historyRefreshKey, setHistoryRefreshKey] = useState(0)
   const [pricingGlobal, setPricingGlobalState] = useState<PricingGlobal>(DEFAULT_PRICING_GLOBAL)
   const [tabelasVersion, setTabelasVersion] = useState(0)
-  const [planilhaOriginal, setPlanilhaOriginalState] = useState<
-    { nomeArquivo: string; conteudoBase64: string } | undefined
-  >(undefined)
+  const [planilhaOriginal, setPlanilhaOriginalState] = useState<QuoteRecord['planilhaOriginal']>(undefined)
   const [mostrarPlanilhaCliente, setMostrarPlanilhaCliente] = useState(false)
   const [rascunhoDisponivel, setRascunhoDisponivel] = useState<RascunhoCotacao | undefined>(undefined)
   // true logo depois de "Salvar cotação" até a primeira alteração seguinte — enquanto estiver
   // true, qualquer tentativa de mexer num dado já salvo passa primeiro por confirmação (ver
   // confirmarAlteracaoSeJaSalva). Assim que confirmado uma vez, some até o próximo salvamento.
-  const [salvoInalterado, setSalvoInalteradoEstado] = useState(false)
-  // espelho síncrono: a guarda da digitação precisa saber na hora (sem esperar o React redesenhar)
+  // Ref, não estado: a guarda da digitação precisa saber na hora (sem esperar o React redesenhar)
   const salvoInalteradoRef = useRef(false)
   const setSalvoInalterado = (valor: boolean) => {
     salvoInalteradoRef.current = valor
-    setSalvoInalteradoEstado(valor)
   }
   // true só por alguns segundos depois de salvar, pra mostrar "Cotação salva!" ao lado do botão
   const [cotacaoRecemSalva, setCotacaoRecemSalva] = useState(false)
@@ -319,7 +334,6 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
 
   useEffect(() => {
     setItems((prev) => prev.map((item) => ({ ...item, pricing: { ...item.pricing, ...pricingGlobal } })))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pricingGlobal])
 
   // planilhas de markup customizadas (se alguma tiver sido importada e salva antes)
@@ -358,6 +372,9 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   )
   const result = useMemo(
     () => calculateItem(activeItem.product, activeItem.pricing),
+    // tabelasVersion de propósito: as planilhas de markup customizadas ficam fora do React
+    // (calculator.ts) e ela muda quando são trocadas — é o que faz recalcular
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [activeItem, tabelasVersion],
   )
 
@@ -803,6 +820,8 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           onAlternarFundo={alternarFundo}
         />
       )}
+      {/* as outras abas vêm sob demanda (ver os lazy() lá em cima) */}
+      <Suspense fallback={<CarregandoAba />}>
       {tab === 'xadrez' && <XadrezPage jogador={currentAdmin} />}
       {tab === 'cotacoes' && (
         <CotacoesPage
@@ -896,16 +915,19 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       {tab === 'history' && (
         <HistoryPage refreshKey={historyRefreshKey} currentAdmin={currentAdmin} onLoad={handleLoad} />
       )}
+      </Suspense>
 
       {mostrarPlanilhaCliente && planilhaOriginal && (
-        <PlanilhaClienteModal
-          nomeArquivo={planilhaOriginal.nomeArquivo}
-          conteudoBase64={planilhaOriginal.conteudoBase64}
-          items={items}
-          cliente={cliente}
-          maquina={maquina}
-          onClose={() => setMostrarPlanilhaCliente(false)}
-        />
+        <Suspense fallback={null}>
+          <PlanilhaClienteModal
+            nomeArquivo={planilhaOriginal.nomeArquivo}
+            carregar={() => lerPlanilhaCliente(editingQuoteId ?? '', planilhaOriginal)}
+            items={items}
+            cliente={cliente}
+            maquina={maquina}
+            onClose={() => setMostrarPlanilhaCliente(false)}
+          />
+        </Suspense>
       )}
 
       {rascunhoDisponivel && (

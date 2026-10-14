@@ -50,9 +50,9 @@ export async function lerPdf(arquivo: File, opcoes: { ocr?: boolean } = {}): Pro
     pdf = await pdfjsLib.getDocument({ data: dados }).promise
   } catch (err) {
     if (err instanceof Error && /password/i.test(err.name + err.message)) {
-      throw new Error('Esse PDF está protegido por senha — não consigo ler o conteúdo dele.')
+      throw new Error('Esse PDF está protegido por senha — não consigo ler o conteúdo dele.', { cause: err })
     }
-    throw new Error('Não consegui abrir esse PDF — confira se o arquivo não está corrompido.')
+    throw new Error('Não consegui abrir esse PDF — confira se o arquivo não está corrompido.', { cause: err })
   }
 
   const paginas: PaginaPosicionada[] = []

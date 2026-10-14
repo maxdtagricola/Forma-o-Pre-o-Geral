@@ -1,8 +1,7 @@
-import { useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState } from 'react'
 import { ResultPanel } from '../components/ResultPanel'
 import { QuoteItemsList } from '../components/QuoteItemsList'
 import { ProductValuesTable } from '../components/ProductValuesTable'
-import { EnvioCotacaoModal } from '../components/EnvioCotacaoModal'
 import { Button } from '../components/ui/Basics'
 import { SelectField, TextField } from '../components/ui/Field'
 import { calculateItem } from '../calc/calculator'
@@ -18,6 +17,9 @@ import type {
   QuoteItem,
   QuoteStatus,
 } from '../types'
+
+// só baixada ao abrir (gera PDF e planilha — bibliotecas pesadas)
+const EnvioCotacaoModal = lazy(() => import('../components/EnvioCotacaoModal').then((m) => ({ default: m.EnvioCotacaoModal })))
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
 const perfilOptions = ESTADOS_DESTINO.map((e) => ({ value: e.value, label: e.label }))
@@ -290,17 +292,19 @@ export function Dashboard({
       </QuoteItemsList>
 
       {mostrarEnvioCotacao && (
-        <EnvioCotacaoModal
-          items={items}
-          cliente={cliente}
-          maquina={maquina}
-          codigo={codigo}
-          onClose={() => setMostrarEnvioCotacao(false)}
-          onEnviado={async () => {
-            await onEnviarCotacao()
-            setMostrarEnvioCotacao(false)
-          }}
-        />
+        <Suspense fallback={null}>
+          <EnvioCotacaoModal
+            items={items}
+            cliente={cliente}
+            maquina={maquina}
+            codigo={codigo}
+            onClose={() => setMostrarEnvioCotacao(false)}
+            onEnviado={async () => {
+              await onEnviarCotacao()
+              setMostrarEnvioCotacao(false)
+            }}
+          />
+        </Suspense>
       )}
     </div>
   )

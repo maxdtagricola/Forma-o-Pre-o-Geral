@@ -545,8 +545,10 @@ export interface QuoteRecord {
   items: QuoteItem[]
   /** Itens ainda não precificados — lista rápida preenchida antes da precificação. */
   itensPreRegistro: PreRegistroItem[]
-  /** Planilha original enviada pelo cliente, guardada pra devolver com valores e prazos preenchidos. */
-  planilhaOriginal?: { nomeArquivo: string; conteudoBase64: string }
+  /** Planilha original enviada pelo cliente, guardada pra devolver com valores e prazos preenchidos. O
+   * arquivo fica à parte (ver planilhasClienteRepo); `conteudoBase64` aqui dentro só nas cotações
+   * gravadas antes disso, até a migração automática tirar. */
+  planilhaOriginal?: { nomeArquivo: string; conteudoBase64?: string }
   status: QuoteStatus
   /** Admin que tirou a cotação de PENDENTE — só ele pode mudar o status até voltar pra PENDENTE. */
   responsavelStatus: string

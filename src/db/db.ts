@@ -12,7 +12,8 @@
 // 500...), só quando a conexão falha de verdade.
 //
 // Senhas: o servidor só responde com a SENHA DE ACESSO (pedida uma vez por
-// aparelho e guardada no localStorage), e os dados só com um usuário logado
+// aparelho; o servidor devolve uma chave só deste aparelho, e é a chave que
+// fica no localStorage, não a senha), e os dados só com um usuário logado
 // (o token da sessão, ver sessaoUsuario.ts/auth.ts). Algumas gravações
 // (empresas, planilhas de markup, excluir produto/partidas...) pedem também
 // a SENHA DE ADMIN, digitada na hora e conferida pelo próprio servidor. As
@@ -63,14 +64,73 @@ function salvarCache<T>(path: string, valor: T): void {
   }
 }
 
+// versões antigas guardavam a própria senha de acesso; ela é trocada pela chave do aparelho na
+// primeira requisição (e continua valendo com um servidor antigo, que não dá chave)
 const CHAVE_SENHA_ACESSO = 'senhaAcessoServidor'
+const CHAVE_DO_APARELHO = 'chaveAparelhoServidor'
 
-function lerSenhaAcesso(): string {
+interface CredencialAcesso {
+  chave?: string
+  senha?: string
+}
+
+function lerGuardado(nome: string): string {
   try {
-    return localStorage.getItem(CHAVE_SENHA_ACESSO) ?? ''
+    return localStorage.getItem(nome) ?? ''
   } catch {
     return ''
   }
+}
+
+function lerCredencial(): CredencialAcesso {
+  const chave = lerGuardado(CHAVE_DO_APARELHO)
+  if (chave) return { chave }
+  const senha = lerGuardado(CHAVE_SENHA_ACESSO)
+  return senha ? { senha } : {}
+}
+
+function mesmaCredencial(a: CredencialAcesso, b: CredencialAcesso): boolean {
+  return a.chave === b.chave && a.senha === b.senha
+}
+
+/** A chave que o servidor devolve ao conferir a senha (servidor antigo responde 204, sem chave). */
+async function chaveDaResposta(res: Response): Promise<string | undefined> {
+  if (res.status === 204) return undefined
+  const corpo = (await res.json().catch(() => null)) as { chaveAparelho?: unknown } | null
+  return typeof corpo?.chaveAparelho === 'string' ? corpo.chaveAparelho : undefined
+}
+
+function guardarAcesso(chave: string | undefined, senha: string): void {
+  try {
+    if (chave) {
+      localStorage.setItem(CHAVE_DO_APARELHO, chave)
+      localStorage.removeItem(CHAVE_SENHA_ACESSO)
+    } else {
+      localStorage.setItem(CHAVE_SENHA_ACESSO, senha)
+    }
+  } catch {
+    // sem localStorage o acesso vale só até recarregar — melhor que não entrar
+  }
+}
+
+let trocaDaSenhaGuardada: Promise<void> | null = null
+
+/** Uma vez por página aberta: a senha guardada por uma versão antiga vira a chave do aparelho. */
+function trocarSenhaGuardadaPelaChave(): Promise<void> {
+  const { chave, senha } = lerCredencial()
+  if (chave || !senha) return Promise.resolve()
+  trocaDaSenhaGuardada ??= (async () => {
+    try {
+      const res = await enviar('/_acesso', {}, { senha })
+      if (res.ok) {
+        const nova = await chaveDaResposta(res)
+        if (nova) guardarAcesso(nova, senha)
+      }
+    } catch {
+      // servidor fora do ar: segue com a senha e tenta de novo quando a página abrir de novo
+    }
+  })()
+  return trocaDaSenhaGuardada
 }
 
 // sem isso, um fetch pra um servidor inalcançável (celular desligado, Tailscale fora do ar) fica
@@ -86,10 +146,11 @@ interface OpcoesRequisicao {
   senhaAdmin?: string
 }
 
-async function enviar(path: string, opcoes: OpcoesRequisicao, senhaAcesso: string): Promise<Response> {
+async function enviar(path: string, opcoes: OpcoesRequisicao, acesso: CredencialAcesso): Promise<Response> {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' }
   // URI-encoded: cabeçalho HTTP não aceita acento (nomes como "Gouvêa", senhas com "ç")
-  if (senhaAcesso) headers['X-Senha-Acesso'] = encodeURIComponent(senhaAcesso)
+  if (acesso.chave) headers['X-Chave-Aparelho'] = acesso.chave
+  else if (acesso.senha) headers['X-Senha-Acesso'] = encodeURIComponent(acesso.senha)
   if (opcoes.senhaAdmin) headers['X-Senha-Admin'] = encodeURIComponent(opcoes.senhaAdmin)
   const sessao = getSessao()
   if (sessao) headers['X-Sessao'] = sessao.token
@@ -169,20 +230,16 @@ let recusouSenhaAcesso = false
 
 async function perguntarSenhaAcesso(): Promise<boolean> {
   let mensagem =
-    'Digite a senha de acesso ao servidor. Ela fica guardada neste aparelho e só é pedida de novo se for trocada.'
+    'Digite a senha de acesso ao servidor. Ela só é pedida de novo neste aparelho se for trocada (ou depois de 6 meses sem usar o site).'
   for (;;) {
     const senha = await pedirSenha(mensagem, { titulo: 'Senha de acesso', confirmText: 'Entrar' })
     if (senha === null) {
       recusouSenhaAcesso = true
       return false
     }
-    const res = await enviar('/_acesso', {}, senha)
+    const res = await enviar('/_acesso', {}, { senha })
     if (res.ok) {
-      try {
-        localStorage.setItem(CHAVE_SENHA_ACESSO, senha)
-      } catch {
-        // sem localStorage a senha vale só até recarregar — melhor que não entrar
-      }
+      guardarAcesso(await chaveDaResposta(res), senha)
       return true
     }
     if (res.status !== 401) await tratarResposta(res) // bloqueado, servidor sem senhas...
@@ -201,10 +258,11 @@ function obterSenhaAcesso(): Promise<boolean> {
 }
 
 async function request<T>(path: string, opcoes: OpcoesRequisicao = {}): Promise<T> {
+  await trocarSenhaGuardadaPelaChave()
   for (let tentativa = 0; ; tentativa++) {
-    const senhaUsada = lerSenhaAcesso()
+    const acessoUsado = lerCredencial()
     const sessaoUsada = getSessao()
-    const res = await enviar(path, opcoes, senhaUsada)
+    const res = await enviar(path, opcoes, acessoUsado)
     if (res.status === 401) {
       const corpo = (await res.clone().json().catch(() => ({}))) as CorpoDeErro
       if (corpo.erro === 'sessao') {
@@ -215,8 +273,8 @@ async function request<T>(path: string, opcoes: OpcoesRequisicao = {}): Promise<
         throw new Error(MENSAGEM_SESSAO_ENCERRADA)
       }
       if (tentativa < 3) {
-        // a senha guardada mudou enquanto esta esperava (outra requisição já perguntou)? só repete
-        if (lerSenhaAcesso() !== senhaUsada) continue
+        // o acesso guardado mudou enquanto esta esperava (outra requisição já perguntou)? só repete
+        if (!mesmaCredencial(lerCredencial(), acessoUsado)) continue
         if (await obterSenhaAcesso()) continue
       }
     }
@@ -264,11 +322,29 @@ export async function dbGetAll<T>(storeName: string): Promise<T[]> {
   }
 }
 
-export async function dbGet<T>(storeName: string, id: string): Promise<T | undefined> {
+export async function dbGet<T>(
+  storeName: string,
+  id: string,
+  opcoes?: {
+    /** Não guarda cópia no localStorage — pra arquivos grandes (planilhas), que encheriam o espaço
+     * dele (uns 5 MB, divididos com o rascunho da cotação e o login). */
+    semCache?: boolean
+  },
+): Promise<T | undefined> {
   const caminho = `${storeName}/${id}`
   try {
-    const dado = await request<T>(`/${storeName}/${id}`)
-    salvarCache(caminho, dado)
+    // ?opcional=1: o que não existe volta vazio em vez de 404 (que o navegador mostra como erro no
+    // console); servidor antigo ignora e responde 404, tratado abaixo
+    const dado = await request<T | null>(`/${storeName}/${id}?opcional=1`)
+    if (dado === null) {
+      try {
+        localStorage.removeItem(chaveCache(caminho))
+      } catch {
+        // sem localStorage não há cache pra limpar
+      }
+      return undefined
+    }
+    if (!opcoes?.semCache) salvarCache(caminho, dado)
     return dado
   } catch (err) {
     if (err instanceof ServidorInalcancavelError) {

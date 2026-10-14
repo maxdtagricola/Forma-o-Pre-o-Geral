@@ -97,7 +97,6 @@ function necessidadeEfetiva(item: NotaFiscalItem, nota: { necessidade?: string }
 
 /** Os dados editáveis de uma nota já salva (sem id/status/histórico) — pra regravar só um detalhe dela. */
 function dadosDaNota(n: NotaFiscal): DadosNota {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const { id, criadoPor, createdAt, status, statusHistory, ...dados } = n
   return dados
 }

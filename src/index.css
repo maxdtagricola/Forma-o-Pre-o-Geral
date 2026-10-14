@@ -180,6 +180,71 @@
   .com-fundo-video .card:not([class*='bg-']) {
     background-color: rgb(var(--surface) / 0.88);
   }
+  /* Começo da linha preso à esquerda quando a planilha de Itens da cotação rola de lado (celular) —
+   * com o fundo da linha (normal, marcada, em edição) pra não deixar o resto aparecer por baixo */
+  /* (`table .celula-fixa`: vence o border-r das células) — a divisória vira sombra: com as bordas
+   * coladas da tabela, a borda não acompanha a célula presa e deixava ver o que passa por baixo */
+  table .celula-fixa {
+    position: sticky;
+    z-index: 2;
+    background-color: rgb(var(--surface));
+    border-right-width: 0;
+    box-shadow: inset -1px 0 0 rgb(var(--ink-100));
+  }
+  thead .celula-fixa,
+  tr:hover > .celula-fixa,
+  tr.bg-ink-50 > .celula-fixa {
+    background-color: rgb(var(--ink-50));
+  }
+  tr.bg-ink-100 > .celula-fixa {
+    background-color: rgb(var(--ink-100));
+  }
+  table .celula-fixa-ultima {
+    box-shadow:
+      inset -1px 0 0 rgb(var(--ink-200)),
+      4px 0 6px -4px rgb(0 0 0 / 0.18);
+  }
+  /* Tabela que no celular vira cartões: cada linha um cartão em duas colunas, cada célula com o nome
+   * da coluna em cima (data-rotulo); .celula-larga ocupa a linha toda, .so-tela-larga some. O mesmo
+   * HTML da tabela — os campos continuam editáveis do mesmo jeito. */
+  @media (max-width: 767px) {
+    .tabela-empilhada,
+    .tabela-empilhada tbody {
+      display: block;
+    }
+    .tabela-empilhada thead,
+    .tabela-empilhada .so-tela-larga {
+      display: none;
+    }
+    .tabela-empilhada tr {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.25rem 0.5rem;
+      padding: 0.5rem;
+      border-top: 1px solid rgb(var(--ink-100));
+    }
+    .tabela-empilhada td {
+      display: block;
+      border: 0;
+      padding: 0;
+    }
+    .tabela-empilhada td.celula-larga {
+      grid-column: 1 / -1;
+    }
+    .tabela-empilhada td[data-rotulo]::before {
+      content: attr(data-rotulo);
+      display: block;
+      padding: 0 0.375rem;
+      font-size: 10px;
+      font-weight: 500;
+      text-align: left;
+      color: rgb(var(--ink-400));
+    }
+    .tabela-empilhada td input {
+      border: 1px solid rgb(var(--ink-200));
+      text-align: left;
+    }
+  }
   .planilha-preview table {
     @apply w-full border-collapse text-xs text-ink-800;
   }

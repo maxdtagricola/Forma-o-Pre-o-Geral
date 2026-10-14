@@ -77,7 +77,7 @@ export interface RespostaProducao {
 let pedidoAtual: PedidoDialog | null = null
 // pedidos que chegaram com outra caixa aberta — aparecem em seguida, na ordem (antes, um pedido novo
 // tomava o lugar do aberto e quem esperava por aquele nunca recebia resposta)
-let fila: PedidoDialog[] = []
+const fila: PedidoDialog[] = []
 let ouvintes: Array<() => void> = []
 let proximoId = 0
 

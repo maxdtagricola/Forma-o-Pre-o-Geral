@@ -84,7 +84,6 @@ export function HistoryPage({
 
   useEffect(() => {
     refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey])
 
   const buscando = query.trim().length > 0

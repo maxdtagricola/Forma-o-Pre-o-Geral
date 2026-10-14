@@ -54,7 +54,7 @@ function lerXml(arquivos: ArquivosXlsx, caminho: string | undefined): Document |
   if (!caminho) return undefined
   const dados = dadosDaParte(arquivos, caminho)
   if (!dados) return undefined
-  const doc = new DOMParser().parseFromString(strFromU8(dados).replace(/^﻿/, ''), 'application/xml')
+  const doc = new DOMParser().parseFromString(strFromU8(dados).replace(/^\uFEFF/, ''), 'application/xml')
   return doc.getElementsByTagName('parsererror').length > 0 ? undefined : doc
 }
 

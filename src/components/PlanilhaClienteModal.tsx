@@ -12,23 +12,26 @@ import {
 } from '../planilhaCliente'
 import { avisar } from '../dialogs'
 import { formatCurrency } from '../utils'
+import type { PlanilhaClienteArquivo } from '../db/planilhasClienteRepo'
 import type { QuoteItem } from '../types'
 
 export function PlanilhaClienteModal({
   nomeArquivo,
-  conteudoBase64,
+  carregar,
   items,
   cliente,
   maquina,
   onClose,
 }: {
   nomeArquivo: string
-  conteudoBase64: string
+  /** Busca o arquivo da planilha (fica à parte da cotação no servidor — só vem quando a janela abre). */
+  carregar: () => Promise<PlanilhaClienteArquivo | undefined>
   items: QuoteItem[]
   cliente: string
   maquina: string
   onClose: () => void
 }) {
+  const [conteudoBase64, setConteudoBase64] = useState<string | undefined>(undefined)
   const [erro, setErro] = useState<string | undefined>(undefined)
   const [resultado, setResultado] = useState<PlanilhaAtualizada | undefined>(undefined)
   const [compartilhando, setCompartilhando] = useState(false)
@@ -38,6 +41,24 @@ export function PlanilhaClienteModal({
   const titulo = `Orçamento — ${cliente || 'cliente'} — ${maquina || 'máquina'}`
 
   useEffect(() => {
+    let aberta = true
+    carregar()
+      .then((planilha) => {
+        if (!aberta) return
+        if (planilha) setConteudoBase64(planilha.conteudoBase64)
+        else setErro('A planilha original dessa cotação não foi encontrada no servidor.')
+      })
+      .catch((err) => {
+        if (aberta) setErro(err instanceof Error ? err.message : 'Erro ao buscar a planilha no servidor.')
+      })
+    return () => {
+      aberta = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    if (!conteudoBase64) return
     try {
       const gerado = gerarPlanilhaAtualizada(conteudoBase64, items, nomeArquivo, titulo)
       setResultado(gerado)
@@ -124,6 +145,7 @@ export function PlanilhaClienteModal({
         </div>
 
         {erro && <p className="text-sm text-rose-600 py-4">{erro}</p>}
+        {!erro && !resultado && <p className="text-sm text-ink-400 py-4">Carregando a planilha…</p>}
 
         {resultado && (
           <>

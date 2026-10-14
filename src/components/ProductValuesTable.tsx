@@ -59,7 +59,8 @@ export function ProductValuesTable({
           Mostrando só <strong className="text-ink-900">{items.length}</strong> de {recorte.total} itens — {recorte.motivo}.
         </p>
       )}
-      <div className="overflow-x-auto rounded-xl border border-ink-100">
+      {/* tabIndex: a tabela rola de lado e não tem campo nenhum — assim dá pra rolar pelo teclado */}
+      <div className="overflow-x-auto rounded-xl border border-ink-100" tabIndex={0} role="region" aria-label="Valores dos produtos">
         <table className="w-full text-sm border-collapse">
           <thead>
             <tr className="bg-ink-50 text-left text-ink-400">

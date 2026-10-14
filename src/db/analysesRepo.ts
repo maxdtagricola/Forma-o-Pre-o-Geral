@@ -3,6 +3,7 @@ import { dbDelete, dbGet, dbGetAll, dbPut, STORE_ANALISES } from './db'
 import { proximoCodigoCotacao } from './configRepo'
 import { makeId } from '../utils'
 import { mercadoriaRecebida } from '../avisosEntrega'
+import { excluirPlanilhaCliente, gravarPlanilhaCliente, type PlanilhaClienteArquivo } from './planilhasClienteRepo'
 import type {
   DadosFreteTransportadora,
   DadosTransporte,
@@ -99,7 +100,7 @@ const filasPorCotacao = new Map<string, Promise<unknown>>()
  * quem mostra algo calculado das cotações fora da própria aba (o aviso de entregas) se atualiza. */
 export const EVENTO_COTACAO_ALTERADA = 'cotacao-alterada'
 
-function naFila<T>(id: string, tarefa: () => Promise<T>): Promise<T> {
+function naFila<T>(id: string, tarefa: () => Promise<T>, avisar = true): Promise<T> {
   const anterior = filasPorCotacao.get(id) ?? Promise.resolve()
   // a anterior ter dado erro não impede a próxima
   const proxima = anterior.then(tarefa, tarefa)
@@ -108,7 +109,7 @@ function naFila<T>(id: string, tarefa: () => Promise<T>): Promise<T> {
     if (filasPorCotacao.get(id) === proxima) filasPorCotacao.delete(id)
   }
   proxima.then(limpar, limpar)
-  proxima.then(() => window.dispatchEvent(new CustomEvent(EVENTO_COTACAO_ALTERADA, { detail: id })), () => {})
+  if (avisar) proxima.then(() => window.dispatchEvent(new CustomEvent(EVENTO_COTACAO_ALTERADA, { detail: id })), () => {})
   return proxima
 }
 
@@ -119,7 +120,35 @@ function emFila<A extends [string, ...unknown[]], R>(fn: (...args: A) => Promise
 
 export async function listQuotes(): Promise<QuoteRecord[]> {
   const all = await dbGetAll<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES)
-  return all.map(normalizeRecord).sort((a, b) => b.updatedAt - a.updatedAt)
+  const cotacoes = all.map(normalizeRecord).sort((a, b) => b.updatedAt - a.updatedAt)
+  separarPlanilhasAntigas(cotacoes)
+  return cotacoes
+}
+
+// uma tentativa por cotação a cada vez que a página abre
+const planilhasJaSeparadas = new Set<string>()
+
+/** Cotação gravada com a planilha do cliente dentro (formato antigo): passa o arquivo pro registro à
+ * parte, uma vez só, sem mexer em mais nada da cotação (nem na data de alteração). */
+function separarPlanilhasAntigas(cotacoes: QuoteRecord[]) {
+  for (const cotacao of cotacoes) {
+    if (!cotacao.planilhaOriginal?.conteudoBase64 || planilhasJaSeparadas.has(cotacao.id)) continue
+    planilhasJaSeparadas.add(cotacao.id)
+    naFila(
+      cotacao.id,
+      async () => {
+        // a versão do servidor agora (não a da lista), pra não desfazer o que mudou nesse meio-tempo
+        const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, cotacao.id)
+        const planilha = atual && !isLegacyRecord(atual) ? atual.planilhaOriginal : undefined
+        if (!atual || !planilha?.conteudoBase64) return
+        await gravarPlanilhaCliente(cotacao.id, { nomeArquivo: planilha.nomeArquivo, conteudoBase64: planilha.conteudoBase64 })
+        await dbPut(STORE_ANALISES, { ...atual, planilhaOriginal: { nomeArquivo: planilha.nomeArquivo } })
+      },
+      false,
+    ).catch(() => {
+      // sem permissão ou sem servidor agora: a cotação continua funcionando com a planilha dentro
+    })
+  }
 }
 
 /** Item com algum dado de verdade — linha em branco (ex.: a que toda cotação nova já começa) não
@@ -434,15 +463,17 @@ export const updateItensPreRegistro = emFila(async function updateItensPreRegist
   return atualizado
 })
 
-/** Guarda a planilha original do cliente (só usado logo na criação, por importação de planilha). */
+/** Guarda a planilha original do cliente (só usado logo na criação, por importação de planilha) — o
+ * arquivo no registro à parte, e na cotação só o nome. */
 export const setPlanilhaOriginal = emFila(async function setPlanilhaOriginal(
   id: string,
-  planilha: { nomeArquivo: string; conteudoBase64: string },
+  planilha: PlanilhaClienteArquivo,
 ): Promise<QuoteRecord> {
   const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
   if (!atual) throw new Error('Cotação não encontrada no servidor.')
   const normalizado = normalizeRecord(atual)
-  const atualizado: QuoteRecord = { ...normalizado, planilhaOriginal: planilha, updatedAt: Date.now() }
+  await gravarPlanilhaCliente(id, planilha)
+  const atualizado: QuoteRecord = { ...normalizado, planilhaOriginal: { nomeArquivo: planilha.nomeArquivo }, updatedAt: Date.now() }
   await dbPut(STORE_ANALISES, atualizado)
   return atualizado
 })
@@ -684,15 +715,17 @@ export const salvarFaturamento = emFila(async function salvarFaturamento(
 
 export const deleteQuote = emFila(async function deleteQuote(id: string, atorAdmin: string): Promise<void> {
   const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
-  if (atual) {
-    const normalizado = normalizeRecord(atual)
-    if (normalizado.status !== 'PENDENTE' && normalizado.responsavelStatus && normalizado.responsavelStatus !== atorAdmin) {
-      throw new Error(
-        `Essa cotação está sendo analisada por ${normalizado.responsavelStatus} — só ele(a) pode excluí-la agora.`,
-      )
-    }
+  const normalizado = atual ? normalizeRecord(atual) : undefined
+  if (normalizado && normalizado.status !== 'PENDENTE' && normalizado.responsavelStatus && normalizado.responsavelStatus !== atorAdmin) {
+    throw new Error(
+      `Essa cotação está sendo analisada por ${normalizado.responsavelStatus} — só ele(a) pode excluí-la agora.`,
+    )
   }
   await dbDelete(STORE_ANALISES, id)
+  // a planilha à parte vai junto (a cotação já foi; se esta falhar, sobra só um arquivo solto)
+  if (normalizado?.planilhaOriginal && !normalizado.planilhaOriginal.conteudoBase64) {
+    await excluirPlanilhaCliente(id).catch(() => {})
+  }
 })
 
 /** Busca, no item mais recente com o mesmo código "Interno", os dados gerais do produto. */

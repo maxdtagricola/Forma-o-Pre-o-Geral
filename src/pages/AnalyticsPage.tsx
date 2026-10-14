@@ -74,7 +74,6 @@ export function AnalyticsPage() {
       ...principais,
       { label: `Outros (${resto.length} status)`, value: resto.reduce((s, d) => s + d.value, 0), color: COR_OUTROS },
     ]
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtrados, coresStatus])
 
   const valorTotalGeral = filtrados.reduce((s, r) => s + r.summary.precoVendaTotalGeral, 0)

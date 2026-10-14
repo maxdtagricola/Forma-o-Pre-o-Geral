@@ -1,4 +1,7 @@
 import {
+  cloneElement,
+  lazy,
+  Suspense,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -28,7 +31,6 @@ import {
   type UltimoUsoDoProduto,
 } from '../db/analysesRepo'
 import { findProdutoPorInternoOuReferencia } from '../db/produtosRepo'
-import { PlanilhaFornecedorModal } from './PlanilhaFornecedorModal'
 import { FreteFornecedorSlots } from './FreteFornecedorSlots'
 import { CelulaObservacao } from './CelulaObservacao'
 import { Button } from './ui/Basics'
@@ -41,6 +43,11 @@ import type {
   QuoteItem,
   QuoteRecord,
 } from '../types'
+
+// só baixada ao abrir (monta a planilha com a exceljs, uma biblioteca pesada)
+const PlanilhaFornecedorModal = lazy(() =>
+  import('./PlanilhaFornecedorModal').then((m) => ({ default: m.PlanilhaFornecedorModal })),
+)
 
 type ModoFrete = 'pct' | 'valor'
 
@@ -544,6 +551,10 @@ export function QuoteItemsList({
   // passou da largura da tela (colunas já no mínimo): a planilha rola de lado, com uma barra de
   // rolagem que acompanha a tela (presa embaixo) em vez de ficar lá no fim da planilha
   const rolaDeLado = larguraVisivel > 0 && larguraTabela > larguraVisivel + 0.5
+  // rolando de lado (celular): o começo de cada linha — marcar, nº e a coluna de código, se for a
+  // primeira (Interno ou Referência) — fica preso à esquerda, pra não perder de vista qual item está
+  // sendo editado enquanto o resto da linha passa
+  const colunaFixa = rolaDeLado && (colunasVisiveis[0] === 'interno' || colunasVisiveis[0] === 'referencia') ? colunasVisiveis[0] : undefined
 
   function ocultarColuna(chave: ColunaKey) {
     setColunasOcultas((prev) => (prev.includes(chave) ? prev : [...prev, chave]))
@@ -962,9 +973,11 @@ export function QuoteItemsList({
         }}
         onDragEnd={() => setColunaArrastada(null)}
         title="Arraste pra reordenar as colunas — a setinha ao lado do nome filtra (ou oculta a coluna) e a borda da direita muda a largura"
-        className={`group relative py-2 pl-1.5 pr-2.5 text-[13px] font-medium cursor-move select-none border-r border-ink-200 transition ${
+        // presa (sticky) já serve de referência pra alça de largura — "relative" junto anularia o sticky
+        className={`group py-2 pl-1.5 pr-2.5 text-[13px] font-medium cursor-move select-none border-r border-ink-200 transition ${
           alinhadoDireita ? 'text-right' : ''
-        } ${colunaArrastada === chave ? 'opacity-40' : ''}`}
+        } ${colunaArrastada === chave ? 'opacity-40' : ''} ${chave === colunaFixa ? 'celula-fixa celula-fixa-ultima' : 'relative'}`}
+        style={chave === colunaFixa ? { left: LARGURA_CHECKBOX + LARGURA_NUMERO } : undefined}
       >
         {conteudo}
         {ativo && (
@@ -1055,6 +1068,8 @@ export function QuoteItemsList({
         stop={stop}
         ordemColunas={colunasVisiveis}
         totalColunas={totalColunas}
+        fixarInicio={rolaDeLado}
+        colunaFixa={colunaFixa}
         historico={historicos[item.id]}
         onHistorico={(h) =>
           setHistoricos((prev) => {
@@ -1319,12 +1334,14 @@ export function QuoteItemsList({
         )}
 
         {planilhaFornecedorAberta && (
-          <PlanilhaFornecedorModal
-            items={itensParaPlanilhaFornecedor}
-            maquina={maquina}
-            cliente={cliente}
-            onClose={() => setPlanilhaFornecedorAberta(false)}
-          />
+          <Suspense fallback={null}>
+            <PlanilhaFornecedorModal
+              items={itensParaPlanilhaFornecedor}
+              maquina={maquina}
+              cliente={cliente}
+              onClose={() => setPlanilhaFornecedorAberta(false)}
+            />
+          </Suspense>
         )}
 
         {filtrosAtivos && (
@@ -1436,15 +1453,21 @@ export function QuoteItemsList({
               {colgroup}
               <thead>
                 <tr className="text-left text-ink-400">
-                  <th className="py-2 px-2 border-r border-ink-200">
+                  <th className={`py-2 px-2 border-r border-ink-200 ${rolaDeLado ? 'celula-fixa' : ''}`} style={rolaDeLado ? { left: 0 } : undefined}>
                     <input
                       type="checkbox"
                       checked={todosVisiveisMarcados}
                       onChange={() => toggleConjunto(idsVisiveis)}
                       title="Marcar/desmarcar todos os itens visíveis"
+                      aria-label="Marcar/desmarcar todos os itens visíveis"
                     />
                   </th>
-                  <th className="py-2 px-2 font-medium border-r border-ink-200">#</th>
+                  <th
+                    className={`py-2 px-2 font-medium border-r border-ink-200 ${rolaDeLado ? `celula-fixa ${colunaFixa ? '' : 'celula-fixa-ultima'}` : ''}`}
+                    style={rolaDeLado ? { left: LARGURA_CHECKBOX } : undefined}
+                  >
+                    #
+                  </th>
                   {colunasVisiveis.map((chave) => renderCabecalho(chave))}
                 </tr>
               </thead>
@@ -1492,6 +1515,7 @@ export function QuoteItemsList({
                                   checked={grupoMarcado}
                                   onChange={() => toggleConjunto(idsGrupo)}
                                   title="Marcar/desmarcar todos os itens desse fornecedor"
+                                  aria-label={`Marcar/desmarcar todos os itens de ${grupo.remetente.nome || 'sem fornecedor'}`}
                                 />
                                 <span className="inline-flex items-center gap-1.5">
                                   <span className="font-display text-[13px] font-bold uppercase tracking-wide text-ink-900">
@@ -1593,10 +1617,12 @@ function CampoDuasATresCasas({
   className,
   onChange,
   onClick,
+  'aria-label': rotulo,
 }: {
   valor: number
   step: number
   className: string
+  'aria-label': string
   onChange: (valor: number) => void
   onClick: (e: MouseEvent) => void
 }) {
@@ -1604,6 +1630,7 @@ function CampoDuasATresCasas({
   return (
     <input
       type="number"
+      aria-label={rotulo}
       min={0}
       step={step}
       className={className}
@@ -1643,6 +1670,8 @@ function LinhaItem({
   stop,
   ordemColunas,
   totalColunas,
+  fixarInicio,
+  colunaFixa,
   historico,
   onHistorico,
 }: {
@@ -1667,6 +1696,9 @@ function LinhaItem({
   stop: (e: MouseEvent) => void
   ordemColunas: ColunaKey[]
   totalColunas: number
+  /** Planilha rolando de lado: marcar e nº presos à esquerda (e `colunaFixa`, se houver). */
+  fixarInicio: boolean
+  colunaFixa: ColunaKey | undefined
   historico: HistoricoPreco | undefined
   onHistorico: (h: HistoricoPreco | null) => void
 }) {
@@ -1749,10 +1781,13 @@ function LinhaItem({
     onPatch({ fornecedor: mb.fornecedor, marca: mb.marca, valorUnt: mb.valorUnt, ...(f?.estado ? { estadoOrigem: f.estado } : {}) })
   }
 
+  const rotulo = (chave: ColunaKey) => `${LABEL_COLUNA[chave]} — item ${numero}`
+
   const celulas: Record<ColunaKey, JSX.Element> = {
     interno: (
       <td key="interno" className={cellCls}>
         <input
+          aria-label={rotulo('interno')}
           className={`${inputCls} font-mono`}
           value={item.product.interno}
           onChange={(e) => onPatch({ interno: e.target.value })}
@@ -1765,6 +1800,7 @@ function LinhaItem({
     referencia: (
       <td key="referencia" className={cellCls}>
         <input
+          aria-label={rotulo('referencia')}
           className={inputCls}
           value={item.product.referencia}
           onChange={(e) => onPatch({ referencia: e.target.value })}
@@ -1777,6 +1813,7 @@ function LinhaItem({
     descricao: (
       <td key="descricao" className={cellCls}>
         <input
+          aria-label={rotulo('descricao')}
           className={inputCls}
           value={item.product.descricao}
           onChange={(e) => onPatch({ descricao: e.target.value })}
@@ -1797,6 +1834,7 @@ function LinhaItem({
     ncm: (
       <td key="ncm" className={cellCls}>
         <input
+          aria-label={rotulo('ncm')}
           className={`${inputCls} font-mono`}
           placeholder="0000.00.00"
           value={item.product.ncm}
@@ -1808,6 +1846,7 @@ function LinhaItem({
     fornecedor: (
       <td key="fornecedor" className={`${cellCls} relative`}>
         <input
+          aria-label={rotulo('fornecedor')}
           className={inputCls}
           value={item.product.fornecedor}
           onChange={(e) => {
@@ -1849,6 +1888,7 @@ function LinhaItem({
     marca: (
       <td key="marca" className={cellCls}>
         <input
+          aria-label={rotulo('marca')}
           className={inputCls}
           value={item.product.marca}
           onChange={(e) => onPatch({ marca: e.target.value })}
@@ -1859,6 +1899,7 @@ function LinhaItem({
     uf: (
       <td key="uf" className={cellCls}>
         <select
+          aria-label={rotulo('uf')}
           className={inputCls}
           value={item.product.estadoOrigem}
           onChange={(e) => onPatch({ estadoOrigem: e.target.value })}
@@ -1875,6 +1916,7 @@ function LinhaItem({
     qtd: (
       <td key="qtd" className={cellCls}>
         <input
+          aria-label={rotulo('qtd')}
           type="number"
           min={0}
           className={`${inputCls} text-right tabular-nums`}
@@ -1888,6 +1930,7 @@ function LinhaItem({
     peso: (
       <td key="peso" className={cellCls}>
         <input
+          aria-label={rotulo('peso')}
           type="number"
           min={0}
           step={0.01}
@@ -1902,6 +1945,7 @@ function LinhaItem({
     valorUnt: (
       <td key="valorUnt" className={cellCls}>
         <input
+          aria-label={rotulo('valorUnt')}
           type="number"
           min={0}
           step={0.01}
@@ -1922,6 +1966,7 @@ function LinhaItem({
       <td key="frete" className={cellCls}>
         {modoFrete === 'pct' ? (
           <CampoDuasATresCasas
+            aria-label={rotulo('frete')}
             valor={(item.product.freteRate || 0) * 100}
             step={0.1}
             className={`${inputCls} text-right tabular-nums`}
@@ -1930,6 +1975,7 @@ function LinhaItem({
           />
         ) : (
           <CampoDuasATresCasas
+            aria-label={rotulo('frete')}
             valor={valorFreteAtual}
             step={0.01}
             className={`${inputCls} text-right tabular-nums`}
@@ -1942,6 +1988,7 @@ function LinhaItem({
     prazo: (
       <td key="prazo" className={cellCls}>
         <input
+          aria-label={rotulo('prazo')}
           className={inputCls}
           placeholder="ex.: 2 DIAS"
           value={item.product.prazoEntrega}
@@ -1980,11 +2027,23 @@ function LinhaItem({
         }}
         className={`cursor-pointer transition ${isActive ? 'bg-ink-100' : marcado ? 'bg-ink-50' : 'hover:bg-ink-50'}`}
       >
-        <td className={`${cellCls} text-center`} onClick={stop}>
-          <input type="checkbox" checked={marcado} onChange={onToggleMarcado} />
+        <td className={`${cellCls} text-center ${fixarInicio ? 'celula-fixa' : ''}`} style={fixarInicio ? { left: 0 } : undefined} onClick={stop}>
+          <input type="checkbox" checked={marcado} onChange={onToggleMarcado} aria-label={`Marcar item ${numero}`} />
         </td>
-        <td className={`${cellCls} text-ink-400 text-xs text-center`}>{numero}</td>
-        {ordemColunas.map((chave) => celulas[chave])}
+        <td
+          className={`${cellCls} text-ink-400 text-xs text-center ${fixarInicio ? `celula-fixa ${colunaFixa ? '' : 'celula-fixa-ultima'}` : ''}`}
+          style={fixarInicio ? { left: LARGURA_CHECKBOX } : undefined}
+        >
+          {numero}
+        </td>
+        {ordemColunas.map((chave) =>
+          chave === colunaFixa
+            ? cloneElement(celulas[chave], {
+                className: `${celulas[chave].props.className} celula-fixa celula-fixa-ultima`,
+                style: { left: LARGURA_CHECKBOX + LARGURA_NUMERO },
+              })
+            : celulas[chave],
+        )}
       </tr>
       {historico && (
         <tr className="bg-surface">

@@ -1,5 +1,5 @@
 import ExcelJS from 'exceljs'
-import { gerarHtmlPreview, workbookParaBlobXlsx } from './exceljsHtmlPreview'
+import { gerarHtmlPreview } from './exceljsHtmlPreview'
 import type { QuoteItem } from './types'
 
 // planilha do fornecedor usa exceljs (não o "xlsx" do resto do app) porque só ele escreve estilo de
@@ -28,7 +28,7 @@ const COR_VERMELHO = 'FFFF0000'
 const LARGURA_COLUNAS = [10.86, 10.86, 14.71, 47.14, 6.43, 10.57, 13.71, 10.29]
 
 const COL_MARCA = 1
-const COL_ENTREGA = 2
+// coluna 2: ENTREGA — fica em branco, o fornecedor preenche
 const COL_REFERENCIA = 3
 const COL_DESCRICAO = 4
 const COL_QUANT = 5

@@ -19,7 +19,7 @@ export function parseNumeroFlexivel(valor: unknown): number | undefined {
   if (typeof valor === 'number') return Number.isFinite(valor) ? valor : undefined
   if (valor === null || valor === undefined) return undefined
   let texto = String(valor)
-    .replace(/[\s  ]/g, '')
+    .replace(/[\s\u00a0\u202f]/g, '')
     .replace(/R\$|\$|%/gi, '')
   if (!texto) return undefined
 

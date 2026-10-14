@@ -132,7 +132,8 @@ export function GraficoFaturamentoPrejuizo({ meses }: { meses: MesFaturamentoPre
       </div>
 
       {/* os números exatos de cada mês */}
-      <div className="mt-4 overflow-x-auto rounded-lg border border-ink-100">
+      {/* tabIndex: no celular a tabela rola de lado — assim dá pra rolar pelo teclado também */}
+      <div className="mt-4 overflow-x-auto rounded-lg border border-ink-100" tabIndex={0} role="region" aria-label="Números de cada mês">
         <table className="w-full text-xs border-collapse">
           <thead>
             <tr className="bg-ink-50 text-left text-ink-400">

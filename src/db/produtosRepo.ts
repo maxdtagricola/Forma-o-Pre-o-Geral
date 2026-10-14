@@ -42,6 +42,27 @@ export async function findProdutoPorInternoOuReferencia(interno: string, referen
   return undefined
 }
 
+/** Os 2 preços mais baratos — a mesma oferta (fornecedor + marca + valor) vista em várias cotações, ou
+ * de novo a cada sincronização, conta uma vez só (fica a vez em que foi vista primeiro). Antes ela
+ * podia ocupar as duas vagas sozinha. */
+function doisMelhores(candidatos: ProdutoCotacaoHistorico[]): ProdutoCotacaoHistorico[] {
+  const porOferta = new Map<string, ProdutoCotacaoHistorico>()
+  for (const c of candidatos) {
+    const chave = `${c.fornecedor.trim().toUpperCase()}|${c.marca.trim().toUpperCase()}|${c.valorUnt}`
+    const ja = porOferta.get(chave)
+    if (!ja || c.registradoEm < ja.registradoEm) porOferta.set(chave, c)
+  }
+  return Array.from(porOferta.values())
+    .sort((a, b) => a.valorUnt - b.valorUnt || a.registradoEm - b.registradoEm)
+    .slice(0, 2)
+}
+
+/** O que o produto guarda, sem a data — pra saber se a sincronização mudou alguma coisa nele. */
+function conteudoDoProduto(p: Produto): string {
+  const { updatedAt: _data, ...resto } = p
+  return JSON.stringify(resto)
+}
+
 /**
  * Sincroniza o catálogo independente de produtos a partir das cotações atuais: qualquer item (já
  * precificado ou ainda só no pré-registro) mais novo do que o que já está salvo vira um produto
@@ -181,17 +202,24 @@ export async function sincronizarProdutos(quotes: QuoteRecord[]): Promise<Produt
   for (const [produtoId, candidatosNovos] of candidatosPorProdutoId) {
     const atual = paraSalvar.get(produtoId) ?? existentes.find((p) => p.id === produtoId)
     if (!atual) continue
-    const todos = [...(atual.melhoresCotacoes ?? []), ...candidatosNovos].sort((a, b) => a.valorUnt - b.valorUnt)
-    const melhoresCotacoes = todos.slice(0, 2)
+    const melhoresCotacoes = doisMelhores([...(atual.melhoresCotacoes ?? []), ...candidatosNovos])
     if (JSON.stringify(melhoresCotacoes) !== JSON.stringify(atual.melhoresCotacoes ?? [])) {
       paraSalvar.set(produtoId, { ...atual, melhoresCotacoes })
     }
   }
 
-  if (paraSalvar.size > 0) {
+  // só vai pro servidor o que mudou de verdade: a mesma cotação salva de novo (data nova, mesmos dados)
+  // passa pelas contas acima mas não regrava o produto — antes, cada visita regravava dezenas
+  const existentesPorId = new Map(existentes.map((p) => [p.id, p]))
+  const mudaram = Array.from(paraSalvar.values()).filter((p) => {
+    const antes = existentesPorId.get(p.id)
+    return !antes || conteudoDoProduto(antes) !== conteudoDoProduto(p)
+  })
+
+  if (mudaram.length > 0) {
     // poucos por vez: centenas de gravações de uma vez ficavam na fila do navegador, estouravam o
     // tempo limite de cada requisição e o site acusava "não foi possível conectar ao servidor"
-    const fila = Array.from(paraSalvar.values())
+    const fila = [...mudaram]
     const gravarProximos = async () => {
       for (let p = fila.shift(); p; p = fila.shift()) await dbPut(STORE_PRODUTOS, p)
     }
@@ -200,7 +228,7 @@ export async function sincronizarProdutos(quotes: QuoteRecord[]): Promise<Produt
 
   const resultadoPorId = new Map<string, Produto>()
   for (const p of existentes) resultadoPorId.set(p.id, p)
-  for (const p of paraSalvar.values()) resultadoPorId.set(p.id, p)
+  for (const p of mudaram) resultadoPorId.set(p.id, p)
   return Array.from(resultadoPorId.values()).sort((a, b) =>
     (a.descricao || a.referencias[0] || '').localeCompare(b.descricao || b.referencias[0] || '', 'pt-BR'),
   )

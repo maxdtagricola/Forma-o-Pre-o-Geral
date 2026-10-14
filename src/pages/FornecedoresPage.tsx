@@ -62,7 +62,6 @@ export function FornecedoresPage() {
 
   useEffect(() => {
     refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   function patch(p: Partial<typeof form>) {

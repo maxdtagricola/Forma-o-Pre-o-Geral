@@ -27,12 +27,15 @@ function CampoNcm({
   className,
   disabled,
   placeholder = 'NCM',
+  rotulo,
 }: {
   valor: string
   onChange: (valor: string) => void
   className: string
   disabled?: boolean
   placeholder?: string
+  /** Nome do campo pra leitor de tela (a tabela não tem <label> por célula). */
+  rotulo: string
 }) {
   const invalido = !!valor.trim() && !normalizarNcm(valor)
   return (
@@ -42,6 +45,7 @@ function CampoNcm({
       placeholder={placeholder}
       value={valor}
       disabled={disabled}
+      aria-label={rotulo}
       aria-invalid={invalido}
       title={invalido ? 'NCM precisa ter 8 dígitos (ex.: 8433.90.90)' : 'NCM informado por esse fornecedor'}
       onChange={(e) => onChange(e.target.value)}
@@ -75,12 +79,14 @@ function CampoQuantidade({
   onChange,
   className,
   disabled,
+  rotulo,
 }: {
   valor: number | undefined
   qtdItem: number
   onChange: (valor: number | undefined) => void
   className: string
   disabled?: boolean
+  rotulo: string
 }) {
   const faltam = valor !== undefined && valor < qtdItem ? qtdItem - valor : 0
   const aMais = valor !== undefined && valor > qtdItem ? valor - qtdItem : 0
@@ -90,6 +96,7 @@ function CampoQuantidade({
         type="number"
         min={0}
         step="any"
+        aria-label={rotulo}
         className={`${className} text-right tabular-nums ${
           faltam > 0 ? 'font-semibold text-amber-700 dark:text-amber-300' : aMais > 0 ? 'text-sky-700 dark:text-sky-300' : ''
         }`}
@@ -114,6 +121,7 @@ function LinhaCotacao({
   qtdItem,
   menorValor,
   travadaPorOutro,
+  rotuloItem,
   onChange,
   onRemover,
 }: {
@@ -121,6 +129,8 @@ function LinhaCotacao({
   qtdItem: number
   menorValor: number | undefined
   travadaPorOutro: boolean
+  /** Qual item é (referência), pros nomes dos campos no leitor de tela. */
+  rotuloItem: string
   onChange: (patch: Partial<CotacaoFornecedorItem>) => void
   onRemover: () => void
 }) {
@@ -128,17 +138,19 @@ function LinhaCotacao({
   const melhor = !semQuantidade && menorValor !== undefined && cotacao.valorUnitario === menorValor
   const diferenca = menorValor !== undefined ? cotacao.valorUnitario - menorValor : 0
   const diferencaPct = menorValor ? (diferenca / menorValor) * 100 : 0
+  const de = `cotação de ${cotacao.fornecedor || 'fornecedor'}, item ${rotuloItem}`
   return (
     <tr className={melhor ? 'bg-emerald-500/10' : 'hover:bg-ink-50'}>
-      <td className={`${cellCls} text-center`}>
+      <td className={`${cellCls} so-tela-larga text-center`}>
         {melhor && <span className="text-emerald-600" title="Mais barato desse item">★</span>}
       </td>
-      <td className={cellCls}>
+      <td className={`${cellCls} celula-larga`} data-rotulo="Fornecedor">
         <input
           className={`${inputCls} ${melhor ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}
           list={ID_LISTA_FORNECEDORES}
           value={cotacao.fornecedor}
           disabled={travadaPorOutro}
+          aria-label={`Fornecedor — item ${rotuloItem}`}
           onChange={(e) => onChange({ fornecedor: e.target.value })}
         />
         {(cotacao.ufOrigem || cotacao.observacao) && (
@@ -149,42 +161,46 @@ function LinhaCotacao({
           </p>
         )}
       </td>
-      <td className={cellCls}>
+      <td className={cellCls} data-rotulo="Marca">
         <input
           className={inputCls}
           value={cotacao.marca}
           disabled={travadaPorOutro}
+          aria-label={`Marca — ${de}`}
           onChange={(e) => onChange({ marca: e.target.value })}
         />
       </td>
-      <td className={cellCls}>
+      <td className={cellCls} data-rotulo="Prazo">
         <input
           className={inputCls}
           placeholder="—"
           value={cotacao.prazoEntrega ?? ''}
           disabled={travadaPorOutro}
+          aria-label={`Prazo — ${de}`}
           onChange={(e) => onChange({ prazoEntrega: e.target.value })}
         />
       </td>
-      <td className={cellCls}>
+      <td className={cellCls} data-rotulo="NCM">
         <CampoNcm
           className={`${inputCls} ${melhor ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}
           valor={cotacao.ncm ?? ''}
           placeholder="—"
           disabled={travadaPorOutro}
+          rotulo={`NCM — ${de}`}
           onChange={(ncm) => onChange({ ncm })}
         />
       </td>
-      <td className={cellCls}>
+      <td className={cellCls} data-rotulo="Qtd atende">
         <CampoQuantidade
           className={inputCls}
           valor={cotacao.quantidadeDisponivel}
           qtdItem={qtdItem}
           disabled={travadaPorOutro}
+          rotulo={`Quantidade que atende — ${de}`}
           onChange={(quantidadeDisponivel) => onChange({ quantidadeDisponivel })}
         />
       </td>
-      <td className={cellCls}>
+      <td className={cellCls} data-rotulo="Valor unt.">
         <input
           type="number"
           min={0}
@@ -192,15 +208,17 @@ function LinhaCotacao({
           className={`${inputCls} text-right tabular-nums ${melhor ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}
           value={cotacao.valorUnitario}
           disabled={travadaPorOutro}
+          aria-label={`Valor unitário — ${de}`}
           onChange={(e) => onChange({ valorUnitario: Number(e.target.value) || 0 })}
           onFocus={selecionarTudoAoFocar}
         />
       </td>
-      <td className={cellCls}>
+      <td className={cellCls} data-rotulo="Valor total">
         <input
           type="number"
           min={0}
           step={0.01}
+          aria-label={`Valor total — ${de}`}
           className={`${inputCls} text-right tabular-nums`}
           placeholder={formatCurrency(cotacao.valorUnitario * quantidadeAtendida(cotacao, qtdItem))}
           title={
@@ -215,7 +233,7 @@ function LinhaCotacao({
           onFocus={selecionarTudoAoFocar}
         />
       </td>
-      <td className={`${cellCls} text-right text-xs tabular-nums pr-2`}>
+      <td className={`${cellCls} text-right text-xs tabular-nums pr-2 max-md:self-center max-md:text-left`}>
         {melhor ? (
           <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">Melhor preço</span>
         ) : semQuantidade ? (
@@ -228,15 +246,16 @@ function LinhaCotacao({
           </span>
         ) : null}
       </td>
-      <td className={`${cellCls} text-center`}>
+      <td className={`${cellCls} text-center max-md:text-right`}>
         <button
           type="button"
           onClick={onRemover}
           disabled={travadaPorOutro}
-          aria-label="Remover cotação"
-          className="h-6 w-6 rounded-full text-xs leading-none text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition disabled:opacity-60"
+          aria-label={`Remover ${de}`}
+          className="h-6 w-6 rounded-full text-xs leading-none text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition disabled:opacity-60 max-md:h-8 max-md:w-auto max-md:px-3 max-md:border max-md:border-ink-200"
         >
-          ×
+          <span aria-hidden>×</span>
+          <span className="md:hidden"> Tirar</span>
         </button>
       </td>
     </tr>
@@ -244,7 +263,15 @@ function LinhaCotacao({
 }
 
 /** Linha "em branco" no fim de cada item, pra digitar uma cotação nova direto na tabela. */
-function LinhaNovaCotacao({ qtdItem, onAdicionar }: { qtdItem: number; onAdicionar: (c: Omit<CotacaoFornecedorItem, 'id'>) => void }) {
+function LinhaNovaCotacao({
+  qtdItem,
+  rotuloItem,
+  onAdicionar,
+}: {
+  qtdItem: number
+  rotuloItem: string
+  onAdicionar: (c: Omit<CotacaoFornecedorItem, 'id'>) => void
+}) {
   const [fornecedor, setFornecedor] = useState('')
   const [marca, setMarca] = useState('')
   const [prazo, setPrazo] = useState('')
@@ -293,29 +320,39 @@ function LinhaNovaCotacao({ qtdItem, onAdicionar }: { qtdItem: number; onAdicion
 
   const unitarioDigitado = numeroOuVazio(valorUnitario) ?? 0
   const novoCls = 'w-full rounded border border-dashed border-ink-200 bg-surface px-1.5 py-1 text-ink-800 focus:outline-none focus:ring-1 focus:ring-brand-400'
+  const nova = `nova cotação do item ${rotuloItem}`
   return (
     <tr className="bg-ink-50/40">
-      <td className={`${cellCls} text-center text-ink-300`}>+</td>
-      <td className={cellCls}>
-        <input className={novoCls} list={ID_LISTA_FORNECEDORES} placeholder="Novo fornecedor" value={fornecedor} onChange={(e) => setFornecedor(e.target.value)} onKeyDown={aoTeclar} />
+      <td className={`${cellCls} so-tela-larga text-center text-ink-300`}>+</td>
+      <td className={`${cellCls} celula-larga`} data-rotulo="Nova cotação">
+        <input
+          className={novoCls}
+          list={ID_LISTA_FORNECEDORES}
+          placeholder="Novo fornecedor"
+          aria-label={`Fornecedor — ${nova}`}
+          value={fornecedor}
+          onChange={(e) => setFornecedor(e.target.value)}
+          onKeyDown={aoTeclar}
+        />
       </td>
       <td className={cellCls}>
-        <input className={novoCls} placeholder="Marca" value={marca} onChange={(e) => setMarca(e.target.value)} onKeyDown={aoTeclar} />
+        <input className={novoCls} placeholder="Marca" aria-label={`Marca — ${nova}`} value={marca} onChange={(e) => setMarca(e.target.value)} onKeyDown={aoTeclar} />
       </td>
       <td className={cellCls}>
-        <input className={novoCls} placeholder="Prazo" value={prazo} onChange={(e) => setPrazo(e.target.value)} onKeyDown={aoTeclar} />
+        <input className={novoCls} placeholder="Prazo" aria-label={`Prazo — ${nova}`} value={prazo} onChange={(e) => setPrazo(e.target.value)} onKeyDown={aoTeclar} />
       </td>
       <td className={cellCls} onKeyDown={aoTeclar}>
-        <CampoNcm className={novoCls} valor={ncm} onChange={setNcm} />
+        <CampoNcm className={novoCls} valor={ncm} onChange={setNcm} rotulo={`NCM — ${nova}`} />
       </td>
       <td className={cellCls} onKeyDown={aoTeclar}>
-        <CampoQuantidade className={novoCls} valor={quantidade} qtdItem={qtdItem} onChange={setQuantidade} />
+        <CampoQuantidade className={novoCls} valor={quantidade} qtdItem={qtdItem} onChange={setQuantidade} rotulo={`Quantidade que atende — ${nova}`} />
       </td>
       <td className={cellCls}>
         <input
           className={`${novoCls} text-right tabular-nums`}
           inputMode="decimal"
           placeholder="R$ unit."
+          aria-label={`Valor unitário — ${nova}`}
           value={valorUnitario}
           onChange={(e) => setValorUnitario(e.target.value)}
           onKeyDown={aoTeclar}
@@ -326,12 +363,13 @@ function LinhaNovaCotacao({ qtdItem, onAdicionar }: { qtdItem: number; onAdicion
           className={`${novoCls} text-right tabular-nums`}
           inputMode="decimal"
           placeholder={unitarioDigitado > 0 ? formatCurrency(unitarioDigitado * quantidadeAtendida({ quantidadeDisponivel: quantidade }, qtdItem)) : 'R$ total'}
+          aria-label={`Valor total — ${nova}`}
           value={valorTotal}
           onChange={(e) => setValorTotal(e.target.value)}
           onKeyDown={aoTeclar}
         />
       </td>
-      <td colSpan={2} className={`${cellCls} text-right pr-2`}>
+      <td colSpan={2} className={`${cellCls} celula-larga text-right pr-2`}>
         <button
           type="button"
           onClick={handleAdicionar}
@@ -531,10 +569,11 @@ export function CompararFornecedoresPage({
               "Qtd atende", quanto o fornecedor tem do item — vazio quer dizer que ele atende a quantidade toda.
             </p>
           </div>
-          <div ref={voltarRef} className="flex gap-2 shrink-0">
+          {/* quebra linha no celular: lado a lado, os dois botões passavam da largura da tela */}
+          <div ref={voltarRef} className="flex flex-wrap gap-2">
             {!travadaPorOutro && items.length > 0 && (
               <Button variant="secondary" onClick={() => setImportAberto(true)}>
-                Importar cotação (planilha, PDF, foto…)
+                Importar cotação<span className="hidden sm:inline"> (planilha, PDF, foto…)</span>
               </Button>
             )}
             <Button variant="ghost" onClick={onGoToPrecificacao}>
@@ -547,16 +586,17 @@ export function CompararFornecedoresPage({
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <input
               type="text"
-              className="field-input w-64 py-1.5 text-sm"
+              className="field-input w-full sm:w-64 py-1.5 text-sm"
               placeholder="Buscar item (interno, referência, descrição…)"
+              aria-label="Buscar item"
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
             />
             <select
-              className={`field-input w-56 py-1.5 text-sm ${filtroFornecedor ? 'border-ink-400 bg-ink-100 font-semibold' : ''}`}
+              className={`field-input w-full sm:w-56 py-1.5 text-sm ${filtroFornecedor ? 'border-ink-400 bg-ink-100 font-semibold' : ''}`}
               value={filtroFornecedor}
               onChange={(e) => setFiltroFornecedor(e.target.value)}
-              title="Mostrar só as cotações desse fornecedor"
+              aria-label="Mostrar só as cotações desse fornecedor"
             >
               <option value="">Todos os fornecedores</option>
               {fornecedoresCotados.map((f) => (
@@ -601,7 +641,8 @@ export function CompararFornecedoresPage({
                 <option key={f.id} value={f.nome} />
               ))}
             </datalist>
-            <table className="w-full text-sm border-collapse">
+            {/* no celular cada cotação vira um cartão (ver .tabela-empilhada no index.css) */}
+            <table className="tabela-empilhada w-full text-sm border-collapse">
               <thead>
                 <tr className="bg-ink-50 text-left text-ink-400">
                   <th className="py-2 px-2 w-8"></th>
@@ -619,7 +660,7 @@ export function CompararFornecedoresPage({
               <tbody>
                 {itensVisiveis.length === 0 && (
                   <tr>
-                    <td colSpan={TOTAL_COLUNAS} className="py-6 text-center text-sm text-ink-400 border-t border-ink-100">
+                    <td colSpan={TOTAL_COLUNAS} className="celula-larga py-6 text-center text-sm text-ink-400 border-t border-ink-100">
                       Nenhum item com esses filtros.
                     </td>
                   </tr>
@@ -646,10 +687,11 @@ export function CompararFornecedoresPage({
                   return (
                     <Fragment key={item.id}>
                       <tr className="bg-ink-100/70">
-                        <td className="px-2 py-2 border-t-2 border-ink-200 text-center text-xs text-ink-400">{numero}</td>
-                        <td colSpan={TOTAL_COLUNAS - 1} className="px-2 py-2 border-t-2 border-ink-200">
+                        <td className="so-tela-larga px-2 py-2 border-t-2 border-ink-200 text-center text-xs text-ink-400">{numero}</td>
+                        <td colSpan={TOTAL_COLUNAS - 1} className="celula-larga px-2 py-2 border-t-2 border-ink-200">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <div className="min-w-0">
+                              <span className="mr-1.5 text-xs text-ink-400 md:hidden">{numero}.</span>
                               <span className="font-display font-semibold text-ink-900">
                                 {p.referencia || '(sem referência)'}
                               </span>
@@ -725,12 +767,17 @@ export function CompararFornecedoresPage({
                           qtdItem={p.qtd || 0}
                           menorValor={menorValor}
                           travadaPorOutro={travadaPorOutro}
+                          rotuloItem={p.referencia || p.interno || String(numero)}
                           onChange={(patch) => handleEditarCotacao(item, c.id, patch)}
                           onRemover={() => handleRemoveCotacao(item, c.id)}
                         />
                       ))}
                       {!travadaPorOutro && (
-                        <LinhaNovaCotacao qtdItem={p.qtd || 0} onAdicionar={(c) => handleAddCotacao(item, c)} />
+                        <LinhaNovaCotacao
+                          qtdItem={p.qtd || 0}
+                          rotuloItem={p.referencia || p.interno || String(numero)}
+                          onAdicionar={(c) => handleAddCotacao(item, c)}
+                        />
                       )}
                     </Fragment>
                   )

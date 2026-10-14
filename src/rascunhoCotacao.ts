@@ -6,7 +6,7 @@
 // perder qualquer coisa. Só existe UM rascunho por vez (a cotação aberta
 // mais recentemente).
 // -----------------------------------------------------------------------
-import type { QuoteItem, QuoteStatus, TipoReferencia } from './types'
+import type { QuoteItem, QuoteRecord, QuoteStatus, TipoReferencia } from './types'
 
 const CHAVE_RASCUNHO = 'rascunhoCotacaoAtual'
 
@@ -22,7 +22,7 @@ export interface RascunhoCotacao {
   activeItemId: string
   activeStatus: QuoteStatus
   activeResponsavel: string
-  planilhaOriginal?: { nomeArquivo: string; conteudoBase64: string }
+  planilhaOriginal?: QuoteRecord['planilhaOriginal']
   salvoEm: number
 }
 

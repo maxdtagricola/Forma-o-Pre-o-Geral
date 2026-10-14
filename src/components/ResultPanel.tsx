@@ -100,6 +100,7 @@ export function ResultPanel({
             type="number"
             step={0.1}
             className="field-input field-input-mono w-20 py-1 text-sm pr-6"
+            aria-label="Margem de lucro (%)"
             value={Math.round(lucroPct * 10000) / 100}
             onChange={(e) => onChangeLucroPct((e.target.valueAsNumber || 0) / 100)}
             onFocus={selecionarTudoAoFocar}
