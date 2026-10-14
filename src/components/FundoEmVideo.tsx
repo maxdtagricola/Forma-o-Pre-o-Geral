@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef } from 'react'
 
 // Vídeo de fundo (todas as abas menos o Xadrez), cobrindo a tela toda atrás do conteúdo, sem som. O
-// original é 640×360; as versões em public/fundo foram ampliadas fora do site, quadro a quadro, por IA
-// (Real-ESRGAN, modelo de vídeo em estilo desenho, 3×) pra 1920×1080 — reconstrói os contornos em vez
-// de só esticar — e daí reduzidas pra 1280×720. Telas menores baixam a de 720 (metade do tamanho).
+// original é 640×360 a 30 quadros; as versões em public/fundo foram feitas fora do site, por IA: cada
+// quadro ampliado pelo Real-ESRGAN (modelo de vídeo em estilo desenho), que reconstrói os contornos em
+// vez de só esticar, e os quadros do meio criados pelo RIFE (60 quadros por segundo, movimento fluido,
+// emendando o fim no começo) — daí 2560×1440 a 60 (computador) e 1280×720 a 60 (celular).
 
 const BASE = `${import.meta.env.BASE_URL}fundo/`
 
@@ -18,7 +19,7 @@ export function FundoEmVideo({
   const ref = useRef<HTMLVideoElement>(null)
   // quem pediu menos movimento no sistema fica só com a imagem parada
   const menosMovimento = useMemo(() => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false, [])
-  const arquivo = useMemo(() => (window.innerWidth >= 1024 ? 'samurai-ia-1080.mp4' : 'samurai-ia-720.mp4'), [])
+  const arquivo = useMemo(() => (window.innerWidth >= 1024 ? 'samurai-ia-1440p60.mp4' : 'samurai-ia-720p60.mp4'), [])
 
   useEffect(() => {
     const video = ref.current
@@ -33,13 +34,13 @@ export function FundoEmVideo({
   return (
     <div aria-hidden className="pointer-events-none fixed inset-0 z-0 overflow-hidden">
       {menosMovimento ? (
-        <img src={`${BASE}samurai-ia-capa.jpg`} alt="" className="h-full w-full object-cover" />
+        <img src={`${BASE}samurai-ia-capa-1440.jpg`} alt="" className="h-full w-full object-cover" />
       ) : (
         <video
           ref={ref}
           className="h-full w-full object-cover"
           src={`${BASE}${arquivo}`}
-          poster={`${BASE}samurai-ia-capa.jpg`}
+          poster={`${BASE}samurai-ia-capa-1440.jpg`}
           muted
           loop
           playsInline

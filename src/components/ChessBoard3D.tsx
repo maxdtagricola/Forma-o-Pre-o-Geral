@@ -2494,6 +2494,17 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
     const vezDaMaquinaRef: { current: boolean } = { current: false }
     const demoPausadaRef: { current: boolean } = { current: false }
     const pieceMeshBySquare = new Map<string, THREE.Group>()
+    // "geração" do tabuleiro: muda a cada tabuleiro novo (outra partida, novo jogo, demonstração que
+    // recomeça). Lances e animações que começaram numa geração antiga não mexem mais em nada — antes,
+    // começar um jogo no meio da animação de um lance deixava a animação velha terminar por cima do
+    // tabuleiro novo (peça sumida, fora da casa, ou a peça errada reaproveitada)
+    let geracao = 0
+    // lances com animação ainda rodando (os testes esperam zerar)
+    let lancesEmAndamento = 0
+    function novoTabuleiro() {
+      geracao++
+      lancesEmAndamento = 0
+    }
     // pra não disparar a comemoração de novo enquanto o xeque-mate continuar sendo a posição atual
     let comemoracaoDisparada = false
 
@@ -2717,7 +2728,12 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
 
     // as peças usam geometria/material compartilhados (cache por tipo/cor), então aqui só
     // desmonta o grupo — nunca chama dispose(), senão quebraria as peças que ainda usam o cache
-    function sincronizarPecas() {
+    function sincronizarPecas(recriar = false) {
+      if (recriar) {
+        // inclusive as que estavam caindo/sumindo de uma captura em andamento
+        piecesGroup.clear()
+        pieceMeshBySquare.clear()
+      }
       // ajusta o tabuleiro ao estado do motor reaproveitando a peça que continua na mesma casa
       // (mesmo tipo e cor, e o mesmo tipo de modelo — geométrica ou RPG) — inclusive a que acabou de
       // andar (o lance atualiza o mapa casa → peça quando ela chega). Antes o tabuleiro inteiro era
@@ -2973,6 +2989,17 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       setHistorico(chess.history())
       salvarProgresso()
 
+      // a partir daqui o lance é desse tabuleiro: se outro entrar no meio (novo jogo, outra partida),
+      // nada do que falta (chegada, captura, ajuste das peças, próximo lance) acontece mais
+      const minhaGeracao = geracao
+      const vigente = () => minhaGeracao === geracao
+      lancesEmAndamento++
+      const terminar = () => {
+        if (!vigente()) return
+        lancesEmAndamento = Math.max(0, lancesEmAndamento - 1)
+        aoTerminar()
+      }
+
       // daqui pra frente o lance e as casas não mudam mais (constantes pros callbacks das animações)
       const lance = resultado
       const casaOrigem = origem
@@ -2981,6 +3008,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       /** A peça chegou: o mapa casa → peça passa a apontar pra ela na casa nova — ela é
        * reaproveitada no fim do lance (ver sincronizarPecas), não recriada. */
       function chegou(mesh: THREE.Group, de: Square, para: Square) {
+        if (!vigente()) return
         if (pieceMeshBySquare.get(de) === mesh) pieceMeshBySquare.delete(de)
         pieceMeshBySquare.set(para, mesh)
       }
@@ -3001,17 +3029,19 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       /** A peça (e, no roque, a torre) anda de onde está agora até a casa de destino; no fim, o
        * tabuleiro se ajusta reaproveitando as peças. */
       function seguirParaDestino() {
+        if (!vigente()) return
         if (!meshMovendo || !casaOrigem || !casaDestino) {
           sincronizarPecas()
-          aoTerminar()
+          terminar()
           return
         }
         let pendentes = 1
         const terminouUma = () => {
+          if (!vigente()) return
           pendentes--
           if (pendentes === 0) {
             sincronizarPecas()
-            aoTerminar()
+            terminar()
           }
         }
         // de onde a peça está agora — numa captura corpo a corpo ela já está perto da vítima
@@ -3028,6 +3058,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
             meshMovendo,
             materiaisPorFaccao[lance.color].brilho.color,
             () => {
+              if (!vigente()) return undefined
               sincronizarPecas()
               return pieceMeshBySquare.get(casaDestino)
             },
@@ -3061,6 +3092,7 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         const posVitima = { x: vitima.position.x, z: vitima.position.z }
 
         const removerVitima = () => {
+          if (!vigente()) return
           piecesGroup.remove(vitima)
           if (casaDaVitima && pieceMeshBySquare.get(casaDaVitima) === vitima) pieceMeshBySquare.delete(casaDaVitima)
         }
@@ -3078,18 +3110,32 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         // cavalo: salta até a casa e pousa com as patas em cima da vítima, que sai voando longe
         if (tipoAtacante === 'n' && ehRPG && pecaSaltaRPG(atacante)) {
           const de = { x: atacante.position.x, z: atacante.position.z }
+          // o lance só termina com o cavalo pousado E a vítima já fora de cena — antes a vez passava
+          // com ela ainda voando, e ficava uma peça a mais no tabuleiro até ela sumir
+          let faltam = 2
+          const umaParte = () => {
+            if (!vigente()) return
+            faltam--
+            if (faltam === 0) {
+              sincronizarPecas()
+              terminar()
+            }
+          }
           animarPosicaoRPG(
             atacante,
             de,
             squareToPosPeca(casaDestino),
             () => {
+              if (!vigente()) return
               chegou(atacante, casaOrigem, casaDestino)
-              sincronizarPecas()
-              aoTerminar()
+              umaParte()
             },
             () => {
               animarImpacto(scene, posVitima.x, posVitima.z)
-              arremessarPeca(vitima, { x: posVitima.x - de.x, z: posVitima.z - de.z }, removerVitima)
+              arremessarPeca(vitima, { x: posVitima.x - de.x, z: posVitima.z - de.z }, () => {
+                removerVitima()
+                umaParte()
+              })
               comemorarAliadas()
             },
           )
@@ -3241,8 +3287,12 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       if (chess.isGameOver() || chess.turn() === corHumanoRef.current || vezDaMaquinaRef.current) return
       vezDaMaquinaRef.current = true
       atualizarStatusTexto()
+      const minhaGeracao = geracao
       window.setTimeout(async () => {
+        if (minhaGeracao !== geracao) return
         const lance = await escolherJogadaDaMaquina(chess, livroRef.current)
+        // outra partida (ou novo jogo) entrou enquanto a máquina pensava: esse lance era da anterior
+        if (minhaGeracao !== geracao) return
         // o jogador desistiu enquanto a máquina pensava — o lance não entra mais
         if (!lance || partidaDesistida()) {
           vezDaMaquinaRef.current = false
@@ -3316,18 +3366,20 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         demoTimeoutId = window.setTimeout(() => {
           if (partidaAtualRef.current || sessao !== sessaoDemo) return
           partidaDemo = null
+          novoTabuleiro()
           chess.reset()
-          sincronizarPecas()
+          sincronizarPecas(true)
           limparDestaques()
           atualizarStatusTexto()
           agendarProximoLanceDemo()
         }, 3000)
         return
       }
+      const geracaoDoLance = geracao
       const lance = await escolherJogadaDaMaquina(chess, livroRef.current)
       // enquanto a máquina pensava, a demonstração pode ter parado (o jogador começou ou retomou
       // uma partida dele) — esse lance era da demonstração, não entra na partida do jogador
-      if (partidaAtualRef.current || sessao !== sessaoDemo) return
+      if (partidaAtualRef.current || sessao !== sessaoDemo || geracaoDoLance !== geracao) return
       if (!lance) {
         agendarProximoLanceDemo()
         return
@@ -3442,7 +3494,8 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         selecionadaRef.current = null
         destinosRef.current = []
         vezDaMaquinaRef.current = false
-        sincronizarPecas()
+        novoTabuleiro()
+        sincronizarPecas(true)
         limparDestaques()
         atualizarStatusTexto()
         if (!chess.isGameOver() && chess.turn() !== corHumanoRef.current) jogarLanceDaMaquina()
@@ -3459,7 +3512,8 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
         selecionadaRef.current = null
         destinosRef.current = []
         vezDaMaquinaRef.current = false
-        sincronizarPecas()
+        novoTabuleiro()
+        sincronizarPecas(true)
         limparDestaques()
         atualizarStatusTexto()
         agendarProximoLanceDemo()
@@ -3598,6 +3652,41 @@ export function ChessBoard3D({ jogador }: { jogador: string }) {
       ;(window as unknown as { __xadrez?: object }).__xadrez = {
         casaEmXeque: () => (xequeMesh.visible ? (xequeMesh.userData.casa as string) : null),
         distanciaCamera: () => camera.position.distanceTo(controls.target),
+        /** Lance ou máquina ainda em andamento. */
+        ocupado: () => vezDaMaquinaRef.current || lancesEmAndamento > 0,
+        /** Cada peça do motor tem a sua peça 3D, do tipo/cor certos, na cena e no centro da casa — e nada sobrando. */
+        problemasDoTabuleiro: () => {
+          const problemas: string[] = []
+          const casas = chessRef.current.board().flat().filter((c): c is NonNullable<typeof c> => !!c)
+          for (const casa of casas) {
+            const mesh = pieceMeshBySquare.get(casa.square)
+            if (!mesh) {
+              problemas.push(`sem peça 3D em ${casa.square}`)
+              continue
+            }
+            if (mesh.userData.tipo !== casa.type || mesh.userData.cor !== casa.color) problemas.push(`peça errada em ${casa.square}`)
+            if (mesh.parent !== piecesGroup) problemas.push(`peça de ${casa.square} fora da cena`)
+            const alvo = squareToPosPeca(casa.square)
+            const erro = Math.hypot(mesh.position.x - alvo.x, mesh.position.z - alvo.z)
+            if (erro > 0.12) problemas.push(`peça de ${casa.square} fora do lugar (${erro.toFixed(2)})`)
+          }
+          if (pieceMeshBySquare.size !== casas.length) problemas.push(`mapa com ${pieceMeshBySquare.size} peças, motor com ${casas.length}`)
+          if (piecesGroup.children.length !== casas.length) problemas.push(`cena com ${piecesGroup.children.length} peças, motor com ${casas.length}`)
+          return problemas
+        },
+        /** Joga como o jogador (clique na peça e na casa). */
+        jogar: (de: string, para: string) => {
+          tentarSelecionar(de as Square)
+          tentarMover(para as Square)
+        },
+        lancesDoJogador: () => (chessRef.current.turn() === corHumanoRef.current ? chessRef.current.moves({ verbose: true }).map((m) => [m.from, m.to]) : []),
+        fen: () => chessRef.current.fen(),
+        /** Começa uma partida de teste a partir de um PGN (não aparece nas partidas do jogador). */
+        carregarTeste: (pgn: string, cor: 'w' | 'b') => {
+          const agora = Date.now()
+          partidaAtualRef.current = { id: `teste-${agora}`, jogador: '__teste__', corJogador: cor, pgn, status: 'EM_ANDAMENTO', criadaEm: agora, atualizadaEm: agora }
+          acoesRef.current?.carregarPgn(pgn, cor)
+        },
       }
     }
     // o espaço do tabuleiro também muda sem a janela mudar — recolher/abrir o menu, tela cheia
