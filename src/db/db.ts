@@ -1,11 +1,11 @@
 // -----------------------------------------------------------------------
-// Camada de armazenamento: fala com o servidor rodando no celular
-// (Termux) em vez de usar o IndexedDB do navegador. A interface pública
+// Camada de armazenamento: fala com o servidor rodando no PC 35 (até
+// out/2026, no celular) em vez de usar o IndexedDB do navegador. A interface pública
 // (dbPut, dbGetAll, dbGet, dbDelete) é a mesma de antes, então o resto
 // do app (analysesRepo.ts) não precisa mudar nada.
 //
 // Cache: toda leitura bem-sucedida fica guardada no localStorage. Se uma
-// leitura futura não conseguir alcançar o servidor (celular desligado,
+// leitura futura não conseguir alcançar o servidor (PC desligado,
 // Tailscale caído etc.), o app usa o último dado conhecido em vez de
 // simplesmente quebrar — assim o que já foi carregado uma vez continua
 // disponível. Não é usado pra respostas de erro do próprio servidor (404,
@@ -17,7 +17,7 @@
 // (o token da sessão, ver sessaoUsuario.ts/auth.ts). Algumas gravações
 // (empresas, planilhas de markup, excluir produto/partidas...) pedem também
 // a SENHA DE ADMIN, digitada na hora e conferida pelo próprio servidor. As
-// senhas de acesso e de admin são definidas no celular do servidor
+// senhas de acesso e de admin são definidas no computador do servidor
 // (node definir-senhas.js).
 // -----------------------------------------------------------------------
 import { pedirSenha } from '../dialogs'
@@ -25,14 +25,15 @@ import { getSessao, limparSessao } from '../sessaoUsuario'
 
 export const STORE_ANALISES = 'analises'
 
-// Endereço do servidor no celular, pela rede privada do Tailscale — esse IP
-// (100.x.y.z) fica fixo independente de trocas de Wi-Fi ou quedas de energia,
-// desde que o celular continue com o Tailscale conectado na mesma conta.
-// Se precisar trocar por outro motivo, não precisa editar o código: abra o
+// Endereço do servidor no PC 35 (rondocat-pc35), pela rede privada do
+// Tailscale — esse IP (100.x.y.z) fica fixo independente de trocas de rede ou
+// quedas de energia, desde que o PC continue com o Tailscale conectado na
+// mesma conta. (O do celular, usado até out/2026, era 100.112.41.57.)
+// Pra apontar um navegador pra outro servidor sem editar o código: abra o
 // console do navegador (F12) e rode:
 //   localStorage.setItem('serverUrl', 'http://NOVO_IP:3000')
-// e recarregue a página.
-const DEFAULT_SERVER_URL = 'http://100.112.41.57:3000'
+// e recarregue a página (localStorage.removeItem('serverUrl') volta ao padrão).
+const DEFAULT_SERVER_URL = 'http://100.102.210.6:3000'
 
 export function getServerUrl(): string {
   return localStorage.getItem('serverUrl') || DEFAULT_SERVER_URL
@@ -172,7 +173,7 @@ async function enviar(path: string, opcoes: OpcoesRequisicao, acesso: Credencial
     // tela de qualquer admin (e em prints/compartilhamento de tela); quem precisa do endereço pra
     // diagnosticar acha ele em DEFAULT_SERVER_URL / localStorage 'serverUrl'
     throw new ServidorInalcancavelError(
-      'Não foi possível conectar ao servidor. Verifique se o celular do servidor está ligado, com o servidor rodando, e se o Tailscale está conectado (tanto no celular quanto neste aparelho).',
+      'Não foi possível conectar ao servidor. Verifique se o computador do servidor está ligado e se o Tailscale está conectado (tanto nele quanto neste aparelho).',
     )
   }
 }
