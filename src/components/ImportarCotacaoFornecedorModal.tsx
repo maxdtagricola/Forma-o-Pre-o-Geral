@@ -11,6 +11,7 @@ import type { TipoCasamento } from '../importacao/codigosFornecedor'
 import { formatarNumeroBR, formatarNumeroCurtoBR, parseNumeroFlexivel } from '../numeros'
 import { normalizarNcm } from '../importacao/ncm'
 import { avisar } from '../dialogs'
+import { useFecharComEsc } from '../teclaEsc'
 import type { QuoteItem } from '../types'
 
 interface LinhaEditavel extends ItemDetectadoFornecedor {
@@ -218,6 +219,7 @@ export function ImportarCotacaoFornecedorModal({
   }
 
   const inputCls = 'field-input text-right tabular-nums py-1'
+  useFecharComEsc(onClose)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>

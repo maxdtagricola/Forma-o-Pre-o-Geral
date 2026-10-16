@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useFecharComEsc } from '../teclaEsc'
 import { Button } from './ui/Basics'
 import { baixarBlob, compartilharArquivo, linkEmail, suportaCompartilharArquivo } from '../planilhaCliente'
 import { gerarPdfCotacaoCliente } from '../cotacaoParaCliente'
@@ -32,13 +33,7 @@ export function EnvioCotacaoModal({
   )
   const valorTotalGeral = useMemo(() => linhas.reduce((s, l) => s + l.resultado.precoVendaTotal, 0), [linhas])
 
-  useEffect(() => {
-    function handleEsc(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleEsc)
-    return () => window.removeEventListener('keydown', handleEsc)
-  }, [onClose])
+  useFecharComEsc(onClose)
 
   const nomeArquivo = `cotacao-${(cliente || 'cliente').trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')}.pdf`
   const titulo = `Cotação — ${cliente || 'cliente'} — ${maquina || 'máquina'}`

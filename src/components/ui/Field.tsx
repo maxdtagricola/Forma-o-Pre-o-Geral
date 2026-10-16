@@ -126,6 +126,13 @@ export function AutocompleteField({
       <div
         ref={wrapperRef}
         className="relative"
+        onKeyDown={(e) => {
+          // Esc com a lista aberta só fecha a lista (não a janela em que o campo está)
+          if (e.key === 'Escape' && open && filtered.length > 0) {
+            e.preventDefault()
+            setOpen(false)
+          }
+        }}
         onBlur={(e) => {
           // só fecha quando o foco sai do campo E da lista de sugestões — assim dar Tab
           // dentro da lista pula pro próximo nome em vez de fechar a busca

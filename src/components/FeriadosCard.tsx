@@ -11,7 +11,8 @@ function dataBR(chave: string): string {
 
 /** Configurações › Feriados — os locais (estaduais/municipais), que não contam como dia de trabalho
  * junto com fins de semana e feriados nacionais (esses já entram sozinhos). */
-export function FeriadosCard() {
+/** `embutido`: dentro da janela de Configurações, que já tem a moldura e o título. */
+export function FeriadosCard({ embutido = false }: { embutido?: boolean } = {}) {
   const [lista, setLista] = useState<FeriadoExtra[]>([])
   const [data, setData] = useState('')
   const [nome, setNome] = useState('')
@@ -53,8 +54,8 @@ export function FeriadosCard() {
   const nacionais = Array.from(feriadosNacionais(ano).entries()).sort(([a], [b]) => a.localeCompare(b))
 
   return (
-    <div className="card">
-      <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Feriados</h3>
+    <div className={embutido ? undefined : "card"}>
+      {!embutido && <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Feriados</h3>}
       <p className="text-sm text-ink-400 mb-4">
         Fins de semana e feriados não contam nos dias úteis (tempo de cotação pendente, em andamento, previsão de
         entrega). Os nacionais já entram sozinhos — cadastre aqui os estaduais e municipais.{' '}

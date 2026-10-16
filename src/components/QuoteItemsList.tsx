@@ -35,6 +35,7 @@ import { FreteFornecedorSlots } from './FreteFornecedorSlots'
 import { CelulaObservacao } from './CelulaObservacao'
 import { Button } from './ui/Basics'
 import { avisar, confirmar } from '../dialogs'
+import { useFecharComEsc } from '../teclaEsc'
 import type {
   Fornecedor,
   ItemExcluidoCotacao,
@@ -381,6 +382,7 @@ export function QuoteItemsList({
   const [larguras, setLarguras] = useState<Partial<Record<ColunaKey, number>>>(carregarLarguras)
   const [colunasOcultas, setColunasOcultas] = useState<ColunaKey[]>(carregarOcultas)
   const [menuColunasAberto, setMenuColunasAberto] = useState(false)
+  useFecharComEsc(() => setMenuColunasAberto(false), menuColunasAberto)
   const menuColunasRef = useRef<HTMLDivElement>(null)
   const [colunaRedimensionando, setColunaRedimensionando] = useState<ColunaKey | null>(null)
   // marcação por checkbox pra aplicar o mesmo fornecedor (ou NCM) em vários itens de uma vez —
@@ -1188,7 +1190,13 @@ export function QuoteItemsList({
                       }}
                       onFocus={() => setFornecedorBulkAberto(true)}
                       onBlur={() => setFornecedorBulkAberto(false)}
-                      onKeyDown={(e) => e.key === 'Enter' && handleAplicarFornecedorBulkDigitado()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleAplicarFornecedorBulkDigitado()
+                        else if (e.key === 'Escape' && fornecedorBulkAberto) {
+                          e.preventDefault()
+                          setFornecedorBulkAberto(false)
+                        }
+                      }}
                       className="field-input w-44 py-1 text-sm"
                     />
                     {fornecedorBulkAberto && sugestoesFornecedorBulk.length > 0 && (
@@ -1857,6 +1865,12 @@ function LinhaItem({
           onClick={(e) => {
             stop(e)
             onAbrirFornecedor()
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && fornecedorAberto) {
+              e.preventDefault()
+              onFecharFornecedor()
+            }
           }}
         />
         {fornecedorAberto && sugestoesFornecedor.length > 0 && (

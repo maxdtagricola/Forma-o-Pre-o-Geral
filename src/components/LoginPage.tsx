@@ -13,6 +13,9 @@ import {
   TAMANHO_MINIMO_SENHA,
 } from '../auth'
 import { ErroDoServidor } from '../db/db'
+import { FundoEmVideo } from './FundoEmVideo'
+import { useEstadoPersistente } from '../estadoPersistente'
+import { useFecharComEsc } from '../teclaEsc'
 
 // -----------------------------------------------------------------------
 // Entrada do site: usuário e senha (sem lista de nomes). Caminhos:
@@ -40,13 +43,24 @@ export function LoginPage() {
   const [etapa, setEtapa] = useState<Etapa>({ tipo: 'usuario' })
   const [usuario, setUsuario] = useState('')
 
+  // a escolha de pausar o vídeo de fundo, feita em Configurações (vale por aparelho)
+  const [fundoPausado] = useEstadoPersistente('telaInicial:fundoPausado', false)
+
   function voltarAoInicio() {
     setEtapa({ tipo: 'usuario' })
   }
 
+  // Esc volta uma etapa (da senha, do cadastro... pro nome de usuário; do "esqueci" pra senha)
+  useFecharComEsc(() => {
+    if (etapa.tipo === 'esqueci') setEtapa({ tipo: 'senha', usuario: etapa.usuario, exibicao: etapa.exibicao })
+    else voltarAoInicio()
+  }, etapa.tipo !== 'usuario')
+
   return (
-    <div className="min-h-screen bg-ink-50 flex items-center justify-center px-4 py-8">
-      <div className="card max-w-sm w-full">
+    <div className="com-fundo-video relative min-h-screen bg-ink-50 flex items-center justify-center px-4 py-8">
+      <FundoEmVideo pausado={fundoPausado} />
+      {/* "relative" (sem z-index): fica por cima do vídeo, e as caixas de aviso continuam por cima dela */}
+      <div className="card relative max-w-sm w-full shadow-xl">
         <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 font-display text-base font-bold text-white">
           R$
         </div>

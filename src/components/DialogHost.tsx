@@ -2,11 +2,23 @@ import { useState } from 'react'
 import { Button } from './ui/Basics'
 import { resolverArquivamento, resolverPedidoAtual, resolverProducao, usePedidoDialog, type PedidoDialog } from '../dialogs'
 import { MOTIVOS_ARQUIVAMENTO } from '../types'
+import { useFecharComEsc } from '../teclaEsc'
+
+/** O que o Esc faz em cada caixa: no aviso é o "OK"; nas outras, o "Cancelar" (nunca confirma nada). */
+function cancelarPedido(pedido: PedidoDialog) {
+  if (pedido.tipo === 'avisar') resolverPedidoAtual()
+  else if (pedido.tipo === 'arquivar') resolverArquivamento(null)
+  else if (pedido.tipo === 'producao') resolverProducao(null)
+  else resolverPedidoAtual(false)
+}
 
 /** Renderiza a caixa de confirmar()/avisar()/pedirSenha() atual (ver src/dialogs.ts) — sempre centrada
  * na tela e por cima de qualquer outro modal, com uma entrada animada. Montado uma vez, perto da raiz do app. */
 export function DialogHost() {
   const pedido = usePedidoDialog()
+  useFecharComEsc(() => {
+    if (pedido) cancelarPedido(pedido)
+  }, !!pedido)
   if (!pedido) return null
 
   return (

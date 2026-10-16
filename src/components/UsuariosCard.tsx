@@ -9,7 +9,8 @@ const ROTULO_PAPEL: Record<PapelUsuario, string> = {
 }
 
 /** Configurações › Usuários — só pro Max: define a função de quem se cadastrou, libera senha nova, exclui. */
-export function UsuariosCard() {
+/** `embutido`: dentro da janela de Configurações, que já tem a moldura e o título. */
+export function UsuariosCard({ embutido = false }: { embutido?: boolean } = {}) {
   const [usuarios, setUsuarios] = useState<UsuarioCadastrado[]>([])
   const [carregando, setCarregando] = useState(true)
   const [ocupado, setOcupado] = useState<string | null>(null)
@@ -68,8 +69,8 @@ export function UsuariosCard() {
   }
 
   return (
-    <div className="card">
-      <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Usuários</h3>
+    <div className={embutido ? undefined : "card"}>
+      {!embutido && <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Usuários</h3>}
       <p className="text-sm text-ink-400 mb-4">
         Quem se cadastra sozinho começa só com o xadrez — defina aqui a função de cada um.
       </p>

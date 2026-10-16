@@ -2,10 +2,20 @@ import { useState } from 'react'
 import { Button } from './ui/Basics'
 import { alterarMinhaConta, erroDaSenhaNova, erroDoEmailNovo, TAMANHO_MINIMO_SENHA } from '../auth'
 import { avisar } from '../dialogs'
+import { useFecharComEsc } from '../teclaEsc'
 import type { UsuarioLogado } from '../sessaoUsuario'
 
-/** Troca a própria senha e/ou o e-mail de recuperação — sempre pedindo a senha atual. */
-export function MinhaContaModal({ usuario, onFechar }: { usuario: UsuarioLogado; onFechar: () => void }) {
+/** Troca a própria senha e/ou o e-mail de recuperação — sempre pedindo a senha atual. Fica em
+ * Configurações > Minha conta (e numa janela pra quem só tem o xadrez, que não vê Configurações). */
+export function MinhaContaForm({
+  usuario,
+  onSalvo,
+  onCancelar,
+}: {
+  usuario: UsuarioLogado
+  onSalvo?: () => void
+  onCancelar?: () => void
+}) {
   const [senhaAtual, setSenhaAtual] = useState('')
   const [novaSenha, setNovaSenha] = useState('')
   const [confirmacao, setConfirmacao] = useState('')
@@ -29,7 +39,12 @@ export function MinhaContaModal({ usuario, onFechar }: { usuario: UsuarioLogado;
         novaSenha: trocaSenha ? novaSenha : undefined,
         novoEmail: trocaEmail ? novoEmail.trim() : undefined,
       })
-      onFechar()
+      setSenhaAtual('')
+      setNovaSenha('')
+      setConfirmacao('')
+      setNovoEmail('')
+      setEmailConfirmacao('')
+      onSalvo?.()
       void avisar(
         trocaSenha
           ? 'Dados salvos. Nos outros aparelhos onde você estava logado, entre de novo com a senha nova.'
@@ -44,71 +59,95 @@ export function MinhaContaModal({ usuario, onFechar }: { usuario: UsuarioLogado;
 
   const campo = 'field-input'
   return (
+    <>
+      <p className="mb-4 text-sm text-ink-500">
+        {usuario.exibicao}
+        {usuario.emailMascarado && ` · recuperação: ${usuario.emailMascarado}`}
+      </p>
+      <form
+        className="space-y-3"
+        noValidate
+        onSubmit={(e) => {
+          e.preventDefault()
+          void handleSalvar()
+        }}
+      >
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Trocar senha</p>
+        <input
+          className={campo}
+          type="password"
+          autoComplete="new-password"
+          aria-label="Nova senha"
+          placeholder={`Nova senha (mínimo ${TAMANHO_MINIMO_SENHA} caracteres)`}
+          value={novaSenha}
+          onChange={(e) => setNovaSenha(e.target.value)}
+        />
+        <input
+          className={campo}
+          type="password"
+          autoComplete="new-password"
+          aria-label="Confirme a nova senha"
+          placeholder="Confirme a nova senha"
+          value={confirmacao}
+          onChange={(e) => setConfirmacao(e.target.value)}
+        />
+        <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-ink-400">Trocar e-mail de recuperação</p>
+        <input
+          className={campo}
+          type="email"
+          autoComplete="email"
+          aria-label="Novo e-mail"
+          placeholder="Novo e-mail"
+          value={novoEmail}
+          onChange={(e) => setNovoEmail(e.target.value)}
+        />
+        <input
+          className={campo}
+          type="email"
+          autoComplete="off"
+          aria-label="Confirme o novo e-mail"
+          placeholder="Confirme o novo e-mail"
+          value={emailConfirmacao}
+          onChange={(e) => setEmailConfirmacao(e.target.value)}
+        />
+        <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-ink-400">Confirmação</p>
+        <input
+          className={campo}
+          type="password"
+          autoComplete="current-password"
+          aria-label="Sua senha atual"
+          placeholder="Sua senha atual"
+          value={senhaAtual}
+          onChange={(e) => setSenhaAtual(e.target.value)}
+        />
+        {erro && (
+          <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
+            {erro}
+          </p>
+        )}
+        <div className="flex justify-end gap-2 pt-2">
+          {onCancelar && (
+            <Button type="button" variant="secondary" onClick={onCancelar}>
+              Cancelar
+            </Button>
+          )}
+          <Button type="submit" variant="primary" disabled={salvando}>
+            {salvando ? 'Salvando…' : 'Salvar'}
+          </Button>
+        </div>
+      </form>
+    </>
+  )
+}
+
+/** A mesma coisa numa janela — pra quem só tem o xadrez (sem a aba Configurações). */
+export function MinhaContaModal({ usuario, onFechar }: { usuario: UsuarioLogado; onFechar: () => void }) {
+  useFecharComEsc(onFechar)
+  return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onFechar}>
       <div className="card max-w-sm w-full max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-display text-lg font-semibold text-ink-900">Minha conta</h3>
-        <p className="mb-4 text-sm text-ink-500">
-          {usuario.exibicao}
-          {usuario.emailMascarado && ` · recuperação: ${usuario.emailMascarado}`}
-        </p>
-        <form
-          className="space-y-3"
-          noValidate
-          onSubmit={(e) => {
-            e.preventDefault()
-            void handleSalvar()
-          }}
-        >
-          <p className="text-xs font-semibold uppercase tracking-wide text-ink-400">Trocar senha</p>
-          <input
-            className={campo}
-            type="password"
-            autoComplete="new-password"
-            placeholder={`Nova senha (mínimo ${TAMANHO_MINIMO_SENHA} caracteres)`}
-            value={novaSenha}
-            onChange={(e) => setNovaSenha(e.target.value)}
-          />
-          <input
-            className={campo}
-            type="password"
-            autoComplete="new-password"
-            placeholder="Confirme a nova senha"
-            value={confirmacao}
-            onChange={(e) => setConfirmacao(e.target.value)}
-          />
-          <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-ink-400">Trocar e-mail de recuperação</p>
-          <input className={campo} type="email" autoComplete="email" placeholder="Novo e-mail" value={novoEmail} onChange={(e) => setNovoEmail(e.target.value)} />
-          <input
-            className={campo}
-            type="email"
-            autoComplete="off"
-            placeholder="Confirme o novo e-mail"
-            value={emailConfirmacao}
-            onChange={(e) => setEmailConfirmacao(e.target.value)}
-          />
-          <p className="pt-2 text-xs font-semibold uppercase tracking-wide text-ink-400">Confirmação</p>
-          <input
-            className={campo}
-            type="password"
-            autoComplete="current-password"
-            placeholder="Sua senha atual"
-            value={senhaAtual}
-            onChange={(e) => setSenhaAtual(e.target.value)}
-          />
-          {erro && (
-            <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700">
-              {erro}
-            </p>
-          )}
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="secondary" onClick={onFechar}>
-              Cancelar
-            </Button>
-            <Button type="submit" variant="primary" disabled={salvando}>
-              {salvando ? 'Salvando…' : 'Salvar'}
-            </Button>
-          </div>
-        </form>
+        <MinhaContaForm usuario={usuario} onSalvo={onFechar} onCancelar={onFechar} />
       </div>
     </div>
   )

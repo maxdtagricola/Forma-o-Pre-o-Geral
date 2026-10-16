@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useFecharComEsc } from '../teclaEsc'
 import { Button } from './ui/Basics'
 import {
   abrirPaginaParaImpressao,
@@ -85,13 +86,7 @@ export function PlanilhaClienteModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conteudoBase64, items, nomeArquivo])
 
-  useEffect(() => {
-    function handleEsc(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleEsc)
-    return () => window.removeEventListener('keydown', handleEsc)
-  }, [onClose])
+  useFecharComEsc(onClose)
 
   const mensagem = `Segue o orçamento atualizado (${cliente || 'cliente'} — ${maquina || 'máquina'}). Anexei a planilha "${nomeArquivo}".`
 

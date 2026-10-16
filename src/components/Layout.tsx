@@ -1,7 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { FundoEmVideo } from './FundoEmVideo'
 import { aplicarTema, getTema, type Tema } from '../theme'
-import { ICONE_MINHA_CONTA, ICONE_SAIR, ICONES_ABAS } from './IconesAbas'
+import { ICONE_SAIR, ICONES_ABAS } from './IconesAbas'
+import { useFecharComEsc } from '../teclaEsc'
 
 export type TabKey =
   | 'telaInicial'
@@ -99,7 +100,6 @@ export function Layout({
   currentAdmin,
   nomeExibido,
   onSair,
-  onMinhaConta,
   podeVoltar,
   onVoltar,
   fundo,
@@ -112,16 +112,16 @@ export function Layout({
   /** Nome de login, mostrado no rodapé (ex.: "MÁXIMUS"). */
   nomeExibido: string
   onSair: () => void
-  onMinhaConta: () => void
   podeVoltar: boolean
   onVoltar: () => void
-  /** Vídeo de fundo atrás do conteúdo (todas as abas, menos o Xadrez) — sem isso, fundo liso. */
-  fundo?: { pausado: boolean; onAlternar: () => void; forte: boolean }
+  /** Vídeo de fundo atrás do conteúdo (todas as abas, menos o Xadrez) — sem isso, fundo liso. Pausar fica em Configurações. */
+  fundo?: { pausado: boolean; forte: boolean }
   children: ReactNode
 }) {
   // recolhido por padrão (igual ao menu do celular, que começa fechado) — só fica expandido se o usuário escolher
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('sidebarCollapsed') !== '0')
   const [mobileOpen, setMobileOpen] = useState(false)
+  useFecharComEsc(() => setMobileOpen(false), mobileOpen)
   // tema claro/escuro fica aqui na barra lateral (sempre à mão, em qualquer tela) — vale só nesse
   // aparelho, cada admin escolhe o seu (ver theme.ts)
   const [tema, setTema] = useState<Tema>(() => getTema())
@@ -256,24 +256,14 @@ export function Layout({
           })}
         </nav>
 
-        {/* rodapé numa linha só: quem está logado (minha conta, sair) + tema claro/escuro */}
+        {/* rodapé numa linha só: quem está logado (sair) + tema claro/escuro — trocar a senha fica em Configurações > Minha conta */}
         <div
           className={`border-t border-ink-100 px-2 py-2 ${
             recolhido ? 'flex flex-col items-center gap-1' : 'flex items-center gap-2 pl-3'
           }`}
         >
           {recolhido ? (
-            <>
-              <button
-                type="button"
-                onClick={onMinhaConta}
-                title={`${nomeExibido} — minha conta`}
-                aria-label={`${nomeExibido} — minha conta`}
-                className="flex h-7 w-full items-center justify-center rounded-lg text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
-              >
-                {ICONE_MINHA_CONTA}
-              </button>
-              <button
+            <button
                 type="button"
                 onClick={onSair}
                 title={`${nomeExibido} — sair`}
@@ -282,32 +272,15 @@ export function Layout({
               >
                 {ICONE_SAIR}
               </button>
-            </>
           ) : (
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium leading-tight text-ink-700">{nomeExibido}</p>
               <p className="text-xs leading-tight text-ink-400">
-                <button type="button" onClick={onMinhaConta} className="hover:text-ink-600 transition">
-                  Minha conta
-                </button>
-                {' · '}
                 <button type="button" onClick={onSair} className="hover:text-ink-600 transition">
                   Sair
                 </button>
               </p>
             </div>
-          )}
-          {fundo && (
-            <button
-              type="button"
-              onClick={fundo.onAlternar}
-              aria-pressed={fundo.pausado}
-              title={fundo.pausado ? 'Voltar a animar o vídeo de fundo' : 'Pausar o vídeo de fundo'}
-              aria-label={fundo.pausado ? 'Animar o vídeo de fundo' : 'Pausar o vídeo de fundo'}
-              className="flex h-7 shrink-0 items-center justify-center rounded-lg px-1.5 text-xs text-ink-500 transition hover:bg-ink-100 hover:text-ink-800"
-            >
-              <span aria-hidden>{fundo.pausado ? '▶' : '❚❚'}</span>
-            </button>
           )}
           <button
             type="button"

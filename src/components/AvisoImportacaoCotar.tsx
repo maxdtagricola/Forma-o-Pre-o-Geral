@@ -1,7 +1,9 @@
 import { Button } from './ui/Basics'
+import { useFecharComEsc } from '../teclaEsc'
 
 /** Lembrete que aparece ao entrar no modo "Importar planilha" — como identificar os itens a cotar na planilha. */
 export function AvisoImportacaoCotar({ onFechar }: { onFechar: () => void }) {
+  useFecharComEsc(onFechar)
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onFechar}>
       <div className="card max-w-md w-full" onClick={(e) => e.stopPropagation()}>

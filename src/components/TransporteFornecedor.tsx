@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { useFecharComEsc } from '../teclaEsc'
 import { Button } from './ui/Basics'
 import { diasUteisAte, textoDiasUteis } from '../diasUteis'
 import { mercadoriaRecebida } from '../avisosEntrega'
@@ -196,6 +197,7 @@ export function TransporteModal({
     Object.fromEntries(grupos.map((g) => [g.chave, g.inicial])),
   )
   const [salvando, setSalvando] = useState(false)
+  useFecharComEsc(onCancelar)
   const algumLinkInvalido = Object.values(dados).some((d) => normalizarLinkRastreio(d.linkRastreio) === undefined)
 
   async function handleConfirmar() {
@@ -259,13 +261,7 @@ export function ResumoTransporteModal({
   onAbrirPedido: () => void
   onFechar: () => void
 }) {
-  useEffect(() => {
-    function aoTeclar(e: KeyboardEvent) {
-      if (e.key === 'Escape') onFechar()
-    }
-    window.addEventListener('keydown', aoTeclar)
-    return () => window.removeEventListener('keydown', aoTeclar)
-  }, [onFechar])
+  useFecharComEsc(onFechar)
 
   const campo = (rotulo: string, valor: string | undefined) => (
     <div>

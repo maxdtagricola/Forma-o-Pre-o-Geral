@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Button } from './ui/Basics'
 import { avisar } from '../dialogs'
+import { useFecharComEsc } from '../teclaEsc'
 import type { PedidoCompraInfo, QuoteRecord } from '../types'
 
 export function PedidoCompraModal({
@@ -14,6 +15,7 @@ export function PedidoCompraModal({
 }) {
   const [tipo, setTipo] = useState<'completo' | 'parcial'>('completo')
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set(quote.items.map((i) => i.id)))
+  useFecharComEsc(onCancel)
 
   function toggle(id: string) {
     setSelecionados((prev) => {

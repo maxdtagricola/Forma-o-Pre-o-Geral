@@ -50,6 +50,7 @@ import {
 import { interpretarXmlFrete, interpretarXmlNotaFiscal, tipoDoXml } from '../xmlNotaFiscal'
 import { useEstadoPersistente } from '../estadoPersistente'
 import { avisar, confirmar } from '../dialogs'
+import { useFecharComEsc } from '../teclaEsc'
 
 // -----------------------------------------------------------------------
 // Registro de notas — a mesma tela serve "Transferências Fiscais" e
@@ -772,6 +773,7 @@ function NotaCard({
 }) {
   const [expandido, setExpandido] = useState(false)
   const [menuAberto, setMenuAberto] = useState(false)
+  useFecharComEsc(() => setMenuAberto(false), menuAberto)
   const [salvandoResultado, setSalvandoResultado] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const itens = itensDaNota(n)
@@ -1176,6 +1178,7 @@ function AlterarStatusModal({
   onSelecionar: (status: NotaFiscalStatus) => void
   onFechar: () => void
 }) {
+  useFecharComEsc(onFechar)
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink-950/60 backdrop-blur-sm p-4" onClick={onFechar}>
       <div className="w-full max-w-sm rounded-2xl bg-surface p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>

@@ -20,6 +20,7 @@ import { formatarNumeroBR, formatarNumeroCurtoBR, parseNumeroFlexivel } from '..
 import { TRANSPORTADORAS } from '../types'
 import type { DadosFreteTransportadora, Empresa, Fornecedor, MedidasCargaFrete, QuoteRecord } from '../types'
 import { avisar } from '../dialogs'
+import { useFecharComEsc } from '../teclaEsc'
 
 // ---------------------------------------------------------------------------
 // Cada transportadora pede um conjunto diferente de dados pro pedido de frete
@@ -627,6 +628,7 @@ export function FretePage({
   const [selecaoFornecedor, setSelecaoFornecedor] = useState<SelecaoFornecedor>('')
   const [transportadoraAberta, setTransportadoraAberta] = useState<string | null>(null)
   const [perguntandoFornecedor, setPerguntandoFornecedor] = useState(false)
+  useFecharComEsc(() => setPerguntandoFornecedor(false), perguntandoFornecedor)
   const [carga, setCarga] = useState<MedidasCargaFrete>(CARGA_VAZIA)
   const [cargaSalva, setCargaSalva] = useState(false)
   const cargaGravada = useRef<string>('')

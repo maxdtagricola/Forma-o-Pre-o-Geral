@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useFecharComEsc } from '../teclaEsc'
 import { Button } from './ui/Basics'
 import { abrirPaginaParaImpressao, baixarBlob, compartilharArquivo, linkEmail, linkWhatsApp, suportaCompartilharArquivo } from '../planilhaCliente'
 import { workbookParaBlobXlsx } from '../exceljsHtmlPreview'
@@ -135,13 +136,7 @@ export function PedidoCompraFornecedorModal({
     }
   }, [dados])
 
-  useEffect(() => {
-    function handleEsc(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleEsc)
-    return () => window.removeEventListener('keydown', handleEsc)
-  }, [onClose])
+  useFecharComEsc(onClose)
 
   function patch(p: Partial<CabecalhoPedido>) {
     setCabecalho((prev) => ({ ...prev, ...p }))

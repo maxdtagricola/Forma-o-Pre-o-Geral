@@ -17,6 +17,7 @@ import type { PedidoCompraInfo, QuoteRecord, QuoteStatus, TipoReferencia } from 
 import { useEstadoPersistente } from '../estadoPersistente'
 import { diasUteisDesde, textoDiasUteis, useVersaoFeriados } from '../diasUteis'
 import { avisar, confirmar } from '../dialogs'
+import { useFecharComEsc } from '../teclaEsc'
 import { itensDoPedidoDeCompra, perguntarAntesDoStatus } from '../mudancaDeStatus'
 import { DetalheProducao, SeloProducao } from '../components/SeloProducao'
 import { previsoesDeProducao } from '../fornecedoresDoPedido'
@@ -219,6 +220,7 @@ function QuoteCard({
 }) {
   const [expandido, setExpandido] = useState(false)
   const [menuAberto, setMenuAberto] = useState(false)
+  useFecharComEsc(() => setMenuAberto(false), menuAberto)
   const menuRef = useRef<HTMLDivElement>(null)
   const travadaPorOutro = r.status !== 'PENDENTE' && !!r.responsavelStatus && r.responsavelStatus !== currentAdmin
 

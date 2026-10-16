@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, type TabKey } from './components/Layout'
 import { LoginPage } from './components/LoginPage'
 import { MinhaContaModal } from './components/MinhaContaModal'
+import { SaidaAutomatica } from './components/SaidaAutomatica'
 import { TelaInicialPage } from './pages/TelaInicialPage'
 import { Dashboard } from './pages/Dashboard'
 import { RecuperarRascunhoModal } from './components/RecuperarRascunhoModal'
@@ -95,9 +96,18 @@ export default function App() {
       </>
     )
   }
-  if (sessao.usuario.papel !== 'admin') return <AreaDoJogador usuario={sessao.usuario} />
-  // key: outro usuário entrando começa do zero (abas, cotação aberta...)
-  return <AppAdmin key={sessao.usuario.login} usuario={sessao.usuario} />
+  return (
+    <>
+      {sessao.usuario.papel !== 'admin' ? (
+        <AreaDoJogador usuario={sessao.usuario} />
+      ) : (
+        // key: outro usuário entrando começa do zero (abas, cotação aberta...)
+        <AppAdmin key={sessao.usuario.login} usuario={sessao.usuario} />
+      )}
+      {/* key: cada login novo começa a contar do zero */}
+      <SaidaAutomatica key={sessao.token} />
+    </>
+  )
 }
 
 /** Quem só tem acesso ao xadrez: a Tela Inicial, sem a barra de abas. */
@@ -137,7 +147,6 @@ function AreaDoJogador({ usuario }: { usuario: UsuarioLogado }) {
 function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   // o nome com que o app conhece o usuário (cotações, histórico, abas exclusivas) — MÁXIMUS é "Max"
   const currentAdmin: AdminName = usuario.nome
-  const [mostrarMinhaConta, setMostrarMinhaConta] = useState(false)
   // todo mundo (o Max também) começa na Tela Inicial
   const [tab, setTab] = useState<TabKey>('telaInicial')
   // vídeo de fundo (todas as abas, menos o Xadrez): pausado ou não é preferência deste aparelho
@@ -799,10 +808,9 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       currentAdmin={currentAdmin}
       nomeExibido={usuario.exibicao}
       onSair={() => void sair()}
-      onMinhaConta={() => setMostrarMinhaConta(true)}
       podeVoltar={tabHistory.length > 0}
       onVoltar={handleVoltar}
-      fundo={tab === 'xadrez' ? undefined : { pausado: fundoPausado, onAlternar: alternarFundo, forte: tab !== 'telaInicial' }}
+      fundo={tab === 'xadrez' ? undefined : { pausado: fundoPausado, forte: tab !== 'telaInicial' }}
     >
       {tab === 'telaInicial' && (
         <TelaInicialPage
@@ -816,8 +824,6 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           }}
           onContinuar={() => changeTab('dashboard')}
           onIrPara={changeTab}
-          fundoPausado={fundoPausado}
-          onAlternarFundo={alternarFundo}
         />
       )}
       {/* as outras abas vêm sob demanda (ver os lazy() lá em cima) */}
@@ -905,6 +911,8 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           pricingGlobal={pricingGlobal}
           onSavePricingGlobal={handleSavePricingGlobal}
           onTabelasAtualizadas={() => setTabelasVersion((v) => v + 1)}
+          fundoPausado={fundoPausado}
+          onAlternarFundo={alternarFundo}
         />
       )}
       {tab === 'acompanhamentoNotas' && currentAdmin === 'Max' && (
@@ -937,7 +945,6 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           onDescartar={handleDescartarRascunho}
         />
       )}
-      {mostrarMinhaConta && <MinhaContaModal usuario={usuario} onFechar={() => setMostrarMinhaConta(false)} />}
 
       <AvisoEntregas
         aba={tab}

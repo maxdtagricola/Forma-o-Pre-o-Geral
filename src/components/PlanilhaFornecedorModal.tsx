@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useFecharComEsc } from '../teclaEsc'
 import { Button } from './ui/Basics'
 import { abrirParaImpressao, baixarBlob, compartilharArquivo, linkEmail, linkWhatsApp, suportaCompartilharArquivo } from '../planilhaCliente'
 import { workbookParaBlobXlsx } from '../exceljsHtmlPreview'
@@ -39,13 +40,7 @@ export function PlanilhaFornecedorModal({
     }
   }, [items])
 
-  useEffect(() => {
-    function handleEsc(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', handleEsc)
-    return () => window.removeEventListener('keydown', handleEsc)
-  }, [onClose])
+  useFecharComEsc(onClose)
 
   const titulo = `Orçamento — ${maquina || cliente || 'itens marcados'}`
   const mensagem = `Segue o orçamento pra cotação (${items.length} item${items.length > 1 ? 's' : ''}${

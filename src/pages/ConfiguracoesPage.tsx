@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button } from '../components/ui/Basics'
 import { PercentField, SelectField, TextField } from '../components/ui/Field'
 import { PreviaImportacao } from '../components/PreviaImportacao'
@@ -28,25 +28,62 @@ import { avisar, pedirSenha } from '../dialogs'
 import { UsuariosCard } from '../components/UsuariosCard'
 import { FeriadosCard } from '../components/FeriadosCard'
 import { useSessao } from '../sessaoUsuario'
+import { MinhaContaForm } from '../components/MinhaContaModal'
+import { ICONES_CONFIG } from '../components/IconesConfiguracoes'
+import { useFecharComEsc } from '../teclaEsc'
+import { useEstadoPersistente } from '../estadoPersistente'
+import {
+  CHAVE_MINUTOS_SAIDA,
+  MINUTOS_SAIDA_PADRAO,
+  OPCOES_SAIDA_AUTOMATICA,
+  textoDaSaida,
+} from '../components/SaidaAutomatica'
 
 const estadoOptions = ESTADOS.map((e) => ({ value: e.uf, label: `${e.uf} — ${e.nome}` }))
+
+type SecaoConfig = keyof typeof ICONES_CONFIG
+
+/** As partes da aba, na ordem dos símbolos (as mais usadas primeiro). */
+const SECOES: { id: SecaoConfig; titulo: string; resumo: string; icone: ReactNode }[] = [
+  { id: 'conta', titulo: 'Minha conta', resumo: 'Trocar a sua senha e o e-mail de recuperação', icone: ICONES_CONFIG.conta },
+  { id: 'saida', titulo: 'Saída automática', resumo: 'Sair sozinho depois de um tempo sem uso', icone: ICONES_CONFIG.saida },
+  { id: 'usuarios', titulo: 'Usuários', resumo: 'Função de cada um e liberar nova senha', icone: ICONES_CONFIG.usuarios },
+  { id: 'formacao', titulo: 'Formação de preço', resumo: 'Imposto federal, comissão e custo fixo', icone: ICONES_CONFIG.formacao },
+  { id: 'empresas', titulo: 'Empresas', resumo: 'Empresas do grupo que recebem os materiais', icone: ICONES_CONFIG.empresas },
+  { id: 'importarMarkup', titulo: 'Importar planilha de markup', resumo: 'Nova versão das tabelas RBC e ICMS-ST', icone: ICONES_CONFIG.importarMarkup },
+  { id: 'planilhas', titulo: 'Planilhas importadas', resumo: 'Histórico, baixar ou voltar a usar uma anterior', icone: ICONES_CONFIG.planilhas },
+  { id: 'feriados', titulo: 'Feriados', resumo: 'Estaduais e municipais, pros dias úteis', icone: ICONES_CONFIG.feriados },
+  { id: 'fundo', titulo: 'Vídeo de fundo', resumo: 'Animar ou pausar o samurai ao fundo', icone: ICONES_CONFIG.fundo },
+  { id: 'coresCotacao', titulo: 'Cores dos status', resumo: 'Status das cotações (Dashboard e Cotações)', icone: ICONES_CONFIG.coresCotacao },
+  { id: 'coresFrete', titulo: 'Cores do frete', resumo: 'Status das cotações de frete', icone: ICONES_CONFIG.coresFrete },
+  { id: 'xadrez', titulo: 'Xadrez', resumo: 'Pastas de partidas de cada jogador', icone: ICONES_CONFIG.xadrez },
+]
 
 export function ConfiguracoesPage({
   currentAdmin,
   pricingGlobal,
   onSavePricingGlobal,
   onTabelasAtualizadas,
+  fundoPausado,
+  onAlternarFundo,
 }: {
   currentAdmin: string
   pricingGlobal: PricingGlobal
   onSavePricingGlobal: (valores: PricingGlobal) => Promise<void>
   /** A planilha de markup em uso mudou — quem mostra cálculos refaz a conta com as tabelas novas. */
   onTabelasAtualizadas: () => void
+  /** Vídeo de fundo parado (só neste aparelho) — o único lugar onde se pausa/volta a animar. */
+  fundoPausado: boolean
+  onAlternarFundo: () => void
 }) {
   // (o tema claro/escuro saiu daqui — agora é um botão fixo na barra lateral, ver Layout.tsx)
 
   // a lista de usuários (definir função de quem se cadastrou) é só pro Max
-  const gerenciaUsuarios = useSessao()?.usuario.gestor ?? false
+  const sessao = useSessao()
+  const gerenciaUsuarios = sessao?.usuario.gestor ?? false
+  const [aberta, setAberta] = useState<SecaoConfig | null>(null)
+  // por aparelho — o SaidaAutomatica (App) lê o mesmo valor a cada segundo
+  const [minutosSaida, setMinutosSaida] = useEstadoPersistente<number>(CHAVE_MINUTOS_SAIDA, MINUTOS_SAIDA_PADRAO)
 
   // --- cores dos status -------------------------------------------------------
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
@@ -345,404 +382,519 @@ export function ConfiguracoesPage({
     }
   }
 
+  // cada parte das configurações é um símbolo; clicar abre só ela, numa janela (fecha no ✕ ou no Esc)
+  const secoes = SECOES.filter((s) => s.id !== 'usuarios' || gerenciaUsuarios)
+  const secaoAberta = secoes.find((s) => s.id === aberta)
+
+  function conteudoDa(secao: SecaoConfig): ReactNode {
+    switch (secao) {
+      case 'conta':
+        return sessao ? <MinhaContaForm usuario={sessao.usuario} /> : null
+      case 'saida':
+        return (
+          <fieldset>
+            <legend className="text-xs text-ink-400 mb-4">
+              Sem mexer no site (mouse, toque ou teclado) por esse tempo, você sai sozinho — e precisa entrar de novo.
+              Um minuto antes aparece um aviso. Vale só neste aparelho; o que estava sendo editado numa cotação não se
+              perde (ao entrar, o site oferece recuperar).
+            </legend>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {OPCOES_SAIDA_AUTOMATICA.map((m) => (
+                <label
+                  key={m}
+                  className={`flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2.5 text-sm transition ${
+                    minutosSaida === m ? 'border-ink-900 bg-ink-100 font-semibold text-ink-900' : 'border-ink-200 text-ink-700 hover:bg-ink-50'
+                  }`}
+                >
+                  <input type="radio" name="saida-automatica" checked={minutosSaida === m} onChange={() => setMinutosSaida(m)} />
+                  {textoDaSaida(m)}
+                  {m === MINUTOS_SAIDA_PADRAO && <span className="text-[10px] font-normal text-ink-400">(padrão)</span>}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )
+      case 'usuarios':
+        return <UsuariosCard embutido />
+      case 'feriados':
+        return <FeriadosCard embutido />
+      case 'fundo':
+        return (
+          <>
+            <p className="text-xs text-ink-400 mb-4">
+              A animação do samurai atrás das telas (e na tela de entrada). Vale só neste aparelho — cada um escolhe o seu.
+              Parada, fica a imagem fixa no lugar do vídeo.
+            </p>
+            <label className="relative flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-ink-100 px-4 py-3">
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-ink-900">Animar o vídeo de fundo</span>
+                <span className="block text-xs text-ink-400">{fundoPausado ? 'Pausado agora' : 'Animando agora'}</span>
+              </span>
+              <input
+                type="checkbox"
+                role="switch"
+                checked={!fundoPausado}
+                onChange={onAlternarFundo}
+                aria-label="Animar o vídeo de fundo"
+                className="peer sr-only"
+              />
+              <span
+                aria-hidden
+                className="relative h-6 w-11 shrink-0 rounded-full bg-ink-300 transition peer-checked:bg-emerald-600 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand-500 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-5"
+              />
+            </label>
+          </>
+        )
+      case 'coresCotacao':
+        return (
+          <>
+            <p className="text-xs text-ink-400 mb-4">Usadas no Dashboard e na aba Cotações — vale pra todos os admins.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {QUOTE_STATUSES.map((status) => (
+                <label key={status} className="flex items-center gap-2 rounded-lg border border-ink-100 px-3 py-2 text-xs text-ink-700">
+                  <input
+                    type="color"
+                    value={coresStatus[status] || corPadraoDoStatus(status)}
+                    onChange={(e) => handleCorStatusChange(status, e.target.value)}
+                    className="h-6 w-8 shrink-0 cursor-pointer rounded border border-ink-200 p-0"
+                  />
+                  <span className="truncate">{status}</span>
+                </label>
+              ))}
+            </div>
+          </>
+        )
+      case 'coresFrete':
+        return (
+          <>
+            <p className="text-xs text-ink-400 mb-4">Usadas no Acompanhamento de notas — vale pra todos os admins.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+              {NOTA_FISCAL_STATUSES.map((status) => (
+                <label key={status} className="flex items-center gap-2 rounded-lg border border-ink-100 px-3 py-2 text-xs text-ink-700">
+                  <input
+                    type="color"
+                    value={coresStatus[status] || corPadraoDoStatus(status, NOTA_FISCAL_STATUSES)}
+                    onChange={(e) => handleCorStatusChange(status, e.target.value)}
+                    className="h-6 w-8 shrink-0 cursor-pointer rounded border border-ink-200 p-0"
+                  />
+                  <span className="truncate">{status}</span>
+                </label>
+              ))}
+            </div>
+          </>
+        )
+      case 'formacao':
+        return (
+          <>
+            <p className="text-xs text-ink-400 mb-4">
+              Imposto federal, comissão e custo fixo valem pra todas as cotações — não são mais definidos item a item.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+              <PercentField
+                label="Imposto federal"
+                value={rascunhoGlobal.impFedPct}
+                onChange={(v) => setRascunhoGlobal((prev) => ({ ...prev, impFedPct: v }))}
+              />
+              <PercentField
+                label="Comissão"
+                value={rascunhoGlobal.comissaoPct}
+                onChange={(v) => setRascunhoGlobal((prev) => ({ ...prev, comissaoPct: v }))}
+              />
+              <PercentField
+                label="Custo fixo"
+                value={rascunhoGlobal.custoFixoPct}
+                onChange={(v) => setRascunhoGlobal((prev) => ({ ...prev, custoFixoPct: v }))}
+              />
+            </div>
+            <Button variant="primary" onClick={handleSalvarGlobal} disabled={salvandoGlobal}>
+              Salvar formação de preço
+            </Button>
+          </>
+        )
+      case 'empresas':
+        return (
+          <div ref={cardEmpresasRef}>
+            <p className="text-xs text-ink-400 mb-4">
+              Dados completos de cada empresa do grupo — vão ser usados na aba Frete como destino, pra gerar o frete
+              automático por transportadora.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TextField label="Nome / Razão social" value={formEmpresa.nome} onChange={(v) => patchEmpresa({ nome: v })} />
+              <TextField label="CNPJ / CPF" value={formEmpresa.cnpj} onChange={(v) => patchEmpresa({ cnpj: v })} placeholder="00.000.000/0000-00" />
+              <TextField label="Endereço" value={formEmpresa.endereco} onChange={(v) => patchEmpresa({ endereco: v })} className="sm:col-span-2" />
+              <TextField label="Bairro / Distrito" value={formEmpresa.bairro} onChange={(v) => patchEmpresa({ bairro: v })} />
+              <TextField label="CEP" value={formEmpresa.cep} onChange={(v) => patchEmpresa({ cep: v })} placeholder="00000-000" />
+              <TextField label="Município" value={formEmpresa.municipio} onChange={(v) => patchEmpresa({ municipio: v })} />
+              <SelectField label="UF" value={formEmpresa.uf} onChange={(v) => patchEmpresa({ uf: v })} options={estadoOptions} />
+              <TextField
+                label="E-mail"
+                value={formEmpresa.email}
+                onChange={(v) => patchEmpresa({ email: v })}
+                placeholder="contato@empresa.com.br"
+                hint="Carrega sozinho no pedido de frete, quando o modelo da transportadora pedir e-mail"
+              />
+            </div>
+
+            <label className="block mt-4 max-w-[12rem]">
+              <span className="field-label">Senha pra salvar</span>
+              <input type="password" className="field-input" value={senhaEmpresa} onChange={(e) => setSenhaEmpresa(e.target.value)} />
+            </label>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="primary" onClick={handleSubmitEmpresa} disabled={salvandoEmpresa}>
+                {editingEmpresaId ? 'Salvar alterações' : 'Adicionar empresa'}
+              </Button>
+              {editingEmpresaId && (
+                <>
+                  <Button variant="secondary" onClick={handleCancelEditEmpresa}>
+                    Cancelar edição
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteEmpresa(editingEmpresaId)}
+                    className="inline-flex items-center justify-center rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-rose-500"
+                  >
+                    Excluir empresa
+                  </button>
+                </>
+              )}
+            </div>
+
+            {carregandoEmpresas ? (
+              <p className="text-sm text-ink-400 text-center py-6">Carregando…</p>
+            ) : empresas.length === 0 ? (
+              <p className="text-sm text-ink-400 text-center py-6">Nenhuma empresa cadastrada ainda.</p>
+            ) : (
+              <div className="mt-4 divide-y divide-ink-100 border-t border-ink-100">
+                {empresas.map((e) => (
+                  <div key={e.id} className="py-3">
+                    <button type="button" onClick={() => handleEditEmpresa(e)} className="w-full min-w-0 text-left hover:opacity-80">
+                      <p className="text-sm font-medium text-ink-900 truncate">{e.nome}</p>
+                      <p className="text-xs text-ink-400 truncate">
+                        CNPJ {e.cnpj || '—'} · {e.endereco || '—'} · {e.municipio || '—'}
+                        {e.municipio && e.uf ? ' - ' : ''}
+                        {e.uf || ''}
+                      </p>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      case 'xadrez':
+        return (
+          <>
+            <p className="text-xs text-ink-400 mb-4">
+              Cada nome registrado na Tela Inicial guarda as partidas de xadrez dele separadas dos outros. Excluir uma
+              pasta apaga todas as partidas salvas daquele jogador — essa ação só existe aqui e pede senha.
+            </p>
+
+            {carregandoXadrez ? (
+              <p className="text-sm text-ink-400 text-center py-6">Carregando…</p>
+            ) : pastasXadrez.length === 0 ? (
+              <p className="text-sm text-ink-400 text-center py-6">Nenhum jogador registrado ainda.</p>
+            ) : (
+              <div className="divide-y divide-ink-100 border-t border-ink-100">
+                {pastasXadrez.map((p) => (
+                  <div key={p.jogador} className="flex items-center justify-between gap-3 py-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-ink-900 truncate">{p.jogador}</p>
+                      <p className="text-xs text-ink-400">
+                        {p.partidas} partida{p.partidas === 1 ? '' : 's'} salva{p.partidas === 1 ? '' : 's'}
+                      </p>
+                    </div>
+                    <Button variant="ghost" onClick={() => setPastaXadrezParaExcluir(p.jogador)}>
+                      Excluir pasta
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {pastaXadrezParaExcluir && (
+              <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4">
+                <p className="text-sm text-ink-900 mb-3">
+                  Confirme a senha pra excluir todas as partidas de "{pastaXadrezParaExcluir}". Essa ação não pode ser
+                  desfeita.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="password"
+                    className="field-input max-w-[10rem]"
+                    placeholder="Senha"
+                    aria-label="Senha"
+                    value={senhaExcluirPastaXadrez}
+                    onChange={(e) => setSenhaExcluirPastaXadrez(e.target.value)}
+                  />
+                  <Button variant="primary" onClick={handleConfirmarExcluirPastaXadrez}>
+                    Confirmar exclusão
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => {
+                      setPastaXadrezParaExcluir(null)
+                      setSenhaExcluirPastaXadrez('')
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )
+      case 'importarMarkup':
+        return (
+          <>
+            <p className="text-xs text-ink-400 mb-4">
+              Se os impostos ou tabelas da planilha original (RBC, ICMS-ST) mudarem, importe a nova versão aqui em vez de
+              alterar tudo manualmente. A importação só faz a leitura — nada muda até você clicar em "Salvar nova
+              planilha" e confirmar a senha de novo.
+            </p>
+
+            <label className="flex items-center gap-2 mb-4 text-sm text-ink-700">
+              <input type="checkbox" checked={habilitado} onChange={(e) => setHabilitado(e.target.checked)} className="h-4 w-4" />
+              Habilitar importação de planilha
+            </label>
+
+            <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 ${habilitado ? '' : 'opacity-40 pointer-events-none'}`}>
+              <SelectField
+                label="Perfil (estado de destino)"
+                value={perfilImportacao}
+                onChange={(v) => setPerfilImportacao(v as EstadoDestino)}
+                options={ESTADOS_DESTINO.map((e) => ({ value: e.value, label: e.label }))}
+              />
+              <label className="block">
+                <span className="field-label">Senha</span>
+                <input
+                  type="password"
+                  className="field-input"
+                  value={senhaImportar}
+                  onChange={(e) => setSenhaImportar(e.target.value)}
+                  disabled={!habilitado}
+                />
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="field-label">Arquivo (.xlsx)</span>
+                <input
+                  type="file"
+                  accept=".xlsx"
+                  onChange={(e) => handleArquivoSelecionado(e.target.files?.[0])}
+                  disabled={!habilitado}
+                  className="field-input"
+                />
+              </label>
+            </div>
+
+            {lendoPrevia && <p className="text-sm text-ink-400 mb-4">Lendo planilha…</p>}
+
+            {habilitado && previaArquivo && arquivo && !arquivoConfirmado && (
+              <div className="mb-4">
+                <PreviaImportacao
+                  nomeArquivo={arquivo.name}
+                  previa={previaArquivo}
+                  onConfirmar={() => setArquivoConfirmado(true)}
+                  onCancelar={() => handleArquivoSelecionado(undefined)}
+                />
+              </div>
+            )}
+
+            <Button variant="secondary" onClick={handleImportar} disabled={!habilitado || !arquivoConfirmado || importando}>
+              Importar (só leitura)
+            </Button>
+
+            {pendente && (
+              <div className="mt-5 rounded-xl border border-brand-200 bg-brand-50 p-4">
+                <p className="text-sm font-medium text-ink-900 mb-1">
+                  Planilha lida: {pendente.nomeArquivo} (perfil {perfilImportacao})
+                </p>
+                <p className="text-xs text-ink-600 mb-3">
+                  {pendente.totalNcmsRbc} NCMs na tabela RBC · {pendente.totalNcmsIcmsSt} NCMs na tabela ICMS-ST ·{' '}
+                  {pendente.totalNcmsPisCofins} NCMs com PIS/COFINS monofásico
+                  {pendente.ncmsLista.length > 0 ? ` · ${pendente.ncmsLista.length} NCMs na lista de NCMs` : ''}. Ainda não
+                  foi aplicada — confirme a senha de novo pra substituir a planilha atual desse perfil.
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="password"
+                    className="field-input max-w-[10rem]"
+                    placeholder="Senha"
+                    aria-label="Senha"
+                    value={senhaSalvar}
+                    onChange={(e) => setSenhaSalvar(e.target.value)}
+                  />
+                  <Button variant="primary" onClick={handleSalvarNovaPlanilha} disabled={salvandoPlanilha}>
+                    Salvar nova planilha
+                  </Button>
+                  <Button variant="ghost" onClick={() => setPendente(undefined)}>
+                    Descartar
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )
+      case 'planilhas':
+        return (
+          <>
+            <p className="text-xs text-ink-400 mb-4">Histórico de todas as planilhas já salvas — dá pra voltar a usar uma anterior.</p>
+            {carregandoPlanilhas ? (
+              <p className="text-sm text-ink-400 text-center py-6">Carregando…</p>
+            ) : planilhas.length === 0 ? (
+              <p className="text-sm text-ink-400 text-center py-6">Nenhuma planilha importada ainda.</p>
+            ) : (
+              <div className="divide-y divide-ink-100">
+                {planilhas.map((p) => {
+                  const ativa = planilhaAtivaIds[p.perfil] === p.id
+                  return (
+                    <div key={p.id} className="flex items-center justify-between gap-3 py-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-ink-900 truncate">
+                          {p.nomeArquivo}
+                          {ativa && (
+                            <span className="ml-2 inline-flex items-center rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-semibold text-ink-800">
+                              Ativa
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-xs text-ink-400">
+                          Perfil {p.perfil} · importado por {p.importadoPor || '—'} em {formatDate(p.importadoEm)}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 shrink-0">
+                        <Button variant="secondary" onClick={() => setAcaoPlanilhaPendente({ tipo: 'baixar', planilha: p })}>
+                          Baixar
+                        </Button>
+                        {!ativa && (
+                          <Button variant="secondary" onClick={() => setAcaoPlanilhaPendente({ tipo: 'usar', planilha: p })}>
+                            Usar esta
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {acaoPlanilhaPendente && (
+              <div className="mt-4 rounded-xl border border-brand-200 bg-brand-50 p-4">
+                <p className="text-sm text-ink-900 mb-3">
+                  {acaoPlanilhaPendente.tipo === 'usar'
+                    ? `Confirme a senha pra usar "${acaoPlanilhaPendente.planilha.nomeArquivo}" no perfil ${acaoPlanilhaPendente.planilha.perfil}.`
+                    : `Confirme a senha pra baixar "${acaoPlanilhaPendente.planilha.nomeArquivo}".`}
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="password"
+                    className="field-input max-w-[10rem]"
+                    placeholder="Senha"
+                    aria-label="Senha"
+                    value={senhaAcaoPlanilha}
+                    onChange={(e) => setSenhaAcaoPlanilha(e.target.value)}
+                  />
+                  <Button variant="primary" onClick={handleConfirmarAcaoPlanilha} disabled={executandoAcaoPlanilha}>
+                    Confirmar
+                  </Button>
+                  <Button variant="ghost" onClick={handleCancelarAcaoPlanilha}>
+                    Cancelar
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="card">
         <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">Configurações</h2>
-        <p className="text-sm text-ink-400">Ajustes gerais do site, válidos pra todos os admins.</p>
-      </div>
-
-      {gerenciaUsuarios && <UsuariosCard />}
-
-      <FeriadosCard />
-
-      <div className="card">
-        <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Cores dos status de cotação</h3>
-        <p className="text-xs text-ink-400 mb-4">Usadas no Dashboard e na aba Cotações — vale pra todos os admins.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {QUOTE_STATUSES.map((status) => (
-            <label
-              key={status}
-              className="flex items-center gap-2 rounded-lg border border-ink-100 px-3 py-2 text-xs text-ink-700"
-            >
-              <input
-                type="color"
-                value={coresStatus[status] || corPadraoDoStatus(status)}
-                onChange={(e) => handleCorStatusChange(status, e.target.value)}
-                className="h-6 w-8 shrink-0 cursor-pointer rounded border border-ink-200 p-0"
-              />
-              <span className="truncate">{status}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className="card">
-        <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Cores dos status de cotação do frete</h3>
-        <p className="text-xs text-ink-400 mb-4">Usadas no Acompanhamento de notas — vale pra todos os admins.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-          {NOTA_FISCAL_STATUSES.map((status) => (
-            <label
-              key={status}
-              className="flex items-center gap-2 rounded-lg border border-ink-100 px-3 py-2 text-xs text-ink-700"
-            >
-              <input
-                type="color"
-                value={coresStatus[status] || corPadraoDoStatus(status, NOTA_FISCAL_STATUSES)}
-                onChange={(e) => handleCorStatusChange(status, e.target.value)}
-                className="h-6 w-8 shrink-0 cursor-pointer rounded border border-ink-200 p-0"
-              />
-              <span className="truncate">{status}</span>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      <div className="card">
-        <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Formação de preço</h3>
-        <p className="text-xs text-ink-400 mb-4">
-          Imposto federal, comissão e custo fixo valem pra todas as cotações — não são mais definidos item a item.
+        <p className="text-sm text-ink-400">
+          Clique num símbolo pra abrir — fecha no ✕ ou com a tecla Esc. Minha conta é só sua, e Saída automática e Vídeo
+          de fundo valem só neste aparelho; o resto vale pra todos os admins.
         </p>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-          <PercentField
-            label="Imposto federal"
-            value={rascunhoGlobal.impFedPct}
-            onChange={(v) => setRascunhoGlobal((prev) => ({ ...prev, impFedPct: v }))}
-          />
-          <PercentField
-            label="Comissão"
-            value={rascunhoGlobal.comissaoPct}
-            onChange={(v) => setRascunhoGlobal((prev) => ({ ...prev, comissaoPct: v }))}
-          />
-          <PercentField
-            label="Custo fixo"
-            value={rascunhoGlobal.custoFixoPct}
-            onChange={(v) => setRascunhoGlobal((prev) => ({ ...prev, custoFixoPct: v }))}
-          />
-        </div>
-        <Button variant="primary" onClick={handleSalvarGlobal} disabled={salvandoGlobal}>
-          Salvar formação de preço
-        </Button>
       </div>
 
-      <div className="card" ref={cardEmpresasRef}>
-        <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Empresas que recebem os materiais</h3>
-        <p className="text-xs text-ink-400 mb-4">
-          Dados completos de cada empresa do grupo — vão ser usados na aba Frete como destino, pra gerar o frete
-          automático por transportadora.
-        </p>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <TextField label="Nome / Razão social" value={formEmpresa.nome} onChange={(v) => patchEmpresa({ nome: v })} />
-          <TextField label="CNPJ / CPF" value={formEmpresa.cnpj} onChange={(v) => patchEmpresa({ cnpj: v })} placeholder="00.000.000/0000-00" />
-          <TextField label="Endereço" value={formEmpresa.endereco} onChange={(v) => patchEmpresa({ endereco: v })} className="sm:col-span-2" />
-          <TextField label="Bairro / Distrito" value={formEmpresa.bairro} onChange={(v) => patchEmpresa({ bairro: v })} />
-          <TextField label="CEP" value={formEmpresa.cep} onChange={(v) => patchEmpresa({ cep: v })} placeholder="00000-000" />
-          <TextField label="Município" value={formEmpresa.municipio} onChange={(v) => patchEmpresa({ municipio: v })} />
-          <SelectField label="UF" value={formEmpresa.uf} onChange={(v) => patchEmpresa({ uf: v })} options={estadoOptions} />
-          <TextField
-            label="E-mail"
-            value={formEmpresa.email}
-            onChange={(v) => patchEmpresa({ email: v })}
-            placeholder="contato@empresa.com.br"
-            hint="Carrega sozinho no pedido de frete, quando o modelo da transportadora pedir e-mail"
-          />
-        </div>
-
-        <label className="block mt-4 max-w-[12rem]">
-          <span className="field-label">Senha pra salvar</span>
-          <input
-            type="password"
-            className="field-input"
-            value={senhaEmpresa}
-            onChange={(e) => setSenhaEmpresa(e.target.value)}
-          />
-        </label>
-
-        <div className="mt-4 flex gap-2">
-          <Button variant="primary" onClick={handleSubmitEmpresa} disabled={salvandoEmpresa}>
-            {editingEmpresaId ? 'Salvar alterações' : 'Adicionar empresa'}
-          </Button>
-          {editingEmpresaId && (
-            <Button variant="secondary" onClick={handleCancelEditEmpresa}>
-              Cancelar edição
-            </Button>
-          )}
-        </div>
-
-        {carregandoEmpresas ? (
-          <p className="text-sm text-ink-400 text-center py-6">Carregando…</p>
-        ) : empresas.length === 0 ? (
-          <p className="text-sm text-ink-400 text-center py-6">Nenhuma empresa cadastrada ainda.</p>
-        ) : (
-          <div className="mt-4 divide-y divide-ink-100 border-t border-ink-100">
-            {empresas.map((e) => (
-              <div key={e.id} className="py-3">
-                <button type="button" onClick={() => handleEditEmpresa(e)} className="w-full min-w-0 text-left hover:opacity-80">
-                  <p className="text-sm font-medium text-ink-900 truncate">{e.nome}</p>
-                  <p className="text-xs text-ink-400 truncate">
-                    CNPJ {e.cnpj || '—'} · {e.endereco || '—'} · {e.municipio || '—'}
-                    {e.municipio && e.uf ? ' - ' : ''}
-                    {e.uf || ''}
-                  </p>
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+        {secoes.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => setAberta(s.id)}
+            aria-haspopup="dialog"
+            className="card group flex flex-col items-center gap-2 !p-4 text-center transition hover:-translate-y-0.5 hover:border-ink-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+          >
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-ink-100 text-ink-800 transition group-hover:bg-ink-200 group-hover:text-ink-950">
+              {s.icone}
+            </span>
+            <span className="text-sm font-semibold leading-tight text-ink-900">{s.titulo}</span>
+            <span className="text-[11px] leading-snug text-ink-400">{s.resumo}</span>
+          </button>
+        ))}
       </div>
 
-      <div className="card">
-        <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Xadrez — pastas de jogadores</h3>
-        <p className="text-xs text-ink-400 mb-4">
-          Cada nome registrado na Tela Inicial guarda as partidas de xadrez dele separadas dos outros. Excluir uma
-          pasta apaga todas as partidas salvas daquele jogador — essa ação só existe aqui e pede senha.
-        </p>
+      {secaoAberta && (
+        <PainelConfiguracao titulo={secaoAberta.titulo} icone={secaoAberta.icone} onFechar={() => setAberta(null)}>
+          {conteudoDa(secaoAberta.id)}
+        </PainelConfiguracao>
+      )}
+    </div>
+  )
+}
 
-        {carregandoXadrez ? (
-          <p className="text-sm text-ink-400 text-center py-6">Carregando…</p>
-        ) : pastasXadrez.length === 0 ? (
-          <p className="text-sm text-ink-400 text-center py-6">Nenhum jogador registrado ainda.</p>
-        ) : (
-          <div className="divide-y divide-ink-100 border-t border-ink-100">
-            {pastasXadrez.map((p) => (
-              <div key={p.jogador} className="flex items-center justify-between gap-3 py-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-ink-900 truncate">{p.jogador}</p>
-                  <p className="text-xs text-ink-400">
-                    {p.partidas} partida{p.partidas === 1 ? '' : 's'} salva{p.partidas === 1 ? '' : 's'}
-                  </p>
-                </div>
-                <Button variant="ghost" onClick={() => setPastaXadrezParaExcluir(p.jogador)}>
-                  Excluir pasta
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {pastaXadrezParaExcluir && (
-          <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4">
-            <p className="text-sm text-ink-900 mb-3">
-              Confirme a senha pra excluir todas as partidas de "{pastaXadrezParaExcluir}". Essa ação não pode ser
-              desfeita.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="password"
-                className="field-input max-w-[10rem]"
-                placeholder="Senha"
-                value={senhaExcluirPastaXadrez}
-                onChange={(e) => setSenhaExcluirPastaXadrez(e.target.value)}
-              />
-              <Button variant="primary" onClick={handleConfirmarExcluirPastaXadrez}>
-                Confirmar exclusão
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setPastaXadrezParaExcluir(null)
-                  setSenhaExcluirPastaXadrez('')
-                }}
-              >
-                Cancelar
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="card">
-        <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Importar planilha de markup</h3>
-        <p className="text-xs text-ink-400 mb-4">
-          Se os impostos ou tabelas da planilha original (RBC, ICMS-ST) mudarem, importe a nova versão aqui em vez de
-          alterar tudo manualmente. A importação só faz a leitura — nada muda até você clicar em "Salvar nova
-          planilha" e confirmar a senha de novo.
-        </p>
-
-        <label className="flex items-center gap-2 mb-4 text-sm text-ink-700">
-          <input
-            type="checkbox"
-            checked={habilitado}
-            onChange={(e) => setHabilitado(e.target.checked)}
-            className="h-4 w-4"
-          />
-          Habilitar importação de planilha
-        </label>
-
-        <div className={`grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4 ${habilitado ? '' : 'opacity-40 pointer-events-none'}`}>
-          <SelectField
-            label="Perfil (estado de destino)"
-            value={perfilImportacao}
-            onChange={(v) => setPerfilImportacao(v as EstadoDestino)}
-            options={ESTADOS_DESTINO.map((e) => ({ value: e.value, label: e.label }))}
-          />
-          <label className="block">
-            <span className="field-label">Senha</span>
-            <input
-              type="password"
-              className="field-input"
-              value={senhaImportar}
-              onChange={(e) => setSenhaImportar(e.target.value)}
-              disabled={!habilitado}
-            />
-          </label>
-          <label className="block sm:col-span-2">
-            <span className="field-label">Arquivo (.xlsx)</span>
-            <input
-              type="file"
-              accept=".xlsx"
-              onChange={(e) => handleArquivoSelecionado(e.target.files?.[0])}
-              disabled={!habilitado}
-              className="field-input"
-            />
-          </label>
-        </div>
-
-        {lendoPrevia && <p className="text-sm text-ink-400 mb-4">Lendo planilha…</p>}
-
-        {habilitado && previaArquivo && arquivo && !arquivoConfirmado && (
-          <div className="mb-4">
-            <PreviaImportacao
-              nomeArquivo={arquivo.name}
-              previa={previaArquivo}
-              onConfirmar={() => setArquivoConfirmado(true)}
-              onCancelar={() => handleArquivoSelecionado(undefined)}
-            />
-          </div>
-        )}
-
-        <Button
-          variant="secondary"
-          onClick={handleImportar}
-          disabled={!habilitado || !arquivoConfirmado || importando}
-        >
-          Importar (só leitura)
-        </Button>
-
-        {pendente && (
-          <div className="mt-5 rounded-xl border border-brand-200 bg-brand-50 p-4">
-            <p className="text-sm font-medium text-ink-900 mb-1">
-              Planilha lida: {pendente.nomeArquivo} (perfil {perfilImportacao})
-            </p>
-            <p className="text-xs text-ink-600 mb-3">
-              {pendente.totalNcmsRbc} NCMs na tabela RBC · {pendente.totalNcmsIcmsSt} NCMs na tabela ICMS-ST ·{' '}
-              {pendente.totalNcmsPisCofins} NCMs com PIS/COFINS monofásico
-              {pendente.ncmsLista.length > 0 ? ` · ${pendente.ncmsLista.length} NCMs na lista de NCMs` : ''}. Ainda não
-              foi aplicada — confirme a senha de novo pra substituir a planilha atual desse perfil.
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="password"
-                className="field-input max-w-[10rem]"
-                placeholder="Senha"
-                value={senhaSalvar}
-                onChange={(e) => setSenhaSalvar(e.target.value)}
-              />
-              <Button variant="primary" onClick={handleSalvarNovaPlanilha} disabled={salvandoPlanilha}>
-                Salvar nova planilha
-              </Button>
-              <Button variant="ghost" onClick={() => setPendente(undefined)}>
-                Descartar
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="card">
-        <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Planilhas importadas</h3>
-        <p className="text-xs text-ink-400 mb-4">Histórico de todas as planilhas já salvas — dá pra voltar a usar uma anterior.</p>
-        {carregandoPlanilhas ? (
-          <p className="text-sm text-ink-400 text-center py-6">Carregando…</p>
-        ) : planilhas.length === 0 ? (
-          <p className="text-sm text-ink-400 text-center py-6">Nenhuma planilha importada ainda.</p>
-        ) : (
-          <div className="divide-y divide-ink-100">
-            {planilhas.map((p) => {
-              const ativa = planilhaAtivaIds[p.perfil] === p.id
-              return (
-                <div key={p.id} className="flex items-center justify-between gap-3 py-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-ink-900 truncate">
-                      {p.nomeArquivo}
-                      {ativa && (
-                        <span className="ml-2 inline-flex items-center rounded-full bg-brand-100 px-2 py-0.5 text-[11px] font-semibold text-ink-800">
-                          Ativa
-                        </span>
-                      )}
-                    </p>
-                    <p className="text-xs text-ink-400">
-                      Perfil {p.perfil} · importado por {p.importadoPor || '—'} em {formatDate(p.importadoEm)}
-                    </p>
-                  </div>
-                  <div className="flex gap-2 shrink-0">
-                    <Button
-                      variant="secondary"
-                      onClick={() => setAcaoPlanilhaPendente({ tipo: 'baixar', planilha: p })}
-                    >
-                      Baixar
-                    </Button>
-                    {!ativa && (
-                      <Button
-                        variant="secondary"
-                        onClick={() => setAcaoPlanilhaPendente({ tipo: 'usar', planilha: p })}
-                      >
-                        Usar esta
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {acaoPlanilhaPendente && (
-          <div className="mt-4 rounded-xl border border-brand-200 bg-brand-50 p-4">
-            <p className="text-sm text-ink-900 mb-3">
-              {acaoPlanilhaPendente.tipo === 'usar'
-                ? `Confirme a senha pra usar "${acaoPlanilhaPendente.planilha.nomeArquivo}" no perfil ${acaoPlanilhaPendente.planilha.perfil}.`
-                : `Confirme a senha pra baixar "${acaoPlanilhaPendente.planilha.nomeArquivo}".`}
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              <input
-                type="password"
-                className="field-input max-w-[10rem]"
-                placeholder="Senha"
-                value={senhaAcaoPlanilha}
-                onChange={(e) => setSenhaAcaoPlanilha(e.target.value)}
-              />
-              <Button variant="primary" onClick={handleConfirmarAcaoPlanilha} disabled={executandoAcaoPlanilha}>
-                Confirmar
-              </Button>
-              <Button variant="ghost" onClick={handleCancelarAcaoPlanilha}>
-                Cancelar
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>
-
-      <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-2">
-        {editingEmpresaId && (
+/** A parte aberta das configurações, numa janela por cima — fecha no ✕, no Esc ou clicando fora. O que
+ * estava preenchido continua lá se ela for aberta de novo (fica guardado na página). */
+function PainelConfiguracao({
+  titulo,
+  icone,
+  onFechar,
+  children,
+}: {
+  titulo: string
+  icone: ReactNode
+  onFechar: () => void
+  children: ReactNode
+}) {
+  useFecharComEsc(onFechar)
+  const caixaRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    caixaRef.current?.focus()
+  }, [])
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4 animate-[dialog-fade-in_0.15s_ease-out]"
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) onFechar()
+      }}
+    >
+      <div
+        ref={caixaRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={titulo}
+        tabIndex={-1}
+        className="card flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden !p-0 outline-none animate-[dialog-pop-in_0.18s_cubic-bezier(0.16,1,0.3,1)]"
+      >
+        <div className="flex items-center gap-3 border-b border-ink-100 px-5 py-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-ink-100 text-ink-800 [&_svg]:h-5 [&_svg]:w-5">
+            {icone}
+          </span>
+          <h3 className="min-w-0 flex-1 truncate font-display text-lg font-semibold text-ink-900">{titulo}</h3>
           <button
             type="button"
-            onClick={() => handleDeleteEmpresa(editingEmpresaId)}
-            className="h-10 px-4 rounded-full bg-rose-600 text-white text-sm font-medium shadow-lg hover:bg-rose-500 transition"
+            onClick={onFechar}
+            title="Fechar (Esc)"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-ink-200 px-2.5 py-1.5 text-sm text-ink-600 transition hover:bg-ink-100 hover:text-ink-900"
           >
-            Excluir
+            <span aria-hidden>✕</span> Fechar
+            <kbd className="hidden rounded border border-ink-200 px-1 font-mono text-[10px] text-ink-400 sm:inline">Esc</kbd>
           </button>
-        )}
-        <button
-          type="button"
-          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-          aria-label="Voltar ao topo"
-          title="Voltar ao topo"
-          className="h-11 w-11 rounded-full bg-ink-950 text-white text-lg shadow-lg hover:bg-brand-600 transition flex items-center justify-center"
-        >
-          ↑
-        </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
       </div>
     </div>
   )

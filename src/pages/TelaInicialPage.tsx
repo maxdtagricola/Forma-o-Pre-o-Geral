@@ -101,8 +101,6 @@ export function TelaInicialPage({
   onNovaCotacao,
   onContinuar,
   onIrPara,
-  fundoPausado,
-  onAlternarFundo,
 }: {
   /** Nome de login (ex.: "MÁXIMUS"), pra saudação. */
   nomeExibido: string
@@ -115,8 +113,6 @@ export function TelaInicialPage({
   onContinuar: () => void
   onIrPara: (tab: TabKey) => void
   /** Vídeo de fundo pausado (o vídeo fica no Layout, atrás de todas as abas menos o Xadrez). */
-  fundoPausado: boolean
-  onAlternarFundo: () => void
 }) {
   const [cotacoes, setCotacoes] = useState<QuoteRecord[]>([])
   // "Fechou" no bloco de retorno do cliente: a mesma janela de sempre (pedido completo ou só alguns itens)
@@ -270,15 +266,6 @@ export function TelaInicialPage({
           <p className="text-sm text-ink-600">O que precisa de atenção nas cotações hoje.</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={onAlternarFundo}
-            aria-pressed={fundoPausado}
-            title={fundoPausado ? 'Voltar a animar o vídeo de fundo' : 'Pausar o vídeo de fundo'}
-            className="rounded-lg border border-ink-200 bg-surface/80 px-3 py-2 text-sm font-medium text-ink-700 backdrop-blur transition hover:bg-ink-50"
-          >
-            {fundoPausado ? '▶ Animar fundo' : '❚❚ Pausar fundo'}
-          </button>
           <button
             type="button"
             onClick={() => onNovaCotacao('manual')}
