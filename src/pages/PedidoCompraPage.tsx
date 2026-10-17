@@ -6,7 +6,7 @@ import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { PedidoCompraFornecedorModal, type BasePedidoCompraFornecedor } from '../components/PedidoCompraFornecedorModal'
 import {
   CartaoTransporte,
-  ResumoTransporteModal,
+  ResumoTransporteDaCotacao,
   SeloPrevisao,
   SelosPrevisao,
   TRANSPORTE_VAZIO,
@@ -249,10 +249,13 @@ function MiniStat({ label, negociado, fechado }: { label: string; negociado: num
 export function PedidoCompraPage({
   currentAdmin,
   abrirTransporte,
+  abrirPedido,
 }: {
   currentAdmin: string
   /** Pedido pra já abrir a janela de transporte (clique no aviso de entregas) — `vez` muda a cada clique. */
   abrirTransporte?: { cotacaoId: string; vez: number }
+  /** Pedido pra já abrir aberto ("Abrir pedido" na janela de transporte da Tela Inicial). */
+  abrirPedido?: { cotacaoId: string; vez: number }
 }) {
   const [quotes, setQuotes] = useState<QuoteRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -340,6 +343,9 @@ export function PedidoCompraPage({
     void refresh()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [abrirTransporte?.vez])
+  useEffect(() => {
+    if (abrirPedido) setCotacaoId(abrirPedido.cotacaoId)
+  }, [abrirPedido])
 
   // só os itens que realmente entraram no pedido de compra (ver PedidoCompraModal) — uma cotação
   // pode ter sido fechada só com "alguns itens", e o resto (que não foi pedido) não deve aparecer
@@ -1092,22 +1098,8 @@ export function PedidoCompraPage({
       )}
 
       {resumoTransporte && (
-        <ResumoTransporteModal
-          titulo={`${resumoTransporte.codigo || 'sem código'} — ${resumoTransporte.cliente || 'sem cliente'}`}
-          subtitulo={[resumoTransporte.maquina, resumoTransporte.vendedor].filter(Boolean).join(' · ') || undefined}
-          selos={
-            <span
-              className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
-              style={{ backgroundColor: corPadraoDoStatus(resumoTransporte.status), color: corTexto(corPadraoDoStatus(resumoTransporte.status)) }}
-            >
-              {resumoTransporte.status}
-            </span>
-          }
-          fornecedores={gruposDoPedido(resumoTransporte).map((g) => ({
-            chave: chaveTransporte(g.chave),
-            rotulo: g.rotulo,
-            transporte: resumoTransporte.transportePorFornecedor?.[chaveTransporte(g.chave)],
-          }))}
+        <ResumoTransporteDaCotacao
+          cotacao={resumoTransporte}
           onAbrirPedido={() => {
             setCotacaoId(resumoTransporte.id)
             setResumoTransporteId(undefined)

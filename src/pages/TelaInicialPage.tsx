@@ -3,7 +3,7 @@ import { listQuotes, updateQuoteStatus } from '../db/analysesRepo'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { avisar, pedirMotivoArquivamento } from '../dialogs'
 import { DIAS_PARA_RETORNO, cotacoesEsperandoRetorno, diasDesdeOEnvio } from '../retornoCotacao'
-import { SelosPrevisao, previsaoDaCotacao, situacaoDaPrevisao } from '../components/TransporteFornecedor'
+import { ResumoTransporteDaCotacao, SelosPrevisao, previsaoDaCotacao, situacaoDaPrevisao } from '../components/TransporteFornecedor'
 import { SeloProducao } from '../components/SeloProducao'
 import { previsoesDeEntrega, previsoesDeProducao } from '../fornecedoresDoPedido'
 import { itensDoPedidoDeCompra } from '../mudancaDeStatus'
@@ -101,6 +101,8 @@ export function TelaInicialPage({
   onNovaCotacao,
   onContinuar,
   onIrPara,
+  veTransferencias,
+  onAbrirPedido,
 }: {
   /** Nome de login (ex.: "MÁXIMUS"), pra saudação. */
   nomeExibido: string
@@ -112,7 +114,10 @@ export function TelaInicialPage({
   onNovaCotacao: (modo: 'manual' | 'importar') => void
   onContinuar: () => void
   onIrPara: (tab: TabKey) => void
-  /** Vídeo de fundo pausado (o vídeo fica no Layout, atrás de todas as abas menos o Xadrez). */
+  /** Quem tem a aba Transferências Fiscais vê o bloco delas aqui. */
+  veTransferencias: boolean
+  /** "Abrir pedido" na janela de transporte: Pedido de Compra com essa cotação aberta. */
+  onAbrirPedido: (cotacaoId: string) => void
 }) {
   const [cotacoes, setCotacoes] = useState<QuoteRecord[]>([])
   // "Fechou" no bloco de retorno do cliente: a mesma janela de sempre (pedido completo ou só alguns itens)
@@ -123,7 +128,9 @@ export function TelaInicialPage({
   const [coresStatus, setCoresStatus] = useState<Record<string, string>>({})
   const [agora] = useState(() => Date.now())
   useVersaoFeriados()
-  const veTransferencias = currentAdmin === 'Max'
+  // clique num pedido EM TRANSPORTE: a mesma janela do Pedido de Compra (NF, transportadora, rastreio, previsão)
+  const [transporteAbertoId, setTransporteAbertoId] = useState<string | undefined>(undefined)
+  const transporteAberto = cotacoes.find((c) => c.id === transporteAbertoId)
 
   useEffect(() => {
     listQuotes()
@@ -417,7 +424,8 @@ export function TelaInicialPage({
               titulo="EM TRANSPORTE"
               total={blocos.emTransporte.length}
               vazio="Nada em transporte."
-              onVerTodas={() => onIrPara('cotacoes')}
+              onVerTodas={() => onIrPara('pedidoCompra')}
+              rotuloVerTodas="Ver no Pedido de Compra"
             >
               {blocos.emTransporte.slice(0, ITENS_POR_BLOCO).map((r) => {
                 const previsoes = previsoesDeEntrega(r)
@@ -425,7 +433,7 @@ export function TelaInicialPage({
                   <LinhaCotacao
                     key={r.id}
                     r={r}
-                    onClick={() => onOpenQuote(r)}
+                    onClick={() => setTransporteAbertoId(r.id)}
                     direita={
                       <span className="flex flex-col items-end gap-0.5">
                         <SeloStatus status={r.status} cor={corDoStatus(r.status)} />
@@ -545,6 +553,18 @@ export function TelaInicialPage({
 
       {pedidoDoRetorno && (
         <PedidoCompraModal quote={pedidoDoRetorno} onConfirm={handleFechouConfirmado} onCancel={() => setPedidoDoRetorno(undefined)} />
+      )}
+
+      {transporteAberto && (
+        <ResumoTransporteDaCotacao
+          cotacao={transporteAberto}
+          corDoStatus={corDoStatus}
+          onAbrirPedido={() => {
+            setTransporteAbertoId(undefined)
+            onAbrirPedido(transporteAberto.id)
+          }}
+          onFechar={() => setTransporteAbertoId(undefined)}
+        />
       )}
     </div>
     </>

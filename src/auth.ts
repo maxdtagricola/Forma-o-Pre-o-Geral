@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------
-// Login, cadastro e recuperação de senha — tudo conferido pelo servidor
+// Login, cadastro (só o Max) e recuperação de senha — tudo conferido pelo servidor
 // (rotas /_auth/*). As funções que terminam com o usuário logado já guardam
 // a sessão (sessaoUsuario.ts), e o App troca de tela sozinho.
 // -----------------------------------------------------------------------
@@ -19,15 +19,6 @@ export async function entrar(usuario: string, senha: string): Promise<void> {
 
 export async function criarSenhaNoPrimeiroAcesso(usuario: string, senha: string, email: string): Promise<void> {
   salvarSessao(await chamarServidor<SessaoUsuario>('/_auth/primeiro-acesso', { method: 'POST', corpo: { usuario, senha, email } }))
-}
-
-/** Este aparelho ainda pode cadastrar um usuário? (cada aparelho cadastra só um) */
-export function cadastroDisponivel(): Promise<{ disponivel: boolean; exibicao?: string }> {
-  return chamarServidor('/_auth/cadastro')
-}
-
-export async function cadastrar(usuario: string, senha: string, email: string): Promise<void> {
-  salvarSessao(await chamarServidor<SessaoUsuario>('/_auth/cadastro', { method: 'POST', corpo: { usuario, senha, email } }))
 }
 
 /** Manda o código de nova senha pro e-mail de recuperação. Devolve o e-mail mascarado (ex.: ma***@gmail.com). */
@@ -87,6 +78,11 @@ export function definirPapel(login: string, papel: PapelUsuario): Promise<void> 
 /** Apaga a senha do usuário — ele cria outra no próximo acesso (pra quem esqueceu e não tem o e-mail). */
 export function liberarNovaSenha(login: string): Promise<void> {
   return chamarServidor(`/_auth/usuarios/${encodeURIComponent(login)}/liberar-senha`, { method: 'POST' })
+}
+
+/** O Max cadastra alguém (sem senha: a pessoa cria a dela no primeiro acesso). */
+export function cadastrarUsuario(usuario: string, papel: PapelUsuario): Promise<{ login: string; exibicao: string }> {
+  return chamarServidor('/_auth/usuarios', { method: 'POST', corpo: { usuario, papel } })
 }
 
 export function excluirUsuario(login: string): Promise<void> {

@@ -3,6 +3,7 @@ import { Layout, type TabKey } from './components/Layout'
 import { LoginPage } from './components/LoginPage'
 import { MinhaContaModal } from './components/MinhaContaModal'
 import { SaidaAutomatica } from './components/SaidaAutomatica'
+import { nomeDaAba, usePermissoes } from './abasPermitidas'
 import { TelaInicialPage } from './pages/TelaInicialPage'
 import { Dashboard } from './pages/Dashboard'
 import { RecuperarRascunhoModal } from './components/RecuperarRascunhoModal'
@@ -147,15 +148,26 @@ function AreaDoJogador({ usuario }: { usuario: UsuarioLogado }) {
 function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   // o nome com que o app conhece o usuário (cotações, histórico, abas exclusivas) — MÁXIMUS é "Max"
   const currentAdmin: AdminName = usuario.nome
+  // as abas que este usuário vê (o Max escolhe em Configurações > Usuários)
+  const permissoes = usePermissoes(usuario)
+  const { podeVer } = permissoes
   // todo mundo (o Max também) começa na Tela Inicial
   const [tab, setTab] = useState<TabKey>('telaInicial')
+  // a lista de abas chegou do servidor e esta não está nela: volta pra Tela Inicial
+  useEffect(() => {
+    if (!podeVer(tab)) setTab('telaInicial')
+  }, [podeVer, tab])
   // vídeo de fundo (todas as abas, menos o Xadrez): pausado ou não é preferência deste aparelho
   const [fundoPausado, setFundoPausado] = useEstadoPersistente('telaInicial:fundoPausado', false)
   const alternarFundo = () => setFundoPausado((v) => !v)
   // atalhos "Nova cotação" / "Importar cotação" da Tela Inicial: a aba Cotações já abre no modo certo
   const [modoNovoCotacao, setModoNovoCotacao] = useState<'manual' | 'importar'>('manual')
+  // e a parte "Nova cotação" abre mesmo se estava recolhida
+  const [abrirNovaCotacao, setAbrirNovaCotacao] = useState(false)
   useEffect(() => {
-    if (tab !== 'cotacoes') setModoNovoCotacao('manual')
+    if (tab === 'cotacoes') return
+    setModoNovoCotacao('manual')
+    setAbrirNovaCotacao(false)
   }, [tab])
 
   // feriados locais (Configurações › Feriados) — entram na contagem de dias úteis das telas
@@ -215,10 +227,22 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   }, [usuario.gestor])
   // clique numa nota do aviso de entregas: Pedido de Compra já com a janela do transporte dela
   const [transporteParaAbrir, setTransporteParaAbrir] = useState<{ cotacaoId: string; vez: number } | undefined>(undefined)
+  // "Abrir pedido" na janela de transporte da Tela Inicial: Pedido de Compra já com essa cotação aberta
+  const [pedidoParaAbrir, setPedidoParaAbrir] = useState<{ cotacaoId: string; vez: number } | undefined>(undefined)
+  // saindo do Pedido de Compra, os pedidos de abrir já foram atendidos — não abrem de novo na próxima visita
+  useEffect(() => {
+    if (tab === 'pedidoCompra') return
+    setTransporteParaAbrir(undefined)
+    setPedidoParaAbrir(undefined)
+  }, [tab])
   // pilha de telas visitadas, pro botão "Voltar" — só empilha quando a aba realmente muda (evita
   // entradas repetidas se algo chamar changeTab pra aba em que já se está)
   const [tabHistory, setTabHistory] = useState<TabKey[]>([])
   function changeTab(novaTab: TabKey) {
+    if (!podeVer(novaTab)) {
+      void avisar(`Você não tem acesso à aba ${nomeDaAba(novaTab)}. Peça ao MÁXIMUS pra liberar em Configurações › Usuários.`)
+      return
+    }
     setTab((atual) => {
       if (atual !== novaTab) setTabHistory((prev) => [...prev, atual])
       return novaTab
@@ -805,7 +829,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
     <Layout
       active={tab}
       onChangeTab={changeTab}
-      currentAdmin={currentAdmin}
+      podeVer={podeVer}
       nomeExibido={usuario.exibicao}
       onSair={() => void sair()}
       podeVoltar={tabHistory.length > 0}
@@ -820,10 +844,16 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           onOpenQuote={handleLoad}
           onNovaCotacao={(modo) => {
             setModoNovoCotacao(modo)
+            setAbrirNovaCotacao(true)
             changeTab('cotacoes')
           }}
           onContinuar={() => changeTab('dashboard')}
           onIrPara={changeTab}
+          veTransferencias={podeVer('acompanhamentoNotas')}
+          onAbrirPedido={(cotacaoId) => {
+            setPedidoParaAbrir((anterior) => ({ cotacaoId, vez: (anterior?.vez ?? 0) + 1 }))
+            changeTab('pedidoCompra')
+          }}
         />
       )}
       {/* as outras abas vêm sob demanda (ver os lazy() lá em cima) */}
@@ -837,6 +867,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           onImportQuote={handleImportQuote}
           onOpenQuote={handleLoad}
           modoNovoInicial={modoNovoCotacao}
+          abrirNova={abrirNovaCotacao}
         />
       )}
       {tab === 'analytics' && <AnalyticsPage />}
@@ -904,7 +935,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       {tab === 'produtos' && <ProdutosPage currentAdmin={currentAdmin} />}
       {tab === 'fornecedores' && <FornecedoresPage />}
       {tab === 'frete' && <FretePage cotacaoIdInicial={editingQuoteId} onGoToPrecificacao={() => changeTab('dashboard')} />}
-      {tab === 'pedidoCompra' && <PedidoCompraPage currentAdmin={currentAdmin} abrirTransporte={transporteParaAbrir} />}
+      {tab === 'pedidoCompra' && <PedidoCompraPage currentAdmin={currentAdmin} abrirTransporte={transporteParaAbrir} abrirPedido={pedidoParaAbrir} />}
       {tab === 'configuracoes' && (
         <ConfiguracoesPage
           currentAdmin={currentAdmin}
@@ -913,13 +944,14 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           onTabelasAtualizadas={() => setTabelasVersion((v) => v + 1)}
           fundoPausado={fundoPausado}
           onAlternarFundo={alternarFundo}
+          configuracoesGerais={permissoes.configuracoesGerais}
         />
       )}
-      {tab === 'acompanhamentoNotas' && currentAdmin === 'Max' && (
+      {tab === 'acompanhamentoNotas' && podeVer('acompanhamentoNotas') && (
         <AcompanhamentoNotasPage currentAdmin={currentAdmin} />
       )}
-      {tab === 'notasFiscais' && currentAdmin === 'Max' && <NotasFiscaisPage currentAdmin={currentAdmin} />}
-      {tab === 'notasFiscaisDashboard' && currentAdmin === 'Max' && <NotasFiscaisDashboardPage />}
+      {tab === 'notasFiscais' && podeVer('notasFiscais') && <NotasFiscaisPage currentAdmin={currentAdmin} />}
+      {tab === 'notasFiscaisDashboard' && podeVer('notasFiscaisDashboard') && <NotasFiscaisDashboardPage />}
       {tab === 'history' && (
         <HistoryPage refreshKey={historyRefreshKey} currentAdmin={currentAdmin} onLoad={handleLoad} />
       )}

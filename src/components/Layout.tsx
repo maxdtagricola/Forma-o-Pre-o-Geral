@@ -22,19 +22,20 @@ export type TabKey =
   | 'notasFiscaisDashboard'
   | 'history'
 
-interface NavItem {
+export interface NavItem {
   key: TabKey
   label: string
-  /** Se preenchido, só aparece no menu pra esse admin específico. */
-  somenteAdmin?: string
+  /** Por padrão só do gestor (o Max) — ele pode liberar pra outros em Configurações > Usuários. */
+  somenteGestor?: boolean
 }
 
-interface NavGroup {
+export interface NavGroup {
   label: string
   items: NavItem[]
 }
 
-const NAV_GROUPS: NavGroup[] = [
+/** As abas do menu, em grupos — também a lista de Configurações > Usuários > Abas. */
+export const GRUPOS_DE_ABAS: NavGroup[] = [
   {
     label: 'Início',
     items: [{ key: 'telaInicial', label: 'Tela Inicial' }],
@@ -46,15 +47,15 @@ const NAV_GROUPS: NavGroup[] = [
       { key: 'dashboard', label: 'Precificação' },
       { key: 'pedidoCompra', label: 'Pedido de Compra' },
       { key: 'faturamento', label: 'Faturamento' },
-      { key: 'acompanhamentoNotas', label: 'Transferências Fiscais', somenteAdmin: 'Max' },
-      { key: 'notasFiscais', label: 'Notas Fiscais', somenteAdmin: 'Max' },
+      { key: 'acompanhamentoNotas', label: 'Transferências Fiscais', somenteGestor: true },
+      { key: 'notasFiscais', label: 'Notas Fiscais', somenteGestor: true },
     ],
   },
   {
     label: 'Visão geral',
     items: [
       { key: 'analytics', label: 'Dashboard' },
-      { key: 'notasFiscaisDashboard', label: 'Dashboard de Transferências', somenteAdmin: 'Max' },
+      { key: 'notasFiscaisDashboard', label: 'Dashboard de Transferências', somenteGestor: true },
     ],
   },
   {
@@ -97,7 +98,7 @@ function useTelaGrande(): boolean {
 export function Layout({
   active,
   onChangeTab,
-  currentAdmin,
+  podeVer,
   nomeExibido,
   onSair,
   podeVoltar,
@@ -107,8 +108,8 @@ export function Layout({
 }: {
   active: TabKey
   onChangeTab: (tab: TabKey) => void
-  /** Nome com que o app conhece o usuário — decide as abas exclusivas (ex.: "Max"). */
-  currentAdmin: string
+  /** As abas que este usuário vê (Configurações > Usuários > Abas). */
+  podeVer: (tab: TabKey) => boolean
   /** Nome de login, mostrado no rodapé (ex.: "MÁXIMUS"). */
   nomeExibido: string
   onSair: () => void
@@ -216,10 +217,10 @@ export function Layout({
         </div>
 
         <nav className="flex-1 overflow-y-auto px-2 py-1 space-y-1">
-          {NAV_GROUPS.map((grupoBruto, i) => {
+          {GRUPOS_DE_ABAS.map((grupoBruto, i) => {
             const group = {
               ...grupoBruto,
-              items: grupoBruto.items.filter((item) => !item.somenteAdmin || item.somenteAdmin === currentAdmin),
+              items: grupoBruto.items.filter((item) => podeVer(item.key)),
             }
             if (group.items.length === 0) return null
             return (

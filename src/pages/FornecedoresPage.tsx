@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent } from 'react'
 import { TextField, SelectField } from '../components/ui/Field'
+import { useEstadoPersistente } from '../estadoPersistente'
 import { Button } from '../components/ui/Basics'
 import { PreviaImportacao } from '../components/PreviaImportacao'
 import { ESTADOS } from '../data/estados'
@@ -40,6 +41,12 @@ export function FornecedoresPage() {
   const [query, setQuery] = useState('')
   const [form, setForm] = useState(DEFAULT_FORNECEDOR)
   const [editingId, setEditingId] = useState<string | undefined>(undefined)
+  // "Novo fornecedor" recolhível (lembrado neste aparelho) — editar um fornecedor da lista abre a parte
+  const [novoRecolhido, setNovoRecolhido] = useEstadoPersistente('fornecedores:novoRecolhido', false)
+  useEffect(() => {
+    if (editingId) setNovoRecolhido(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId])
   const [saving, setSaving] = useState(false)
 
   // --- importar planilha de fornecedores -------------------------------------
@@ -235,35 +242,48 @@ export function FornecedoresPage() {
   return (
     <div className="space-y-6">
       <div className="card">
-        <h2 className="font-display text-lg font-semibold text-ink-900 mb-1">
-          {editingId ? 'Editar fornecedor' : 'Novo fornecedor'}
+        <h2 className={`font-display text-lg font-semibold text-ink-900 ${novoRecolhido ? '' : 'mb-1'}`}>
+          <button
+            type="button"
+            onClick={() => setNovoRecolhido((v) => !v)}
+            aria-expanded={!novoRecolhido}
+            title={novoRecolhido ? 'Mostrar' : 'Recolher'}
+            className="flex items-center gap-2 rounded text-left transition hover:text-ink-700"
+          >
+            <span aria-hidden className={`text-sm text-ink-400 transition-transform ${novoRecolhido ? '-rotate-90' : ''}`}>▾</span>
+            {editingId ? 'Editar fornecedor' : 'Novo fornecedor'}
+          </button>
         </h2>
-        <p className="text-sm text-ink-400 mb-5">
-          Cadastre os dados completos do fornecedor — isso vai servir de base pra um futuro cálculo de frete pela
-          origem de cada um.
-        </p>
+        {!novoRecolhido && (
+          <>
+            <p className="text-sm text-ink-400 mb-5">
+              Cadastre os dados completos do fornecedor — isso vai servir de base pra um futuro cálculo de frete pela
+              origem de cada um.
+            </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <TextField label="CNPJ" value={form.cnpj} onChange={(v) => patch({ cnpj: v })} placeholder="00.000.000/0000-00" />
-          <TextField label="Nome" value={form.nome} onChange={(v) => patch({ nome: v })} />
-          <TextField label="CEP" value={form.cep} onChange={(v) => patch({ cep: v })} placeholder="00000-000" />
-          <TextField label="Rua" value={form.rua} onChange={(v) => patch({ rua: v })} />
-          <TextField label="Número" value={form.numero} onChange={(v) => patch({ numero: v })} />
-          <TextField label="Setor / Bairro" value={form.bairro} onChange={(v) => patch({ bairro: v })} />
-          <TextField label="Cidade" value={form.cidade} onChange={(v) => patch({ cidade: v })} />
-          <SelectField label="Estado" value={form.estado} onChange={(v) => patch({ estado: v })} options={estadoOptions} />
-        </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <TextField label="CNPJ" value={form.cnpj} onChange={(v) => patch({ cnpj: v })} placeholder="00.000.000/0000-00" />
+              <TextField label="Nome" value={form.nome} onChange={(v) => patch({ nome: v })} />
+              <TextField label="CEP" value={form.cep} onChange={(v) => patch({ cep: v })} placeholder="00000-000" />
+              <TextField label="Rua" value={form.rua} onChange={(v) => patch({ rua: v })} />
+              <TextField label="Número" value={form.numero} onChange={(v) => patch({ numero: v })} />
+              <TextField label="Setor / Bairro" value={form.bairro} onChange={(v) => patch({ bairro: v })} />
+              <TextField label="Cidade" value={form.cidade} onChange={(v) => patch({ cidade: v })} />
+              <SelectField label="Estado" value={form.estado} onChange={(v) => patch({ estado: v })} options={estadoOptions} />
+            </div>
 
-        <div className="mt-5 flex gap-2">
-          <Button variant="primary" onClick={handleSubmit} disabled={saving}>
-            {editingId ? 'Salvar alterações' : 'Adicionar fornecedor'}
-          </Button>
-          {editingId && (
-            <Button variant="secondary" onClick={handleCancelEdit}>
-              Cancelar edição
-            </Button>
-          )}
-        </div>
+            <div className="mt-5 flex gap-2">
+              <Button variant="primary" onClick={handleSubmit} disabled={saving}>
+                {editingId ? 'Salvar alterações' : 'Adicionar fornecedor'}
+              </Button>
+              {editingId && (
+                <Button variant="secondary" onClick={handleCancelEdit}>
+                  Cancelar edição
+                </Button>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card">

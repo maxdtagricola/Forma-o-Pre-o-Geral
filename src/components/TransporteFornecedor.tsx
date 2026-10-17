@@ -3,7 +3,8 @@ import { useFecharComEsc } from '../teclaEsc'
 import { Button } from './ui/Basics'
 import { diasUteisAte, textoDiasUteis } from '../diasUteis'
 import { mercadoriaRecebida } from '../avisosEntrega'
-import type { PrevisaoDoFornecedor } from '../fornecedoresDoPedido'
+import { fornecedoresDoPedido, type PrevisaoDoFornecedor } from '../fornecedoresDoPedido'
+import { corPadraoDoStatus, corTexto } from '../statusColors'
 import type { DadosTransporte, QuoteRecord } from '../types'
 
 // -----------------------------------------------------------------------
@@ -240,6 +241,40 @@ export function TransporteModal({
         </div>
       </div>
     </div>
+  )
+}
+
+/** A janela de transporte pronta pra uma cotação — a mesma no Pedido de Compra ("Pedidos em
+ * transporte") e na Tela Inicial (bloco EM TRANSPORTE). */
+export function ResumoTransporteDaCotacao({
+  cotacao,
+  corDoStatus = corPadraoDoStatus,
+  onAbrirPedido,
+  onFechar,
+}: {
+  cotacao: QuoteRecord
+  corDoStatus?: (status: string) => string
+  onAbrirPedido: () => void
+  onFechar: () => void
+}) {
+  const cor = corDoStatus(cotacao.status)
+  return (
+    <ResumoTransporteModal
+      titulo={`${cotacao.codigo || 'sem código'} — ${cotacao.cliente || 'sem cliente'}`}
+      subtitulo={[cotacao.maquina, cotacao.vendedor].filter(Boolean).join(' · ') || undefined}
+      selos={
+        <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: cor, color: corTexto(cor) }}>
+          {cotacao.status}
+        </span>
+      }
+      fornecedores={fornecedoresDoPedido(cotacao).map((g) => {
+        // os dados de transporte ficam na chave do frete; itens sem fornecedor ficam juntos
+        const chave = g.chave || 'SEM FORNECEDOR'
+        return { chave, rotulo: g.rotulo, transporte: cotacao.transportePorFornecedor?.[chave] }
+      })}
+      onAbrirPedido={onAbrirPedido}
+      onFechar={onFechar}
+    />
   )
 }
 

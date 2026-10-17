@@ -43,11 +43,14 @@ const estadoOptions = ESTADOS.map((e) => ({ value: e.uf, label: `${e.uf} — ${e
 
 type SecaoConfig = keyof typeof ICONES_CONFIG
 
+/** As partes de cada um (ou deste aparelho) — aparecem mesmo pra quem não tem as Configurações gerais. */
+const SECOES_PESSOAIS: SecaoConfig[] = ['conta', 'saida', 'fundo']
+
 /** As partes da aba, na ordem dos símbolos (as mais usadas primeiro). */
 const SECOES: { id: SecaoConfig; titulo: string; resumo: string; icone: ReactNode }[] = [
   { id: 'conta', titulo: 'Minha conta', resumo: 'Trocar a sua senha e o e-mail de recuperação', icone: ICONES_CONFIG.conta },
   { id: 'saida', titulo: 'Saída automática', resumo: 'Sair sozinho depois de um tempo sem uso', icone: ICONES_CONFIG.saida },
-  { id: 'usuarios', titulo: 'Usuários', resumo: 'Função de cada um e liberar nova senha', icone: ICONES_CONFIG.usuarios },
+  { id: 'usuarios', titulo: 'Usuários', resumo: 'Cadastrar, função, abas e nova senha', icone: ICONES_CONFIG.usuarios },
   { id: 'formacao', titulo: 'Formação de preço', resumo: 'Imposto federal, comissão e custo fixo', icone: ICONES_CONFIG.formacao },
   { id: 'empresas', titulo: 'Empresas', resumo: 'Empresas do grupo que recebem os materiais', icone: ICONES_CONFIG.empresas },
   { id: 'importarMarkup', titulo: 'Importar planilha de markup', resumo: 'Nova versão das tabelas RBC e ICMS-ST', icone: ICONES_CONFIG.importarMarkup },
@@ -66,6 +69,7 @@ export function ConfiguracoesPage({
   onTabelasAtualizadas,
   fundoPausado,
   onAlternarFundo,
+  configuracoesGerais,
 }: {
   currentAdmin: string
   pricingGlobal: PricingGlobal
@@ -75,6 +79,8 @@ export function ConfiguracoesPage({
   /** Vídeo de fundo parado (só neste aparelho) — o único lugar onde se pausa/volta a animar. */
   fundoPausado: boolean
   onAlternarFundo: () => void
+  /** Sem isso (Configurações > Usuários > Abas), só as partes pessoais: minha conta, saída, vídeo. */
+  configuracoesGerais: boolean
 }) {
   // (o tema claro/escuro saiu daqui — agora é um botão fixo na barra lateral, ver Layout.tsx)
 
@@ -383,7 +389,9 @@ export function ConfiguracoesPage({
   }
 
   // cada parte das configurações é um símbolo; clicar abre só ela, numa janela (fecha no ✕ ou no Esc)
-  const secoes = SECOES.filter((s) => s.id !== 'usuarios' || gerenciaUsuarios)
+  const secoes = SECOES.filter((s) =>
+    s.id === 'usuarios' ? gerenciaUsuarios : configuracoesGerais || SECOES_PESSOAIS.includes(s.id),
+  )
   const secaoAberta = secoes.find((s) => s.id === aberta)
 
   function conteudoDa(secao: SecaoConfig): ReactNode {

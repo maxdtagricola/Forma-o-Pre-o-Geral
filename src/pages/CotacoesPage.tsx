@@ -440,11 +440,14 @@ export function CotacoesPage({
   onImportQuote,
   onOpenQuote,
   modoNovoInicial = 'manual',
+  abrirNova = false,
 }: {
   refreshKey: number
   currentAdmin: string
   /** Como "Nova cotação" já abre — 'importar' quando se chega pelo atalho "Importar cotação" da Tela Inicial. */
   modoNovoInicial?: 'manual' | 'importar'
+  /** Chegou pelo "Nova cotação"/"Importar cotação" da Tela Inicial: abre a parte, mesmo se estava recolhida. */
+  abrirNova?: boolean
   onCreateQuote: (vendedor: string, cliente: string, maquina: string, tipo: TipoReferencia, observacao: string) => Promise<void>
   onImportQuote: (
     vendedor: string,
@@ -459,6 +462,12 @@ export function CotacoesPage({
   const [records, setRecords] = useState<QuoteRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [modoNovo, setModoNovo] = useState<'manual' | 'importar'>(modoNovoInicial)
+  // "Nova cotação" recolhível (lembrado neste aparelho) — abre sozinha quando se chega pelo atalho da Tela Inicial
+  const [novaRecolhida, setNovaRecolhida] = useEstadoPersistente('cotacoes:novaRecolhida', false)
+  useEffect(() => {
+    if (abrirNova) setNovaRecolhida(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abrirNova])
   // chegar pelo atalho "Importar cotação" mostra o mesmo aviso de clicar em "Importar planilha" aqui
   const [mostrarAvisoCotar, setMostrarAvisoCotar] = useState(modoNovoInicial === 'importar')
   const [vendedor, setVendedor] = useState('')
@@ -774,229 +783,246 @@ export function CotacoesPage({
       </div>
 
       <div className="card">
-        <div className="flex items-center justify-between gap-3 mb-1">
-          <h2 className="font-display text-lg font-semibold text-ink-900">Nova cotação</h2>
-          <div className="flex gap-2">
+        <div className={`flex flex-wrap items-center justify-between gap-3 ${novaRecolhida ? '' : 'mb-1'}`}>
+          <h2 className="font-display text-lg font-semibold text-ink-900">
             <button
               type="button"
-              onClick={() => setModoNovo('manual')}
-              className={`pill-tab border ${
-                modoNovo === 'manual' ? 'bg-ink-950 border-ink-950 text-white' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
-              }`}
+              onClick={() => setNovaRecolhida((v) => !v)}
+              aria-expanded={!novaRecolhida}
+              title={novaRecolhida ? 'Mostrar' : 'Recolher'}
+              className="flex items-center gap-2 rounded text-left transition hover:text-ink-700"
             >
-              Manual
+              <span aria-hidden className={`text-sm text-ink-400 transition-transform ${novaRecolhida ? '-rotate-90' : ''}`}>▾</span>
+              Nova cotação
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                setModoNovo('importar')
-                setMostrarAvisoCotar(true)
-              }}
-              className={`pill-tab border ${
-                modoNovo === 'importar' ? 'bg-ink-950 border-ink-950 text-white' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
-              }`}
-            >
-              Importar planilha
-            </button>
-          </div>
+          </h2>
+          {!novaRecolhida && (
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setModoNovo('manual')}
+                className={`pill-tab border ${
+                  modoNovo === 'manual' ? 'bg-ink-950 border-ink-950 text-white' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+                }`}
+              >
+                Manual
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setModoNovo('importar')
+                  setMostrarAvisoCotar(true)
+                }}
+                className={`pill-tab border ${
+                  modoNovo === 'importar' ? 'bg-ink-950 border-ink-950 text-white' : 'border-ink-200 text-ink-600 hover:bg-ink-50'
+                }`}
+              >
+                Importar planilha
+              </button>
+            </div>
+          )}
         </div>
 
-        {modoNovo === 'manual' ? (
+        {!novaRecolhida && (
           <>
-            <p className="text-sm text-ink-400 mb-4">
-              Identifique o vendedor, o cliente e a máquina — depois é só registrar os itens a cotar.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-              <SelectField label="Vendedor" value={vendedor} onChange={setVendedor} options={vendedorOptions} />
-              <TextField label="Cliente" value={cliente} onChange={setCliente} uppercase />
-              <TextField label="Máquina" value={maquina} onChange={setMaquina} />
-            </div>
-            <CampoObservacaoNova valor={observacaoNova} onChange={setObservacaoNova} />
-            <Button variant="primary" onClick={handleCriar} disabled={criando}>
-              Criar cotação e registrar itens
-            </Button>
-          </>
-        ) : (
-          <div className="mt-4">
-            <p className="text-sm text-ink-400 mb-4">
-              Envie a planilha de orçamento do cliente — o cliente e o equipamento são lidos do topo, e os itens sem
-              prazo de entrega marcados como "COTAR" viram os itens a cotar dessa cotação.
-            </p>
-            <label className="block mb-4">
-              <span className="field-label">Arquivo (.xlsx)</span>
-              <input
-                type="file"
-                accept=".xlsx"
-                className="field-input"
-                disabled={lendoArquivo}
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  if (file) handleArquivoSelecionado(file)
-                  e.target.value = ''
-                }}
-              />
-            </label>
-
-            {lendoArquivo && <p className="text-sm text-ink-400">Lendo planilha…</p>}
-
-            {previaImport && arquivoPendente && (
-              <PreviaImportacao
-                nomeArquivo={arquivoPendente.name}
-                previa={previaImport}
-                onConfirmar={handleConfirmarPrevia}
-                onCancelar={resetImportacao}
-                confirmando={lendoArquivo}
-              />
-            )}
-
-            {importado && (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <span className="field-label">Cliente</span>
-                    <select
-                      className="field-input"
-                      value={clienteEscolha}
-                      onChange={(e) => setClienteEscolha(e.target.value)}
-                    >
-                      {clienteMatches.map((c) => (
-                        <option key={c} value={c}>
-                          {c}
-                        </option>
-                      ))}
-                      <option value={NOVO}>+ Adicionar novo cliente</option>
-                    </select>
-                    {clienteEscolha === NOVO && (
-                      <input
-                        className="field-input uppercase mt-2"
-                        value={clienteNovoTexto}
-                        onChange={(e) => setClienteNovoTexto(e.target.value)}
-                      />
-                    )}
-                  </div>
-                  <div>
-                    <span className="field-label">Máquina</span>
-                    <select
-                      className="field-input"
-                      value={maquinaEscolha}
-                      onChange={(e) => setMaquinaEscolha(e.target.value)}
-                    >
-                      {maquinaMatches.map((m) => (
-                        <option key={m} value={m}>
-                          {m}
-                        </option>
-                      ))}
-                      <option value={NOVO}>+ Adicionar nova máquina</option>
-                    </select>
-                    {maquinaEscolha === NOVO && (
-                      <input
-                        className="field-input mt-2"
-                        value={maquinaNovoTexto}
-                        onChange={(e) => setMaquinaNovoTexto(e.target.value)}
-                      />
-                    )}
-                  </div>
+            {modoNovo === 'manual' ? (
+              <>
+                <p className="text-sm text-ink-400 mb-4">
+                  Identifique o vendedor, o cliente e a máquina — depois é só registrar os itens a cotar.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                  <SelectField label="Vendedor" value={vendedor} onChange={setVendedor} options={vendedorOptions} />
+                  <TextField label="Cliente" value={cliente} onChange={setCliente} uppercase />
+                  <TextField label="Máquina" value={maquina} onChange={setMaquina} />
                 </div>
-
-                <SelectField
-                  label="Vendedor"
-                  value={vendedorImport}
-                  onChange={setVendedorImport}
-                  options={vendedorOptions}
-                />
-
                 <CampoObservacaoNova valor={observacaoNova} onChange={setObservacaoNova} />
+                <Button variant="primary" onClick={handleCriar} disabled={criando}>
+                  Criar cotação e registrar itens
+                </Button>
+              </>
+            ) : (
+              <div className="mt-4">
+                <p className="text-sm text-ink-400 mb-4">
+                  Envie a planilha de orçamento do cliente — o cliente e o equipamento são lidos do topo, e os itens sem
+                  prazo de entrega marcados como "COTAR" viram os itens a cotar dessa cotação.
+                </p>
+                <label className="block mb-4">
+                  <span className="field-label">Arquivo (.xlsx)</span>
+                  <input
+                    type="file"
+                    accept=".xlsx"
+                    className="field-input"
+                    disabled={lendoArquivo}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      if (file) handleArquivoSelecionado(file)
+                      e.target.value = ''
+                    }}
+                  />
+                </label>
 
-                <div>
-                  <p className="field-label mb-2">Itens a cotar encontrados na planilha</p>
-                  <div className="overflow-x-auto rounded-xl border border-ink-100">
-                    <table className="w-full text-sm border-collapse">
-                      <thead>
-                        <tr className="bg-ink-50 text-left text-ink-400">
-                          <th className="py-2 px-2 font-medium w-10">#</th>
-                          <th className="py-2 px-2 font-medium min-w-[10rem]">Referência</th>
-                          <th className="py-2 px-2 font-medium min-w-[14rem]">Descrição</th>
-                          <th className="py-2 px-2 font-medium w-28 text-right">Quantidade</th>
-                          <th className="py-2 px-2 font-medium w-28">Observação</th>
-                          <th className="w-10"></th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {itensImportados.length === 0 ? (
-                          <tr>
-                            <td colSpan={6} className="py-6 text-center text-ink-400 border-t border-ink-100">
-                              Nenhum item restante.
-                            </td>
-                          </tr>
-                        ) : (
-                          itensImportados.map((item, index) => (
-                            <tr key={index}>
-                              <td className="px-2 py-1 border-t border-ink-100 text-ink-400 text-xs text-center">
-                                {index + 1}
-                              </td>
-                              <td className="px-1 py-1 border-t border-ink-100">
-                                <input
-                                  className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-brand-400"
-                                  value={item.referencia}
-                                  onChange={(e) => handlePatchItemImportado(index, { referencia: e.target.value })}
-                                />
-                              </td>
-                              <td className="px-1 py-1 border-t border-ink-100">
-                                <input
-                                  className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"
-                                  value={item.descricao}
-                                  onChange={(e) => handlePatchItemImportado(index, { descricao: e.target.value })}
-                                />
-                              </td>
-                              <td className="px-1 py-1 border-t border-ink-100">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 text-right tabular-nums focus:outline-none focus:ring-1 focus:ring-brand-400"
-                                  value={item.quantidade}
-                                  onChange={(e) =>
-                                    handlePatchItemImportado(index, { quantidade: Number(e.target.value) || 0 })
-                                  }
-                                  onFocus={selecionarTudoAoFocar}
-                                />
-                              </td>
-                              <td className="px-1 py-1 border-t border-ink-100">
-                                <CelulaObservacao
-                                  valor={item.observacao ?? ''}
-                                  onChange={(observacao) => handlePatchItemImportado(index, { observacao })}
-                                  idLinha={`importado-${index}`}
-                                  descricaoItem={item.referencia.trim() || item.descricao.trim() || `item ${index + 1}`}
-                                />
-                              </td>
-                              <td className="px-1 py-1 border-t border-ink-100 text-center">
-                                <button
-                                  type="button"
-                                  onClick={() => handleRemoveItemImportado(index)}
-                                  aria-label="Remover item"
-                                  className="h-6 w-6 rounded-full text-xs leading-none text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
-                                >
-                                  ×
-                                </button>
-                              </td>
-                            </tr>
-                          ))
+                {lendoArquivo && <p className="text-sm text-ink-400">Lendo planilha…</p>}
+
+                {previaImport && arquivoPendente && (
+                  <PreviaImportacao
+                    nomeArquivo={arquivoPendente.name}
+                    previa={previaImport}
+                    onConfirmar={handleConfirmarPrevia}
+                    onCancelar={resetImportacao}
+                    confirmando={lendoArquivo}
+                  />
+                )}
+
+                {importado && (
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <span className="field-label">Cliente</span>
+                        <select
+                          className="field-input"
+                          value={clienteEscolha}
+                          onChange={(e) => setClienteEscolha(e.target.value)}
+                        >
+                          {clienteMatches.map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                          <option value={NOVO}>+ Adicionar novo cliente</option>
+                        </select>
+                        {clienteEscolha === NOVO && (
+                          <input
+                            className="field-input uppercase mt-2"
+                            value={clienteNovoTexto}
+                            onChange={(e) => setClienteNovoTexto(e.target.value)}
+                          />
                         )}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                      </div>
+                      <div>
+                        <span className="field-label">Máquina</span>
+                        <select
+                          className="field-input"
+                          value={maquinaEscolha}
+                          onChange={(e) => setMaquinaEscolha(e.target.value)}
+                        >
+                          {maquinaMatches.map((m) => (
+                            <option key={m} value={m}>
+                              {m}
+                            </option>
+                          ))}
+                          <option value={NOVO}>+ Adicionar nova máquina</option>
+                        </select>
+                        {maquinaEscolha === NOVO && (
+                          <input
+                            className="field-input mt-2"
+                            value={maquinaNovoTexto}
+                            onChange={(e) => setMaquinaNovoTexto(e.target.value)}
+                          />
+                        )}
+                      </div>
+                    </div>
 
-                <div className="flex justify-end gap-2">
-                  <Button variant="ghost" onClick={resetImportacao}>
-                    Cancelar
-                  </Button>
-                  <Button variant="primary" onClick={handleConfirmarImportacao} disabled={confirmandoImport}>
-                    Criar cotação com esses itens
-                  </Button>
-                </div>
+                    <SelectField
+                      label="Vendedor"
+                      value={vendedorImport}
+                      onChange={setVendedorImport}
+                      options={vendedorOptions}
+                    />
+
+                    <CampoObservacaoNova valor={observacaoNova} onChange={setObservacaoNova} />
+
+                    <div>
+                      <p className="field-label mb-2">Itens a cotar encontrados na planilha</p>
+                      <div className="overflow-x-auto rounded-xl border border-ink-100">
+                        <table className="w-full text-sm border-collapse">
+                          <thead>
+                            <tr className="bg-ink-50 text-left text-ink-400">
+                              <th className="py-2 px-2 font-medium w-10">#</th>
+                              <th className="py-2 px-2 font-medium min-w-[10rem]">Referência</th>
+                              <th className="py-2 px-2 font-medium min-w-[14rem]">Descrição</th>
+                              <th className="py-2 px-2 font-medium w-28 text-right">Quantidade</th>
+                              <th className="py-2 px-2 font-medium w-28">Observação</th>
+                              <th className="w-10"></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {itensImportados.length === 0 ? (
+                              <tr>
+                                <td colSpan={6} className="py-6 text-center text-ink-400 border-t border-ink-100">
+                                  Nenhum item restante.
+                                </td>
+                              </tr>
+                            ) : (
+                              itensImportados.map((item, index) => (
+                                <tr key={index}>
+                                  <td className="px-2 py-1 border-t border-ink-100 text-ink-400 text-xs text-center">
+                                    {index + 1}
+                                  </td>
+                                  <td className="px-1 py-1 border-t border-ink-100">
+                                    <input
+                                      className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 font-mono focus:outline-none focus:ring-1 focus:ring-brand-400"
+                                      value={item.referencia}
+                                      onChange={(e) => handlePatchItemImportado(index, { referencia: e.target.value })}
+                                    />
+                                  </td>
+                                  <td className="px-1 py-1 border-t border-ink-100">
+                                    <input
+                                      className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400"
+                                      value={item.descricao}
+                                      onChange={(e) => handlePatchItemImportado(index, { descricao: e.target.value })}
+                                    />
+                                  </td>
+                                  <td className="px-1 py-1 border-t border-ink-100">
+                                    <input
+                                      type="number"
+                                      min={0}
+                                      className="w-full bg-transparent border-0 rounded px-1.5 py-1.5 text-right tabular-nums focus:outline-none focus:ring-1 focus:ring-brand-400"
+                                      value={item.quantidade}
+                                      onChange={(e) =>
+                                        handlePatchItemImportado(index, { quantidade: Number(e.target.value) || 0 })
+                                      }
+                                      onFocus={selecionarTudoAoFocar}
+                                    />
+                                  </td>
+                                  <td className="px-1 py-1 border-t border-ink-100">
+                                    <CelulaObservacao
+                                      valor={item.observacao ?? ''}
+                                      onChange={(observacao) => handlePatchItemImportado(index, { observacao })}
+                                      idLinha={`importado-${index}`}
+                                      descricaoItem={item.referencia.trim() || item.descricao.trim() || `item ${index + 1}`}
+                                    />
+                                  </td>
+                                  <td className="px-1 py-1 border-t border-ink-100 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveItemImportado(index)}
+                                      aria-label="Remover item"
+                                      className="h-6 w-6 rounded-full text-xs leading-none text-ink-400 hover:bg-ink-100 hover:text-ink-700 transition"
+                                    >
+                                      ×
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end gap-2">
+                      <Button variant="ghost" onClick={resetImportacao}>
+                        Cancelar
+                      </Button>
+                      <Button variant="primary" onClick={handleConfirmarImportacao} disabled={confirmandoImport}>
+                        Criar cotação com esses itens
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
-          </div>
+          </>
         )}
       </div>
 

@@ -1,0 +1,116 @@
+import { useCallback, useEffect, useState } from 'react'
+import { dbGet, dbPut } from './db/db'
+import { GRUPOS_DE_ABAS, type TabKey } from './components/Layout'
+import type { UsuarioLogado } from './sessaoUsuario'
+
+// Quais abas cada usuário vê — o MÁXIMUS (gestor) escolhe em Configurações > Usuários. Fica em
+// configuracoes/abasPorUsuario; quem não tem escolha guardada vê o padrão (todas, menos as que eram
+// só do Max). O gestor vê sempre tudo. Tela Inicial e Configurações aparecem pra todo mundo — em
+// Configurações, quem não tem "Configurações gerais" vê só as partes pessoais (minha conta, saída
+// automática, vídeo de fundo).
+//
+// Atenção: é o que aparece no site — o servidor não sabe de abas e entrega os dados pra qualquer
+// administrador logado.
+
+const STORE_CONFIG = 'configuracoes'
+const DOC = 'abasPorUsuario'
+// a última lista vista, pra montar o menu na hora (sem piscar as abas) enquanto o servidor responde
+const PREFIXO_CACHE = 'abasPermitidas:'
+
+/** As abas que dá pra liberar ou tirar, na ordem do menu. */
+export const ABAS_CONFIGURAVEIS: { key: TabKey; label: string; grupo: string }[] = GRUPOS_DE_ABAS.flatMap((g) =>
+  g.items
+    .filter((i) => i.key !== 'telaInicial')
+    .map((i) => ({ key: i.key, label: i.key === 'configuracoes' ? 'Configurações gerais' : i.label, grupo: g.label })),
+)
+
+/** O nome da aba como aparece no menu (o Comparar é parte da Precificação). */
+export function nomeDaAba(tab: TabKey): string {
+  if (tab === 'comparar') return 'Comparar fornecedores'
+  return GRUPOS_DE_ABAS.flatMap((g) => g.items).find((i) => i.key === tab)?.label ?? tab
+}
+
+/** Sem escolha guardada: tudo, menos as abas que antes eram só do Max. */
+export const ABAS_PADRAO: TabKey[] = GRUPOS_DE_ABAS.flatMap((g) => g.items)
+  .filter((i) => i.key !== 'telaInicial' && !i.somenteGestor)
+  .map((i) => i.key)
+
+interface AbasDoc {
+  id: string
+  porUsuario: Record<string, TabKey[]>
+}
+
+export async function getAbasPorUsuario(): Promise<Record<string, TabKey[]>> {
+  const doc = await dbGet<AbasDoc>(STORE_CONFIG, DOC)
+  return doc?.porUsuario ?? {}
+}
+
+/** `abas` null = volta pro padrão. */
+export async function salvarAbasDoUsuario(login: string, abas: TabKey[] | null): Promise<Record<string, TabKey[]>> {
+  const porUsuario = { ...(await getAbasPorUsuario()) }
+  if (abas === null) delete porUsuario[login]
+  else porUsuario[login] = abas
+  await dbPut(STORE_CONFIG, { id: DOC, porUsuario })
+  return porUsuario
+}
+
+function lerCache(login: string): TabKey[] | null {
+  try {
+    const bruto = localStorage.getItem(PREFIXO_CACHE + login)
+    return bruto ? (JSON.parse(bruto) as TabKey[]) : null
+  } catch {
+    return null
+  }
+}
+
+function gravarCache(login: string, abas: TabKey[]) {
+  try {
+    localStorage.setItem(PREFIXO_CACHE + login, JSON.stringify(abas))
+  } catch {
+    // sem localStorage: na próxima abertura o menu espera o servidor
+  }
+}
+
+export interface Permissoes {
+  podeVer: (tab: TabKey) => boolean
+  /** As partes de Configurações que valem pra todos (formação de preço, empresas, planilhas...). */
+  configuracoesGerais: boolean
+}
+
+/** As abas do usuário logado (busca no servidor ao abrir; até lá, a última lista vista neste aparelho —
+ * na primeira vez, nenhuma além da Tela Inicial e de Configurações, pra não mostrar o que não devia). */
+export function usePermissoes(usuario: UsuarioLogado): Permissoes {
+  const [abas, setAbas] = useState<TabKey[] | null>(() => lerCache(usuario.login))
+
+  useEffect(() => {
+    if (usuario.gestor) return
+    let cancelado = false
+    getAbasPorUsuario()
+      .then((porUsuario) => {
+        if (cancelado) return
+        const lista = porUsuario[usuario.login] ?? ABAS_PADRAO
+        setAbas(lista)
+        gravarCache(usuario.login, lista)
+      })
+      .catch(() => {
+        // sem servidor agora: fica a última lista vista (ou o padrão, se nunca viu)
+        if (!cancelado) setAbas((atual) => atual ?? ABAS_PADRAO)
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [usuario.login, usuario.gestor])
+
+  const podeVer = useCallback(
+    (tab: TabKey): boolean => {
+      if (usuario.gestor || tab === 'telaInicial' || tab === 'configuracoes') return true
+      if (!abas) return false
+      // o Comparar é um pedaço da Precificação
+      if (tab === 'comparar') return abas.includes('dashboard')
+      return abas.includes(tab)
+    },
+    [abas, usuario.gestor],
+  )
+
+  return { podeVer, configuracoesGerais: usuario.gestor || (abas?.includes('configuracoes') ?? false) }
+}
