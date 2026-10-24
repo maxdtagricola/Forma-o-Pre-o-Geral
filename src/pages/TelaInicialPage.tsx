@@ -13,25 +13,39 @@ import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { prejuizoAutomatico, valoresPorResultado } from '../notasFiscaisHelpers'
 import { formatCurrency } from '../utils'
 import { diasUteisDesde, textoDiasUteis, useVersaoFeriados } from '../diasUteis'
-import { NOTA_FISCAL_STATUSES, QUOTE_STATUSES } from '../types'
+import { STATUS_DO_SISTEMA, nomeDoStatus, ordemComExtras, statusDe, type TipoStatus } from '../statusConfig'
+import { estaACaminho, mercadoriaRecebida } from '../avisosEntrega'
 import type { NotaFiscal, PedidoCompraInfo, QuoteRecord, QuoteStatus } from '../types'
 import type { TabKey } from '../components/Layout'
 import { useEstadoPersistente } from '../estadoPersistente'
+import type { ParteTelaInicial } from '../telaInicialPorUsuario'
 
 // -----------------------------------------------------------------------
 // Tela Inicial — a fila de trabalho de quem cota: as pendentes (esperando
 // alguém pegar), as que estão em andamento com o usuário, as que estão em
 // transporte e o que a equipe fez por último. Os números e gráficos do
-// período ficam no Dashboard.
+// período ficam no Dashboard. O que aparece pra cada um o Max escolhe em
+// Configurações › Usuários (ver telaInicialPorUsuario.ts).
 // -----------------------------------------------------------------------
 
-/** Status em que a cotação já terminou — não aparece mais como trabalho em andamento. */
-const STATUS_FINAIS: QuoteStatus[] = ['ENTREGUE', 'CONFERIDO', 'FATURADO', 'ARQUIVO']
-/** Bloco EM ANDAMENTO: a cotação em si, até ANALISANDO VALORES — de ENVIADO em diante (resposta do
- * cliente, pedido, transporte…) já é outro processo; PENDENTE tem o bloco dela. */
-const STATUS_EM_ANDAMENTO: QuoteStatus[] = ['AGUARDANDO FORNECEDOR', 'ANALISANDO VALORES']
-/** Bloco EM TRANSPORTE: o que está a caminho — inclusive o que já chegou só em parte. */
-const STATUS_EM_TRANSPORTE: QuoteStatus[] = ['EM TRANSPORTE', 'PARCIALMENTE ENTREGUE']
+/** A cotação já terminou (ENTREGUE em diante, ou ARQUIVO) — não aparece mais como trabalho em andamento. */
+function terminou(status: QuoteStatus): boolean {
+  return status === 'ARQUIVO' || mercadoriaRecebida(status)
+}
+/** Bloco EM ANDAMENTO: a cotação em si, depois de PENDENTE e antes de ENVIADO (AGUARDANDO FORNECEDOR,
+ * ANALISANDO VALORES e os criados entre eles) — de ENVIADO em diante (resposta do cliente, pedido,
+ * transporte…) já é outro processo; PENDENTE tem o bloco dela. */
+function emAndamentoNaCotacao(status: QuoteStatus): boolean {
+  const lista = statusDe('cotacoes')
+  const i = lista.indexOf(status)
+  return i > lista.indexOf('PENDENTE') && i < lista.indexOf('ENVIADO')
+}
+/** Bloco EM TRANSPORTE: o que está a caminho — inclusive o que já chegou só em parte (CADASTRO DE
+ * PRODUTO fica de fora; os criados entre EM TRANSPORTE e ENTREGUE entram). */
+function noBlocoEmTransporte(status: QuoteStatus): boolean {
+  if (!estaACaminho(status)) return false
+  return !STATUS_DO_SISTEMA.cotacoes.includes(status) || status === 'EM TRANSPORTE' || status === 'PARCIALMENTE ENTREGUE'
+}
 /** PENDENTE há mais dias úteis que isso fica marcado como atrasado. */
 const DIAS_PENDENTE_ALERTA = 2
 /** Produção com previsão de finalização a até esse tanto de dias úteis (ou já atrasada) vira aviso no topo. */
@@ -101,7 +115,8 @@ export function TelaInicialPage({
   onNovaCotacao,
   onContinuar,
   onIrPara,
-  veTransferencias,
+  podeVer,
+  partes,
   onAbrirPedido,
 }: {
   /** Nome de login (ex.: "MÁXIMUS"), pra saudação. */
@@ -114,8 +129,10 @@ export function TelaInicialPage({
   onNovaCotacao: (modo: 'manual' | 'importar') => void
   onContinuar: () => void
   onIrPara: (tab: TabKey) => void
-  /** Quem tem a aba Transferências Fiscais vê o bloco delas aqui. */
-  veTransferencias: boolean
+  /** As abas do usuário — os atalhos e o bloco de Transferências só aparecem pra quem tem a aba. */
+  podeVer: (tab: TabKey) => boolean
+  /** As partes da Tela Inicial deste usuário; null = ainda chegando do servidor. */
+  partes: ParteTelaInicial[] | null
   /** "Abrir pedido" na janela de transporte: Pedido de Compra com essa cotação aberta. */
   onAbrirPedido: (cotacaoId: string) => void
 }) {
@@ -131,6 +148,9 @@ export function TelaInicialPage({
   // clique num pedido EM TRANSPORTE: a mesma janela do Pedido de Compra (NF, transportadora, rastreio, previsão)
   const [transporteAbertoId, setTransporteAbertoId] = useState<string | undefined>(undefined)
   const transporteAberto = cotacoes.find((c) => c.id === transporteAbertoId)
+  const ve = (parte: ParteTelaInicial) => !!partes?.includes(parte)
+  const veTransferencias = podeVer('acompanhamentoNotas') && ve('transferencias')
+  const veAlgumBloco = (['pendentes', 'emAndamento', 'emProducao', 'emTransporte', 'atividade'] as const).some(ve) || veTransferencias
 
   useEffect(() => {
     listQuotes()
@@ -153,14 +173,14 @@ export function TelaInicialPage({
 
   const hoje = inicioDoDia(agora)
   const blocos = useMemo(() => {
-    const emAndamento = cotacoes.filter((r) => !STATUS_FINAIS.includes(r.status))
+    const emAndamento = cotacoes.filter((r) => !terminou(r.status))
     const pendentes = emAndamento.filter((r) => r.status === 'PENDENTE').sort((a, b) => dataDoPedido(a) - dataDoPedido(b))
     const minhas = emAndamento
-      .filter((r) => STATUS_EM_ANDAMENTO.includes(r.status) && r.responsavelStatus === currentAdmin)
-      .sort((a, b) => QUOTE_STATUSES.indexOf(a.status) - QUOTE_STATUSES.indexOf(b.status) || desdeStatusAtual(a) - desdeStatusAtual(b))
+      .filter((r) => emAndamentoNaCotacao(r.status) && r.responsavelStatus === currentAdmin)
+      .sort((a, b) => statusDe('cotacoes').indexOf(a.status) - statusDe('cotacoes').indexOf(b.status) || desdeStatusAtual(a) - desdeStatusAtual(b))
     // com previsão de entrega primeiro (a mais próxima/atrasada no topo), depois as sem previsão
     const emTransporte = cotacoes
-      .filter((r) => STATUS_EM_TRANSPORTE.includes(r.status))
+      .filter((r) => noBlocoEmTransporte(r.status))
       .sort((a, b) => {
         const pa = previsaoDaCotacao(a)
         const pb = previsaoDaCotacao(b)
@@ -214,7 +234,7 @@ export function TelaInicialPage({
 
   const transferencias = useMemo(() => {
     const abertas = notas.filter((n) => n.status !== 'CONCLUIDO' && n.status !== 'DEVOLUÇÃO')
-    const porStatus = NOTA_FISCAL_STATUSES.map((status) => ({ status, quantidade: abertas.filter((n) => n.status === status).length })).filter(
+    const porStatus = ordemComExtras('notas', abertas.map((n) => n.status)).map((status) => ({ status, quantidade: abertas.filter((n) => n.status === status).length })).filter(
       (s) => s.quantidade > 0,
     )
     const emPrejuizo = notas.filter((n) => prejuizoAutomatico(n) && valoresPorResultado(n).parado > 0)
@@ -258,9 +278,16 @@ export function TelaInicialPage({
     }
   }
 
-  function corDoStatus(status: string, lista: readonly string[] = QUOTE_STATUSES): string {
+  function corDoStatus(status: string, lista: readonly string[] = statusDe('cotacoes')): string {
     return coresStatus[status] || corPadraoDoStatus(status, lista)
   }
+
+  // os avisos (produção, retorno) só aparecem quando há o que avisar
+  const veAlgumaParte =
+    veAlgumBloco ||
+    ve('numeros') ||
+    (ve('avisoProducao') && blocos.producaoChegando.length > 0) ||
+    (ve('retorno') && blocos.retorno.length > 0)
 
   return (
     <>
@@ -272,41 +299,51 @@ export function TelaInicialPage({
           </h2>
           <p className="text-sm text-ink-600">O que precisa de atenção nas cotações hoje.</p>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => onNovaCotacao('manual')}
-            className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-700"
-          >
-            Nova cotação
-          </button>
-          <button
-            type="button"
-            onClick={() => onNovaCotacao('importar')}
-            className="rounded-lg border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
-          >
-            Importar cotação
-          </button>
-          {cotacaoAberta && (
-            <button
-              type="button"
-              onClick={onContinuar}
-              title={cotacaoAberta.cliente}
-              className="rounded-lg border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
-            >
-              Continuar {cotacaoAberta.codigo || 'cotação aberta'}
-            </button>
-          )}
-        </div>
+        {ve('atalhos') && (
+          <div className="flex flex-wrap gap-2">
+            {podeVer('cotacoes') && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => onNovaCotacao('manual')}
+                  className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-700"
+                >
+                  Nova cotação
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onNovaCotacao('importar')}
+                  className="rounded-lg border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
+                >
+                  Importar cotação
+                </button>
+              </>
+            )}
+            {cotacaoAberta && podeVer('dashboard') && (
+              <button
+                type="button"
+                onClick={onContinuar}
+                title={cotacaoAberta.cliente}
+                className="rounded-lg border border-ink-200 bg-surface px-4 py-2 text-sm font-medium text-ink-700 transition hover:bg-ink-50"
+              >
+                Continuar {cotacaoAberta.codigo || 'cotação aberta'}
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {erro && <p className="card text-sm text-rose-600">{erro}</p>}
 
-      {carregando ? (
+      {carregando || partes === null ? (
         <div className="card text-center text-sm text-ink-400 py-10">Carregando…</div>
+      ) : !veAlgumaParte ? (
+        <div className="card py-10 text-center text-sm text-ink-400">
+          Nada pra mostrar aqui — o administrador escolhe o que aparece na sua Tela Inicial. Use o menu ao lado.
+        </div>
       ) : (
         <>
-          {blocos.producaoChegando.length > 0 && (
+          {ve('avisoProducao') && blocos.producaoChegando.length > 0 && (
             <Topico
               id="producao"
               titulo="Produção — previsão de finalização"
@@ -344,165 +381,179 @@ export function TelaInicialPage({
             </Topico>
           )}
 
-          <div className="grid grid-cols-3 gap-2 sm:gap-3">
-            <Numero valor={blocos.novasHoje} rotulo={blocos.novasHoje === 1 ? 'cotação nova hoje' : 'cotações novas hoje'} />
-            <Numero valor={blocos.enviadasHoje} rotulo={blocos.enviadasHoje === 1 ? 'enviada ao cliente hoje' : 'enviadas ao cliente hoje'} />
-            <Numero
-              valor={blocos.confirmadosSemana}
-              rotulo={blocos.confirmadosSemana === 1 ? 'pedido confirmado nos últimos 7 dias' : 'pedidos confirmados nos últimos 7 dias'}
-            />
-          </div>
+          {ve('numeros') && (
+            <div className="grid grid-cols-3 gap-2 sm:gap-3">
+              <Numero valor={blocos.novasHoje} rotulo={blocos.novasHoje === 1 ? 'cotação nova hoje' : 'cotações novas hoje'} />
+              <Numero valor={blocos.enviadasHoje} rotulo={blocos.enviadasHoje === 1 ? 'enviada ao cliente hoje' : 'enviadas ao cliente hoje'} />
+              <Numero
+                valor={blocos.confirmadosSemana}
+                rotulo={blocos.confirmadosSemana === 1 ? 'pedido confirmado nos últimos 7 dias' : 'pedidos confirmados nos últimos 7 dias'}
+              />
+            </div>
+          )}
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 sm:gap-6 items-start">
-            <Bloco
-              titulo="Pendentes"
-              total={blocos.pendentes.length}
-              vazio="Nenhuma cotação esperando — tudo já tem responsável."
-              onVerTodas={() => onIrPara('cotacoes')}
-            >
-              {blocos.pendentes.slice(0, ITENS_POR_BLOCO).map((r) => {
-                const dias = diasUteisDesde(dataDoPedido(r), agora)
-                return (
-                  <LinhaCotacao
-                    key={r.id}
-                    r={r}
-                    onClick={() => onOpenQuote(r)}
-                    direita={<Idade texto={dias === 0 ? 'pedida hoje' : `pendente há ${textoDiasUteis(dias)}`} alerta={dias > DIAS_PENDENTE_ALERTA} />}
-                  />
-                )
-              })}
-            </Bloco>
+          {veAlgumBloco && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 sm:gap-6 items-start">
+              {ve('pendentes') && (
+                <Bloco
+                  titulo="Pendentes"
+                  total={blocos.pendentes.length}
+                  vazio="Nenhuma cotação esperando — tudo já tem responsável."
+                  onVerTodas={() => onIrPara('cotacoes')}
+                >
+                  {blocos.pendentes.slice(0, ITENS_POR_BLOCO).map((r) => {
+                    const dias = diasUteisDesde(dataDoPedido(r), agora)
+                    return (
+                      <LinhaCotacao
+                        key={r.id}
+                        r={r}
+                        onClick={() => onOpenQuote(r)}
+                        direita={<Idade texto={dias === 0 ? 'pedida hoje' : `pendente há ${textoDiasUteis(dias)}`} alerta={dias > DIAS_PENDENTE_ALERTA} />}
+                      />
+                    )
+                  })}
+                </Bloco>
+              )}
 
-            <Bloco
-              titulo="EM ANDAMENTO"
-              total={blocos.minhas.length}
-              vazio="Nenhuma cotação com você agora."
-              onVerTodas={() => onIrPara('cotacoes')}
-            >
-              {blocos.minhas.slice(0, ITENS_POR_BLOCO).map((r) => (
-                <LinhaCotacao
-                  key={r.id}
-                  r={r}
-                  onClick={() => onOpenQuote(r)}
-                  direita={
-                    <span className="flex flex-col items-end gap-0.5">
-                      <SeloStatus status={r.status} cor={corDoStatus(r.status)} />
-                      <span className="text-[11px] text-ink-400">{haDiasUteis(desdeStatusAtual(r), agora)}</span>
-                    </span>
-                  }
-                />
-              ))}
-            </Bloco>
+              {ve('emAndamento') && (
+                <Bloco
+                  titulo="EM ANDAMENTO"
+                  total={blocos.minhas.length}
+                  vazio="Nenhuma cotação com você agora."
+                  onVerTodas={() => onIrPara('cotacoes')}
+                >
+                  {blocos.minhas.slice(0, ITENS_POR_BLOCO).map((r) => (
+                    <LinhaCotacao
+                      key={r.id}
+                      r={r}
+                      onClick={() => onOpenQuote(r)}
+                      direita={
+                        <span className="flex flex-col items-end gap-0.5">
+                          <SeloStatus status={r.status} cor={corDoStatus(r.status)} />
+                          <span className="text-[11px] text-ink-400">{haDiasUteis(desdeStatusAtual(r), agora)}</span>
+                        </span>
+                      }
+                    />
+                  ))}
+                </Bloco>
+              )}
 
-            <Bloco
-              titulo="EM PRODUÇÃO"
-              total={blocos.emProducao.length}
-              vazio="Nenhum pedido confirmado em produção."
-              onVerTodas={() => onIrPara('pedidoCompra')}
-              rotuloVerTodas="Ver no Pedido de Compra"
-            >
-              {blocos.emProducao.slice(0, ITENS_POR_BLOCO).map((r) => (
-                <LinhaCotacao
-                  key={r.id}
-                  r={r}
-                  onClick={() => onOpenQuote(r)}
-                  direita={
-                    <span className="flex flex-col items-end gap-0.5">
-                      {r.producao ? (
-                        <SeloProducao producao={r.producao} totalItens={itensDoPedidoDeCompra(r).length} agora={agora} previsoes={previsoesDeProducao(r)} />
-                      ) : (
-                        <span className="text-[11px] text-ink-400">produção não informada · {haDiasUteis(desdeStatusAtual(r), agora)}</span>
-                      )}
-                      {r.producao && previsoesDeProducao(r).length === 0 && <span className="text-[11px] text-ink-400">sem previsão</span>}
-                    </span>
-                  }
-                />
-              ))}
-            </Bloco>
+              {ve('emProducao') && (
+                <Bloco
+                  titulo="EM PRODUÇÃO"
+                  total={blocos.emProducao.length}
+                  vazio="Nenhum pedido confirmado em produção."
+                  onVerTodas={() => onIrPara('pedidoCompra')}
+                  rotuloVerTodas="Ver no Pedido de Compra"
+                >
+                  {blocos.emProducao.slice(0, ITENS_POR_BLOCO).map((r) => (
+                    <LinhaCotacao
+                      key={r.id}
+                      r={r}
+                      onClick={() => onOpenQuote(r)}
+                      direita={
+                        <span className="flex flex-col items-end gap-0.5">
+                          {r.producao ? (
+                            <SeloProducao producao={r.producao} totalItens={itensDoPedidoDeCompra(r).length} agora={agora} previsoes={previsoesDeProducao(r)} />
+                          ) : (
+                            <span className="text-[11px] text-ink-400">produção não informada · {haDiasUteis(desdeStatusAtual(r), agora)}</span>
+                          )}
+                          {r.producao && previsoesDeProducao(r).length === 0 && <span className="text-[11px] text-ink-400">sem previsão</span>}
+                        </span>
+                      }
+                    />
+                  ))}
+                </Bloco>
+              )}
 
-            <Bloco
-              titulo="EM TRANSPORTE"
-              total={blocos.emTransporte.length}
-              vazio="Nada em transporte."
-              onVerTodas={() => onIrPara('pedidoCompra')}
-              rotuloVerTodas="Ver no Pedido de Compra"
-            >
-              {blocos.emTransporte.slice(0, ITENS_POR_BLOCO).map((r) => {
-                const previsoes = previsoesDeEntrega(r)
-                return (
-                  <LinhaCotacao
-                    key={r.id}
-                    r={r}
-                    onClick={() => setTransporteAbertoId(r.id)}
-                    direita={
-                      <span className="flex flex-col items-end gap-0.5">
-                        <SeloStatus status={r.status} cor={corDoStatus(r.status)} />
-                        {previsoes.length > 0 ? (
-                          <SelosPrevisao previsoes={previsoes} agora={agora} />
+              {ve('emTransporte') && (
+                <Bloco
+                  titulo="EM TRANSPORTE"
+                  total={blocos.emTransporte.length}
+                  vazio="Nada em transporte."
+                  onVerTodas={() => onIrPara('pedidoCompra')}
+                  rotuloVerTodas="Ver no Pedido de Compra"
+                >
+                  {blocos.emTransporte.slice(0, ITENS_POR_BLOCO).map((r) => {
+                    const previsoes = previsoesDeEntrega(r)
+                    return (
+                      <LinhaCotacao
+                        key={r.id}
+                        r={r}
+                        onClick={() => setTransporteAbertoId(r.id)}
+                        direita={
+                          <span className="flex flex-col items-end gap-0.5">
+                            <SeloStatus status={r.status} cor={corDoStatus(r.status)} />
+                            {previsoes.length > 0 ? (
+                              <SelosPrevisao previsoes={previsoes} agora={agora} />
+                            ) : (
+                              <span className="text-[11px] text-ink-400">sem previsão · {haDiasUteis(desdeStatusAtual(r), agora)}</span>
+                            )}
+                          </span>
+                        }
+                      />
+                    )
+                  })}
+                </Bloco>
+              )}
+
+              {ve('atividade') && (
+                <Bloco
+                  titulo="Atividade recente da equipe"
+                  total={blocos.atividade.length}
+                  vazio="Nenhuma atividade ainda."
+                >
+                  {blocos.atividade.map((e) => (
+                    <button
+                      key={e.chave}
+                      type="button"
+                      onClick={() => onOpenQuote(e.cotacao)}
+                      className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-sm transition hover:bg-ink-50"
+                    >
+                      <span className="font-mono text-xs text-ink-500">{e.cotacao.codigo || '—'}</span>
+                      <span className="min-w-0 flex-1 truncate text-ink-700">
+                        {e.texto === 'criada' ? (
+                          <>criada{e.quem ? <> por <strong className="font-medium">{e.quem}</strong></> : null}</>
                         ) : (
-                          <span className="text-[11px] text-ink-400">sem previsão · {haDiasUteis(desdeStatusAtual(r), agora)}</span>
+                          <>
+                            <SeloStatus status={e.texto} cor={corDoStatus(e.texto)} />
+                            {e.quem && <span className="ml-1.5 text-ink-500">· resp. {e.quem}</span>}
+                          </>
                         )}
                       </span>
-                    }
-                  />
-                )
-              })}
-            </Bloco>
+                      <span className="shrink-0 text-[11px] text-ink-400">{haQuanto(e.quando, agora)}</span>
+                    </button>
+                  ))}
+                </Bloco>
+              )}
 
-            <Bloco
-              titulo="Atividade recente da equipe"
-              total={blocos.atividade.length}
-              vazio="Nenhuma atividade ainda."
-            >
-              {blocos.atividade.map((e) => (
-                <button
-                  key={e.chave}
-                  type="button"
-                  onClick={() => onOpenQuote(e.cotacao)}
-                  className="flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left text-sm transition hover:bg-ink-50"
+              {veTransferencias && (
+                <Bloco
+                  titulo="Transferências fiscais"
+                  total={transferencias.abertas + transferencias.notasEmPrejuizo}
+                  vazio="Nenhuma transferência em aberto."
+                  onVerTodas={() => onIrPara('acompanhamentoNotas')}
+                  rotuloVerTodas="Ir para Transferências"
                 >
-                  <span className="font-mono text-xs text-ink-500">{e.cotacao.codigo || '—'}</span>
-                  <span className="min-w-0 flex-1 truncate text-ink-700">
-                    {e.texto === 'criada' ? (
-                      <>criada{e.quem ? <> por <strong className="font-medium">{e.quem}</strong></> : null}</>
-                    ) : (
-                      <>
-                        <SeloStatus status={e.texto} cor={corDoStatus(e.texto)} />
-                        {e.quem && <span className="ml-1.5 text-ink-500">· resp. {e.quem}</span>}
-                      </>
-                    )}
-                  </span>
-                  <span className="shrink-0 text-[11px] text-ink-400">{haQuanto(e.quando, agora)}</span>
-                </button>
-              ))}
-            </Bloco>
-
-            {veTransferencias && (
-              <Bloco
-                titulo="Transferências fiscais"
-                total={transferencias.abertas + transferencias.notasEmPrejuizo}
-                vazio="Nenhuma transferência em aberto."
-                onVerTodas={() => onIrPara('acompanhamentoNotas')}
-                rotuloVerTodas="Ir para Transferências"
-              >
-                {transferencias.porStatus.map((s) => (
-                  <div key={s.status} className="flex items-center justify-between px-2 py-1 text-sm">
-                    <SeloStatus status={s.status} cor={corDoStatus(s.status, NOTA_FISCAL_STATUSES)} />
-                    <span className="font-semibold text-ink-800">{s.quantidade}</span>
-                  </div>
-                ))}
-                {transferencias.notasEmPrejuizo > 0 && (
-                  <p className="mt-1 rounded-lg bg-[#e34948]/10 px-3 py-2 text-sm text-[#b52d2c] dark:text-[#f19c9b]">
-                    {transferencias.notasEmPrejuizo} nota{transferencias.notasEmPrejuizo === 1 ? '' : 's'} com prejuízo até vender:{' '}
-                    <strong>{formatCurrency(transferencias.prejuizo)}</strong> — marque como faturado o que for vendido.
-                  </p>
-                )}
-              </Bloco>
-            )}
-          </div>
+                  {transferencias.porStatus.map((s) => (
+                    <div key={s.status} className="flex items-center justify-between px-2 py-1 text-sm">
+                      <SeloStatus status={s.status} tipo="notas" cor={corDoStatus(s.status, statusDe('notas'))} />
+                      <span className="font-semibold text-ink-800">{s.quantidade}</span>
+                    </div>
+                  ))}
+                  {transferencias.notasEmPrejuizo > 0 && (
+                    <p className="mt-1 rounded-lg bg-[#e34948]/10 px-3 py-2 text-sm text-[#b52d2c] dark:text-[#f19c9b]">
+                      {transferencias.notasEmPrejuizo} nota{transferencias.notasEmPrejuizo === 1 ? '' : 's'} com prejuízo até vender:{' '}
+                      <strong>{formatCurrency(transferencias.prejuizo)}</strong> — marque como faturado o que for vendido.
+                    </p>
+                  )}
+                </Bloco>
+              )}
+            </div>
+          )}
 
           {/* por último, depois de todos os blocos */}
-          {blocos.retorno.length > 0 && (
+          {ve('retorno') && blocos.retorno.length > 0 && (
             <Topico
               id="retorno"
               titulo="Retorno do cliente"
@@ -684,10 +735,10 @@ function LinhaCotacao({ r, direita, onClick }: { r: QuoteRecord; direita: ReactN
   )
 }
 
-function SeloStatus({ status, cor }: { status: string; cor: string }) {
+function SeloStatus({ status, cor, tipo = 'cotacoes' }: { status: string; cor: string; tipo?: TipoStatus }) {
   return (
     <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap" style={{ backgroundColor: cor, color: corTexto(cor) }}>
-      {status}
+      {nomeDoStatus(status, tipo)}
     </span>
   )
 }

@@ -16,16 +16,21 @@ import { excluirPastaDoJogador, listPartidasXadrez } from '../db/xadrezRepo'
 import { definirTabelasCustomizadas } from '../calc/calculator'
 import { lerPlanilhaMarkup, type ResultadoImportacao } from '../xlsxImport'
 import { baixarWorkbookMarkup } from '../planilhaMarkupDownload'
-import { corPadraoDoStatus } from '../statusColors'
 import { formatDate } from '../utils'
 import { gerarPreviaPlanilha, type PreviaPlanilha } from '../xlsxSheetUtil'
 import { ESTADOS } from '../data/estados'
-import { DEFAULT_EMPRESA, ESTADOS_DESTINO, NOTA_FISCAL_STATUSES, QUOTE_STATUSES } from '../types'
+import { DEFAULT_EMPRESA, ESTADOS_DESTINO } from '../types'
 import type { Empresa, EstadoDestino } from '../types'
 import type { PricingGlobal } from '../db/configRepo'
 import { verificarSenhaAdmin } from '../db/db'
 import { avisar, pedirSenha } from '../dialogs'
 import { UsuariosCard } from '../components/UsuariosCard'
+import { TiposUsuarioCard } from '../components/TiposUsuarioCard'
+import { EditorDeStatus } from '../components/EditorDeStatus'
+import { listQuotes } from '../db/analysesRepo'
+import { listNotasFiscais } from '../db/notasFiscaisRepo'
+import { listNotasFiscaisGerais } from '../db/notasFiscaisGeraisRepo'
+import type { TipoStatus } from '../statusConfig'
 import { FeriadosCard } from '../components/FeriadosCard'
 import { useSessao } from '../sessaoUsuario'
 import { MinhaContaForm } from '../components/MinhaContaModal'
@@ -45,20 +50,23 @@ type SecaoConfig = keyof typeof ICONES_CONFIG
 
 /** As partes de cada um (ou deste aparelho) — aparecem mesmo pra quem não tem as Configurações gerais. */
 const SECOES_PESSOAIS: SecaoConfig[] = ['conta', 'saida', 'fundo']
+/** Só pro gestor (o Max): quem usa o site, os tipos de usuário e os status. */
+const SECOES_DO_GESTOR: SecaoConfig[] = ['usuarios', 'tiposUsuario', 'statusCotacoes', 'statusNotas']
 
 /** As partes da aba, na ordem dos símbolos (as mais usadas primeiro). */
 const SECOES: { id: SecaoConfig; titulo: string; resumo: string; icone: ReactNode }[] = [
   { id: 'conta', titulo: 'Minha conta', resumo: 'Trocar a sua senha e o e-mail de recuperação', icone: ICONES_CONFIG.conta },
   { id: 'saida', titulo: 'Saída automática', resumo: 'Sair sozinho depois de um tempo sem uso', icone: ICONES_CONFIG.saida },
-  { id: 'usuarios', titulo: 'Usuários', resumo: 'Cadastrar, função, abas e nova senha', icone: ICONES_CONFIG.usuarios },
+  { id: 'usuarios', titulo: 'Usuários', resumo: 'Cadastrar, função, permissões e nova senha', icone: ICONES_CONFIG.usuarios },
+  { id: 'tiposUsuario', titulo: 'Tipos de usuário', resumo: 'Modelos de função, abas e status pra reaproveitar', icone: ICONES_CONFIG.tiposUsuario },
+  { id: 'statusCotacoes', titulo: 'Status das cotações', resumo: 'Nome, cor, ordem e status novos', icone: ICONES_CONFIG.statusCotacoes },
+  { id: 'statusNotas', titulo: 'Status de frete e notas', resumo: 'Nome, cor, ordem e status novos', icone: ICONES_CONFIG.statusNotas },
   { id: 'formacao', titulo: 'Formação de preço', resumo: 'Imposto federal, comissão e custo fixo', icone: ICONES_CONFIG.formacao },
   { id: 'empresas', titulo: 'Empresas', resumo: 'Empresas do grupo que recebem os materiais', icone: ICONES_CONFIG.empresas },
   { id: 'importarMarkup', titulo: 'Importar planilha de markup', resumo: 'Nova versão das tabelas RBC e ICMS-ST', icone: ICONES_CONFIG.importarMarkup },
   { id: 'planilhas', titulo: 'Planilhas importadas', resumo: 'Histórico, baixar ou voltar a usar uma anterior', icone: ICONES_CONFIG.planilhas },
   { id: 'feriados', titulo: 'Feriados', resumo: 'Estaduais e municipais, pros dias úteis', icone: ICONES_CONFIG.feriados },
   { id: 'fundo', titulo: 'Vídeo de fundo', resumo: 'Animar ou pausar o samurai ao fundo', icone: ICONES_CONFIG.fundo },
-  { id: 'coresCotacao', titulo: 'Cores dos status', resumo: 'Status das cotações (Dashboard e Cotações)', icone: ICONES_CONFIG.coresCotacao },
-  { id: 'coresFrete', titulo: 'Cores do frete', resumo: 'Status das cotações de frete', icone: ICONES_CONFIG.coresFrete },
   { id: 'xadrez', titulo: 'Xadrez', resumo: 'Pastas de partidas de cada jogador', icone: ICONES_CONFIG.xadrez },
 ]
 
@@ -109,6 +117,12 @@ export function ConfiguracoesPage({
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao salvar a cor no servidor.')
     }
+  }
+
+  async function contarUso(tipo: TipoStatus, status: string): Promise<number> {
+    if (tipo === 'cotacoes') return (await listQuotes()).filter((q) => q.status === status).length
+    const [notas, gerais] = await Promise.all([listNotasFiscais(), listNotasFiscaisGerais()])
+    return [...notas, ...gerais].filter((n) => n.status === status).length
   }
 
   // --- formação de preço global -----------------------------------------------
@@ -390,7 +404,7 @@ export function ConfiguracoesPage({
 
   // cada parte das configurações é um símbolo; clicar abre só ela, numa janela (fecha no ✕ ou no Esc)
   const secoes = SECOES.filter((s) =>
-    s.id === 'usuarios' ? gerenciaUsuarios : configuracoesGerais || SECOES_PESSOAIS.includes(s.id),
+    SECOES_DO_GESTOR.includes(s.id) ? gerenciaUsuarios : configuracoesGerais || SECOES_PESSOAIS.includes(s.id),
   )
   const secaoAberta = secoes.find((s) => s.id === aberta)
 
@@ -453,44 +467,13 @@ export function ConfiguracoesPage({
             </label>
           </>
         )
-      case 'coresCotacao':
-        return (
-          <>
-            <p className="text-xs text-ink-400 mb-4">Usadas no Dashboard e na aba Cotações — vale pra todos os admins.</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {QUOTE_STATUSES.map((status) => (
-                <label key={status} className="flex items-center gap-2 rounded-lg border border-ink-100 px-3 py-2 text-xs text-ink-700">
-                  <input
-                    type="color"
-                    value={coresStatus[status] || corPadraoDoStatus(status)}
-                    onChange={(e) => handleCorStatusChange(status, e.target.value)}
-                    className="h-6 w-8 shrink-0 cursor-pointer rounded border border-ink-200 p-0"
-                  />
-                  <span className="truncate">{status}</span>
-                </label>
-              ))}
-            </div>
-          </>
-        )
-      case 'coresFrete':
-        return (
-          <>
-            <p className="text-xs text-ink-400 mb-4">Usadas no Acompanhamento de notas — vale pra todos os admins.</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-              {NOTA_FISCAL_STATUSES.map((status) => (
-                <label key={status} className="flex items-center gap-2 rounded-lg border border-ink-100 px-3 py-2 text-xs text-ink-700">
-                  <input
-                    type="color"
-                    value={coresStatus[status] || corPadraoDoStatus(status, NOTA_FISCAL_STATUSES)}
-                    onChange={(e) => handleCorStatusChange(status, e.target.value)}
-                    className="h-6 w-8 shrink-0 cursor-pointer rounded border border-ink-200 p-0"
-                  />
-                  <span className="truncate">{status}</span>
-                </label>
-              ))}
-            </div>
-          </>
-        )
+      case 'tiposUsuario':
+        return <TiposUsuarioCard />
+      case 'statusCotacoes':
+      case 'statusNotas': {
+        const tipo = secao === 'statusCotacoes' ? 'cotacoes' : 'notas'
+        return <EditorDeStatus key={tipo} tipo={tipo} cores={coresStatus} onCor={handleCorStatusChange} contarUso={(status) => contarUso(tipo, status)} />
+      }
       case 'formacao':
         return (
           <>

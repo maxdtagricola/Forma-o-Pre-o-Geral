@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { dataHora, entradaNoPedidoDeCompra, passosDoStatus } from '../historicoStatus'
 import { diasUteisDesde, useVersaoFeriados } from '../diasUteis'
 import { corPadraoDoStatus } from '../statusColors'
+import { nomeDoStatus } from '../statusConfig'
 import type { QuoteRecord } from '../types'
 
 /** "no mesmo dia", "1 dia útil", "3 dias úteis" */
@@ -59,8 +60,8 @@ export function AndamentoDoPedido({
             <li key={`${p.em}-${i}`} className="text-xs text-ink-600">
               <span className="flex flex-wrap items-center gap-x-1.5">
                 <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: corDoStatus(p.para) }} />
-                <strong className="font-semibold text-ink-800">{p.para}</strong>
-                {p.de && p.de !== p.para && <span className="text-ink-400">(de {p.de})</span>}
+                <strong className="font-semibold text-ink-800">{nomeDoStatus(p.para)}</strong>
+                {p.de && p.de !== p.para && <span className="text-ink-400">(de {nomeDoStatus(p.de)})</span>}
                 <span>· {dataHora(p.em)}</span>
                 {p.por && <span>· {p.por}</span>}
                 {p.diasUteis !== undefined && <span className="text-ink-400">· {intervalo(p.diasUteis)} depois da anterior</span>}

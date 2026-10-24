@@ -4,7 +4,9 @@ import { LoginPage } from './components/LoginPage'
 import { MinhaContaModal } from './components/MinhaContaModal'
 import { SaidaAutomatica } from './components/SaidaAutomatica'
 import { nomeDaAba, usePermissoes } from './abasPermitidas'
+import { carregarMinhasPermissoesStatus, carregarStatusConfig, nomeDoStatus, podeMudarStatusPara, useVersaoStatus } from './statusConfig'
 import { TelaInicialPage } from './pages/TelaInicialPage'
+import { useMinhaTelaInicial } from './telaInicialPorUsuario'
 import { Dashboard } from './pages/Dashboard'
 import { RecuperarRascunhoModal } from './components/RecuperarRascunhoModal'
 import { DialogHost } from './components/DialogHost'
@@ -151,6 +153,8 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   // as abas que este usuário vê (o Max escolhe em Configurações > Usuários)
   const permissoes = usePermissoes(usuario)
   const { podeVer } = permissoes
+  // o que aparece na Tela Inicial deste usuário (também escolhido pelo Max)
+  const partesTelaInicial = useMinhaTelaInicial(usuario)
   // todo mundo (o Max também) começa na Tela Inicial
   const [tab, setTab] = useState<TabKey>('telaInicial')
   // a lista de abas chegou do servidor e esta não está nela: volta pra Tela Inicial
@@ -179,11 +183,24 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       })
   }, [])
 
+  // os status (nomes, ordem, os criados pelo Max) e pra quais este usuário pode mudar
+  useVersaoStatus()
+  useEffect(() => {
+    carregarStatusConfig().catch(() => {
+      // sem servidor agora: fica a última configuração vista neste aparelho
+    })
+    carregarMinhasPermissoesStatus(usuario.login, usuario.gestor).catch(() => {
+      // sem servidor agora: o servidor confere de novo quando a mudança chegar
+    })
+  }, [usuario.login, usuario.gestor])
+
   // cotação enviada há 7 dias ou mais e ainda em ENVIADO: quem enviou é avisado, uma vez por sessão,
-  // pra atualizar o status (fechou → pedido de compra; não fechou → arquivar com o motivo)
+  // pra atualizar o status (fechou → pedido de compra; não fechou → arquivar com o motivo) — só quem
+  // tem o "Retorno do cliente" na Tela Inicial (null = a lista ainda não chegou)
+  const veRetorno = partesTelaInicial === null ? null : partesTelaInicial.includes('retorno')
   useEffect(() => {
     const sessao = getSessao()
-    if (!sessao) return
+    if (!sessao || !veRetorno) return
     const chave = `avisoRetorno:${sessao.token.slice(0, 12)}`
     if (sessionStorage.getItem(chave)) return
     // marcado antes de perguntar ao servidor: o efeito pode rodar duas vezes seguidas (StrictMode)
@@ -195,7 +212,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
         const codigos = esperando.map((r) => r.codigo || r.cliente).join(', ')
         const ver = await confirmar(
           `${esperando.length === 1 ? 'Uma cotação enviada' : `${esperando.length} cotações enviadas`} por você há ${DIAS_PARA_RETORNO} dias ou mais ` +
-            `${esperando.length === 1 ? 'ainda está' : 'ainda estão'} como ENVIADO (${codigos}).\n\n` +
+            `${esperando.length === 1 ? 'ainda está' : 'ainda estão'} como ${nomeDoStatus('ENVIADO')} (${codigos}).\n\n` +
             'Atualize o status: se fechou, siga pro pedido de compra; se não fechou, arquive com o motivo.',
           { titulo: 'Retorno do cliente', confirmText: 'Ver na Tela Inicial', cancelText: 'Depois' },
         )
@@ -203,7 +220,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       })
       .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [veRetorno])
 
   // quem gerencia os usuários (o Max) é avisado, uma vez por sessão, de cadastros esperando função
   useEffect(() => {
@@ -453,6 +470,8 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   // falhar, o pior caso é o status ficar desatualizado até a próxima ação, sem travar a digitação)
   function promoverStatusPorValorUnitario() {
     if (!editingQuoteId || !currentAdmin || activeStatus !== 'PENDENTE') return
+    // sem permissão pra esse status (Configurações > Usuários > Status), a cotação fica como está
+    if (!podeMudarStatusPara('cotacoes', 'ANALISANDO VALORES')) return
     setActiveStatus('ANALISANDO VALORES')
     setActiveResponsavel(currentAdmin)
     updateQuoteStatus(editingQuoteId, 'ANALISANDO VALORES', currentAdmin)
@@ -849,7 +868,8 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           }}
           onContinuar={() => changeTab('dashboard')}
           onIrPara={changeTab}
-          veTransferencias={podeVer('acompanhamentoNotas')}
+          podeVer={podeVer}
+          partes={partesTelaInicial}
           onAbrirPedido={(cotacaoId) => {
             setPedidoParaAbrir((anterior) => ({ cotacaoId, vez: (anterior?.vez ?? 0) + 1 }))
             changeTab('pedidoCompra')

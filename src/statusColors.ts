@@ -1,4 +1,4 @@
-import { QUOTE_STATUSES } from './types'
+import { statusDe } from './statusConfig'
 
 // paleta categórica fixa (8 tons validados) — mesma usada no gráfico do Dashboard
 export const PALETA_CATEGORICA = [
@@ -14,7 +14,7 @@ export const PALETA_CATEGORICA = [
 export const COR_OUTROS = '#c3c2b7'
 
 /** Cor padrão pra um status, pela posição dele numa lista — mesma paleta fixa pra todos os fluxos de status do app. */
-export function corPadraoDoStatus(status: string, lista: readonly string[] = QUOTE_STATUSES): string {
+export function corPadraoDoStatus(status: string, lista: readonly string[] = statusDe('cotacoes')): string {
   const indice = lista.indexOf(status)
   return PALETA_CATEGORICA[(indice === -1 ? 0 : indice) % PALETA_CATEGORICA.length]
 }

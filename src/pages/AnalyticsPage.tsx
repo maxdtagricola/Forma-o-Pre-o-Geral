@@ -9,7 +9,8 @@ import { DonutChart, type DonutDatum } from '../components/DonutChart'
 import { LineChart, type LineDatum, type LineSeries } from '../components/LineChart'
 import { BarChart, type BarDatum } from '../components/BarChart'
 import { PERIODOS, inicioPeriodo, type Periodo } from '../periodo'
-import { QUOTE_STATUSES, VENDEDORES } from '../types'
+import { VENDEDORES } from '../types'
+import { nomeDoStatus, ordemComExtras } from '../statusConfig'
 import type { QuoteRecord } from '../types'
 import { avisar } from '../dialogs'
 import { SeletorMesReferencia, intervaloDoMes, mesesDisponiveis } from '../components/SeletorMesReferencia'
@@ -60,8 +61,8 @@ export function AnalyticsPage() {
   }, [records, periodo, mesReferencia, vendedorFiltro])
 
   const statusData: DonutDatum[] = useMemo(() => {
-    const contagens = QUOTE_STATUSES.map((status) => ({
-      label: status,
+    const contagens = ordemComExtras('cotacoes', filtrados.map((r) => r.status)).map((status) => ({
+      label: nomeDoStatus(status),
       value: filtrados.filter((r) => r.status === status).length,
       color: coresStatus[status] || corPadraoDoStatus(status),
     }))
@@ -93,7 +94,7 @@ export function AnalyticsPage() {
     const temOutros = statusOrdenados.length > 3
     const series: LineSeries[] = principais.map((s, i) => ({
       key: s,
-      label: s,
+      label: nomeDoStatus(s),
       color: PALETA_CATEGORICA[i % PALETA_CATEGORICA.length],
     }))
     if (temOutros) series.push({ key: '__outros', label: 'Outros', color: COR_OUTROS })

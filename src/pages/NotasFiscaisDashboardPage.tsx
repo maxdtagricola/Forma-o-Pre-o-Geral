@@ -8,7 +8,8 @@ import { getStatusColors } from '../db/configRepo'
 import { corPadraoDoStatus } from '../statusColors'
 import { formatCurrency } from '../utils'
 import { PERIODOS, inicioPeriodo, type Periodo } from '../periodo'
-import { NOTA_FISCAL_STATUSES, NOTA_FISCAL_TIPOS } from '../types'
+import { NOTA_FISCAL_TIPOS } from '../types'
+import { nomeDoStatus, ordemComExtras, statusDe } from '../statusConfig'
 import type { NotaFiscal, NotaFiscalTipo } from '../types'
 import {
   COR_FATURADO,
@@ -145,7 +146,7 @@ export function NotasFiscaisDashboardPage() {
   }, [])
 
   function corDoStatus(status: string): string {
-    return coresStatus[status] || corPadraoDoStatus(status, NOTA_FISCAL_STATUSES)
+    return coresStatus[status] || corPadraoDoStatus(status, statusDe('notas'))
   }
 
   const meses = useMemo(() => mesesDisponiveis(notas.map(chaveMesDaNota)), [notas])
@@ -166,8 +167,8 @@ export function NotasFiscaisDashboardPage() {
 
   const statusData: DonutDatum[] = useMemo(
     () =>
-      NOTA_FISCAL_STATUSES.map((status) => ({
-        label: status,
+      ordemComExtras('notas', notasDoPeriodo.map((n) => n.status)).map((status) => ({
+        label: nomeDoStatus(status, 'notas'),
         value: notasDoPeriodo.filter((n) => n.status === status).length,
         color: corDoStatus(status),
       })).filter((d) => d.value > 0),

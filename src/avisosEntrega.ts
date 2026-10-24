@@ -1,5 +1,5 @@
 import { chaveDoDia, diasUteisAte } from './diasUteis'
-import { QUOTE_STATUSES } from './types'
+import { statusDe } from './statusConfig'
 import type { QuoteRecord, QuoteStatus } from './types'
 
 // -----------------------------------------------------------------------
@@ -9,12 +9,23 @@ import type { QuoteRecord, QuoteStatus } from './types'
 // chegam nos próximos dias úteis, pra notificação no canto da tela.
 // -----------------------------------------------------------------------
 
-/** Status em que a mercadoria ainda está a caminho (dá pra marcar a entrega no Pedido de Compra). */
-export const STATUS_A_CAMINHO: QuoteStatus[] = ['EM TRANSPORTE', 'CADASTRO DE PRODUTO', 'PARCIALMENTE ENTREGUE']
+/** A mercadoria ainda está a caminho (dá pra marcar a entrega no Pedido de Compra): de EM TRANSPORTE até
+ * antes de ENTREGUE no fluxo — EM TRANSPORTE, CADASTRO DE PRODUTO, PARCIALMENTE ENTREGUE e os criados entre eles. */
+export function estaACaminho(status: QuoteStatus): boolean {
+  const lista = statusDe('cotacoes')
+  const i = lista.indexOf(status)
+  return status !== 'ARQUIVO' && i >= lista.indexOf('EM TRANSPORTE') && i < lista.indexOf('ENTREGUE')
+}
 
-/** ENTREGUE e o que vem depois no fluxo (CONFERIDO, FATURADO): a mercadoria já foi recebida. */
+/** Os status "a caminho", na ordem do fluxo. */
+export function statusACaminho(): QuoteStatus[] {
+  return statusDe('cotacoes').filter(estaACaminho)
+}
+
+/** ENTREGUE e o que vem depois no fluxo (CONFERIDO, FATURADO e os criados depois deles): a mercadoria já foi recebida. */
 export function mercadoriaRecebida(status: QuoteStatus): boolean {
-  return status !== 'ARQUIVO' && QUOTE_STATUSES.indexOf(status) >= QUOTE_STATUSES.indexOf('ENTREGUE')
+  const lista = statusDe('cotacoes')
+  return status !== 'ARQUIVO' && lista.indexOf(status) >= lista.indexOf('ENTREGUE')
 }
 
 /** Até quantos dias úteis antes a previsão conta como "chega em breve". */
@@ -52,7 +63,7 @@ export function avisosDeEntrega(quotes: QuoteRecord[], agora: number = Date.now(
   const hoje = chaveDoDia(new Date(agora))
   const avisos: AvisoEntrega[] = []
   for (const q of quotes) {
-    if (!STATUS_A_CAMINHO.includes(q.status)) continue
+    if (!estaACaminho(q.status)) continue
     for (const [chaveFornecedor, t] of Object.entries(q.transportePorFornecedor ?? {})) {
       const previsao = t.previsaoEntrega ?? ''
       if (t.entregueEm || !/^\d{4}-\d{2}-\d{2}$/.test(previsao)) continue

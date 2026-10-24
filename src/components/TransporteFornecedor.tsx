@@ -5,6 +5,7 @@ import { diasUteisAte, textoDiasUteis } from '../diasUteis'
 import { mercadoriaRecebida } from '../avisosEntrega'
 import { fornecedoresDoPedido, type PrevisaoDoFornecedor } from '../fornecedoresDoPedido'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
+import { nomeDoStatus } from '../statusConfig'
 import type { DadosTransporte, QuoteRecord } from '../types'
 
 // -----------------------------------------------------------------------
@@ -264,7 +265,7 @@ export function ResumoTransporteDaCotacao({
       subtitulo={[cotacao.maquina, cotacao.vendedor].filter(Boolean).join(' · ') || undefined}
       selos={
         <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: cor, color: corTexto(cor) }}>
-          {cotacao.status}
+          {nomeDoStatus(cotacao.status)}
         </span>
       }
       fornecedores={fornecedoresDoPedido(cotacao).map((g) => {

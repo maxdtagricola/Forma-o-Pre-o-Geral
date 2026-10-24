@@ -64,8 +64,17 @@ export const ICONES_CONFIG = {
       <path d="M8 20.5h8M12 17v3.5" />
     </Icone>
   ),
-  // paleta de cores
-  coresCotacao: (
+  // crachá (um tipo de usuário: função, abas e status)
+  tiposUsuario: (
+    <Icone>
+      <rect x="4" y="3.5" width="16" height="17" rx="2" />
+      <path d="M9.5 3.5v2h5v-2" />
+      <circle cx="12" cy="11" r="2.4" />
+      <path d="M8 17c.6-1.9 2.1-3 4-3s3.4 1.1 4 3" />
+    </Icone>
+  ),
+  // paleta de cores (status das cotações: nome, cor e ordem)
+  statusCotacoes: (
     <Icone>
       <path d="M12 3.5a8.5 8.5 0 1 0 0 17c1.3 0 1.9-.8 1.9-1.7 0-1.3-1.1-1.6-1.1-2.7 0-.9.7-1.6 1.6-1.6h2.1a4 4 0 0 0 4-4C20.5 6.8 16.7 3.5 12 3.5z" />
       <circle cx="7.6" cy="11.5" r="1.1" />
@@ -73,8 +82,8 @@ export const ICONES_CONFIG = {
       <circle cx="14.6" cy="7.6" r="1.1" />
     </Icone>
   ),
-  // caminhão com a gota de cor
-  coresFrete: (
+  // caminhão com a gota de cor (status de frete e notas)
+  statusNotas: (
     <Icone>
       <path d="M2.5 7h11v9h-11z" />
       <path d="M13.5 10h4l3 3.2V16h-7" />

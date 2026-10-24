@@ -11,7 +11,6 @@ import { formatarNumeroCurtoBR, parseNumeroFlexivel } from '../numeros'
 import {
   DEFAULT_NOTA_FISCAL,
   NECESSIDADES_TRANSFERENCIA,
-  NOTA_FISCAL_STATUSES,
   NOTA_FISCAL_TIPOS,
   RECEBEDORES,
   RESULTADOS_DO_PRODUTO,
@@ -50,6 +49,7 @@ import {
 import { interpretarXmlFrete, interpretarXmlNotaFiscal, tipoDoXml } from '../xmlNotaFiscal'
 import { useEstadoPersistente } from '../estadoPersistente'
 import { avisar, confirmar } from '../dialogs'
+import { nomeDoStatus, ordemComExtras, podeMudarStatusPara, statusDe } from '../statusConfig'
 import { useFecharComEsc } from '../teclaEsc'
 
 // -----------------------------------------------------------------------
@@ -85,7 +85,6 @@ const FILTRO_SEM_RESULTADO = '__sem__'
 
 const transportadoraSuggestions = TRANSPORTADORAS.map((t) => ({ value: t, label: t }))
 const recebedorSuggestions = RECEBEDORES.map((r) => ({ value: r, label: r }))
-const statusOptions = NOTA_FISCAL_STATUSES.map((s) => ({ value: s, label: s }))
 
 function itensDaNota(n: { itens?: NotaFiscalItem[] }): NotaFiscalItem[] {
   return n.itens ?? []
@@ -820,7 +819,7 @@ function NotaCard({
             className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
             style={{ backgroundColor: corDoStatus(n.status), color: corTexto(corDoStatus(n.status)) }}
           >
-            {n.status}
+            {nomeDoStatus(n.status, 'notas')}
           </span>
           {/* em aberto de um mês anterior: fica na lista principal até concluir — a etiqueta diz de quando é */}
           {mesDaNota !== mesAtualKey && (
@@ -1015,7 +1014,7 @@ function GrupoStatusTable({
           className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
           style={{ backgroundColor: corDoStatus(grupo.status), color: corTexto(corDoStatus(grupo.status)) }}
         >
-          {grupo.status}
+          {nomeDoStatus(grupo.status, 'notas')}
         </span>
         <span className="text-xs text-ink-400">{grupo.itens.length}</span>
         <span aria-hidden className={`ml-auto text-ink-400 transition-transform ${aberto ? 'rotate-180' : ''}`}>
@@ -1043,7 +1042,7 @@ function GrupoStatusTable({
 }
 
 function agruparPorStatus(notas: NotaFiscal[]): { status: NotaFiscalStatus; itens: NotaFiscal[] }[] {
-  return NOTA_FISCAL_STATUSES.map((status) => ({
+  return ordemComExtras('notas', notas.map((n) => n.status)).map((status) => ({
     status,
     itens: notas.filter((n) => n.status === status).sort((a, b) => b.createdAt - a.createdAt),
   })).filter((g) => g.itens.length > 0)
@@ -1199,20 +1198,23 @@ function AlterarStatusModal({
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-2">
-          {NOTA_FISCAL_STATUSES.map((s) => {
+          {ordemComExtras('notas', [nota.status]).map((s) => {
             const ativo = s === nota.status
+            const pode = ativo || podeMudarStatusPara('notas', s)
             return (
               <button
                 key={s}
                 type="button"
+                disabled={!pode}
                 onClick={() => onSelecionar(s)}
-                className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm font-medium text-left transition ${
+                className={`flex items-center gap-2.5 rounded-xl border px-3 py-2.5 text-sm font-medium text-left transition disabled:cursor-not-allowed disabled:opacity-50 ${
                   ativo ? 'border-ink-900 ring-2 ring-ink-900/10 bg-ink-50' : 'border-ink-100 hover:border-ink-300 hover:bg-ink-50'
                 }`}
               >
                 <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: corDoStatus(s) }} />
-                <span className="flex-1 text-ink-800">{s}</span>
+                <span className="flex-1 text-ink-800">{nomeDoStatus(s, 'notas')}</span>
                 {ativo && <span className="text-xs text-ink-400">atual</span>}
+                {!pode && <span className="text-xs text-ink-400">sem permissão</span>}
               </button>
             )
           })}
@@ -1301,7 +1303,7 @@ function ListaItensTransferidos({
                   className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold whitespace-nowrap"
                   style={{ backgroundColor: corDoStatus(nota.status), color: corTexto(corDoStatus(nota.status)) }}
                 >
-                  {nota.status}
+                  {nomeDoStatus(nota.status, 'notas')}
                 </span>
               </td>
             </tr>
@@ -1347,7 +1349,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
   const [form, setForm] = useEstadoPersistente<DadosNota>(`${prefixoChave}:formRascunho`, DEFAULT_NOTA_FISCAL)
   const [statusInicial, setStatusInicial] = useEstadoPersistente<NotaFiscalStatus>(
     `${prefixoChave}:statusInicialRascunho`,
-    NOTA_FISCAL_STATUSES[0],
+    statusDe('notas')[0],
   )
   const [editingId, setEditingId] = useEstadoPersistente<string | undefined>(`${prefixoChave}:editingIdRascunho`, undefined)
   const [saving, setSaving] = useState(false)
@@ -1396,7 +1398,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
   }, [])
 
   function corDoStatus(status: string): string {
-    return coresStatus[status] || corPadraoDoStatus(status, NOTA_FISCAL_STATUSES)
+    return coresStatus[status] || corPadraoDoStatus(status, statusDe('notas'))
   }
 
   // necessidades digitadas à mão ("Outra…") já usadas em alguma nota — viram opção da lista também
@@ -1561,7 +1563,7 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
 
   function handleCancelEdit() {
     setForm(DEFAULT_NOTA_FISCAL)
-    setStatusInicial(NOTA_FISCAL_STATUSES[0])
+    setStatusInicial(statusDe('notas')[0])
     setEditingId(undefined)
     setFormResetKey((k) => k + 1)
   }
@@ -1878,7 +1880,9 @@ export function RegistroNotasPage({ currentAdmin, config }: { currentAdmin: stri
                   label="Status inicial"
                   value={statusInicial}
                   onChange={(v) => setStatusInicial(v as NotaFiscalStatus)}
-                  options={statusOptions}
+                  options={statusDe('notas')
+                    .filter((s, i) => i === 0 || podeMudarStatusPara('notas', s))
+                    .map((s) => ({ value: s, label: nomeDoStatus(s, 'notas') }))}
                 />
               )}
             </div>

@@ -3,7 +3,9 @@ import { deleteQuote, listQuotes, updateQuoteStatus } from '../db/analysesRepo'
 import { Badge } from '../components/ui/Basics'
 import { PedidoCompraModal } from '../components/PedidoCompraModal'
 import { formatCurrency, formatDate } from '../utils'
-import { ADMINS, QUOTE_STATUSES, VENDEDORES } from '../types'
+import { ADMINS, VENDEDORES } from '../types'
+import { OpcoesDeStatus } from '../components/OpcoesDeStatus'
+import { nomeDoStatus } from '../statusConfig'
 import type { PedidoCompraInfo, QuoteRecord, QuoteStatus } from '../types'
 import { avisar, confirmar } from '../dialogs'
 import { perguntarAntesDoStatus } from '../mudancaDeStatus'
@@ -219,11 +221,7 @@ export function HistoryPage({
             className={`field-input text-xs py-1.5 ${travadaPorOutro ? 'opacity-60 cursor-not-allowed' : ''}`}
             title={travadaPorOutro ? `Em análise por ${r.responsavelStatus} — só ele(a) pode mudar` : undefined}
           >
-            {QUOTE_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
+            <OpcoesDeStatus tipo="cotacoes" atual={r.status} />
           </select>
         </div>
 
@@ -263,7 +261,7 @@ export function HistoryPage({
             {r.statusHistory.map((h, i) => (
               <li key={i} className="flex items-center justify-between text-[11px] text-ink-500">
                 <span>
-                  {h.status}
+                  {nomeDoStatus(h.status)}
                   {h.por && <span className="text-ink-400"> · {h.por}</span>}
                 </span>
                 <span>{formatDate(h.changedAt)}</span>

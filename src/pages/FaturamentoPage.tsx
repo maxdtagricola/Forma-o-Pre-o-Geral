@@ -8,7 +8,8 @@ import { formatCurrency } from '../utils'
 import { formatarNumeroBR, formatarNumeroCurtoBR, parseNumeroFlexivel } from '../numeros'
 import { avisar } from '../dialogs'
 import { perguntarAntesDoStatus } from '../mudancaDeStatus'
-import { QUOTE_STATUSES } from '../types'
+import { OpcoesDeStatus } from '../components/OpcoesDeStatus'
+import { nomeDoStatus, statusDe } from '../statusConfig'
 import type { ItemFaturado, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
 
 // -----------------------------------------------------------------------
@@ -19,8 +20,11 @@ import type { ItemFaturado, QuoteItem, QuoteRecord, QuoteStatus } from '../types
 // itens — um não sobrescreve o outro, senão a comparação some.
 // -----------------------------------------------------------------------
 
-const INDICE_PARCIALMENTE_ENTREGUE = QUOTE_STATUSES.indexOf('PARCIALMENTE ENTREGUE')
-const STATUS_DO_FATURAMENTO = QUOTE_STATUSES.slice(INDICE_PARCIALMENTE_ENTREGUE)
+/** De PARCIALMENTE ENTREGUE em diante no fluxo (inclusive os criados depois dele): o que já tem o que faturar. */
+function statusDoFaturamento(): string[] {
+  const lista = statusDe('cotacoes')
+  return lista.slice(lista.indexOf('PARCIALMENTE ENTREGUE'))
+}
 
 /** O que está sendo digitado num item (texto, pra aceitar "1.234,56" sem brigar com o campo). */
 interface FaturadoEmEdicao {
@@ -154,7 +158,7 @@ export function FaturamentoPage({ currentAdmin }: { currentAdmin: string }) {
     () =>
       quotes
         // arquivada sem nunca ter virado pedido (não fechou) não tem o que faturar — continua na busca abaixo
-        .filter((q) => QUOTE_STATUSES.indexOf(q.status) >= INDICE_PARCIALMENTE_ENTREGUE && !(q.status === 'ARQUIVO' && !q.pedidoCompra))
+        .filter((q) => statusDoFaturamento().includes(q.status) && !(q.status === 'ARQUIVO' && !q.pedidoCompra))
         .sort((a, b) => b.updatedAt - a.updatedAt),
     [quotes],
   )
@@ -246,12 +250,10 @@ export function FaturamentoPage({ currentAdmin }: { currentAdmin: string }) {
     }
   }
 
-  const statusOptions = cotacao
-    ? (STATUS_DO_FATURAMENTO.includes(cotacao.status) ? STATUS_DO_FATURAMENTO : [cotacao.status, ...STATUS_DO_FATURAMENTO])
-    : STATUS_DO_FATURAMENTO
+  const statusOptions = statusDoFaturamento()
   const cotacaoOptions = [
     { value: '', label: '— buscar outra cotação —' },
-    ...quotes.map((q) => ({ value: q.id, label: `${q.codigo || 'sem código'} — ${q.cliente || 'sem cliente'} (${q.status})` })),
+    ...quotes.map((q) => ({ value: q.id, label: `${q.codigo || 'sem código'} — ${q.cliente || 'sem cliente'} (${nomeDoStatus(q.status)})` })),
   ]
   const corStatus = cotacao ? corPadraoDoStatus(cotacao.status) : '#999'
   const tudoFaturado = resumo.itens > 0 && resumo.itensFaturados === resumo.itens
@@ -295,7 +297,7 @@ export function FaturamentoPage({ currentAdmin }: { currentAdmin: string }) {
                       className="shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold"
                       style={{ backgroundColor: corPadraoDoStatus(q.status), color: corTexto(corPadraoDoStatus(q.status)) }}
                     >
-                      {q.status}
+                      {nomeDoStatus(q.status)}
                     </span>
                   </span>
                   <span className="shrink-0 text-xs text-ink-500">
@@ -329,7 +331,7 @@ export function FaturamentoPage({ currentAdmin }: { currentAdmin: string }) {
                 className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
                 style={{ backgroundColor: corStatus, color: corTexto(corStatus) }}
               >
-                {cotacao.status}
+                {nomeDoStatus(cotacao.status)}
               </span>
               <select
                 value={cotacao.status}
@@ -337,11 +339,7 @@ export function FaturamentoPage({ currentAdmin }: { currentAdmin: string }) {
                 className="field-input text-xs py-1.5 w-auto"
                 aria-label="Status da cotação"
               >
-                {statusOptions.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
+                <OpcoesDeStatus tipo="cotacoes" atual={cotacao.status} lista={statusOptions} />
               </select>
             </label>
           </div>

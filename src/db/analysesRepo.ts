@@ -2,7 +2,8 @@ import { calculateItem } from '../calc/calculator'
 import { dbDelete, dbGet, dbGetAll, dbPut, STORE_ANALISES } from './db'
 import { proximoCodigoCotacao } from './configRepo'
 import { makeId } from '../utils'
-import { mercadoriaRecebida } from '../avisosEntrega'
+import { estaACaminho, mercadoriaRecebida } from '../avisosEntrega'
+import { conferirPermissaoDeStatus } from '../statusConfig'
 import { excluirPlanilhaCliente, gravarPlanilhaCliente, type PlanilhaClienteArquivo } from './planilhasClienteRepo'
 import type {
   DadosFreteTransportadora,
@@ -280,6 +281,7 @@ export const updateQuoteStatus = emFila(async function updateQuoteStatus(
   if (!atual) throw new Error('Cotação não encontrada no servidor.')
   const normalizado = normalizeRecord(atual)
   exigirResponsavel(normalizado, atorAdmin)
+  if (normalizado.status !== novoStatus) conferirPermissaoDeStatus('cotacoes', novoStatus)
 
   const now = Date.now()
   const atualizado: QuoteRecord = {
@@ -373,7 +375,6 @@ export const salvarProducao = emFila(async function salvarProducao(id: string, p
 
 // a entrega só mexe no status enquanto a mercadoria está a caminho — de CONFERIDO em diante (ou
 // arquivada) o status fica como está
-const STATUS_DA_ENTREGA: QuoteStatus[] = ['EM TRANSPORTE', 'CADASTRO DE PRODUTO', 'PARCIALMENTE ENTREGUE', 'ENTREGUE']
 
 /** Marca (ou desmarca) a mercadoria dos fornecedores `chaves` como entregue e acerta o status pelos
  * fornecedores do pedido (`todasAsChaves`): todos entregues → ENTREGUE; só alguns → PARCIALMENTE
@@ -386,7 +387,7 @@ export const registrarEntrega = emFila(async function registrarEntrega(
   const atual = await dbGet<QuoteRecord | LegacyAnalysisRecord>(STORE_ANALISES, id)
   if (!atual) throw new Error('Cotação não encontrada no servidor.')
   const normalizado = normalizeRecord(atual)
-  const mudaStatus = STATUS_DA_ENTREGA.includes(normalizado.status)
+  const mudaStatus = estaACaminho(normalizado.status) || normalizado.status === 'ENTREGUE'
   if (mudaStatus) exigirResponsavel(normalizado, atorAdmin)
 
   const now = Date.now()

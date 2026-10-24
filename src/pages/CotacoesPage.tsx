@@ -12,7 +12,9 @@ import { arquivoParaBase64 } from '../planilhaCliente'
 import { gerarPreviaPlanilha, type PreviaPlanilha } from '../xlsxSheetUtil'
 import { formatCurrency, formatDate, selecionarTudoAoFocar } from '../utils'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
-import { QUOTE_STATUSES, VENDEDORES } from '../types'
+import { VENDEDORES } from '../types'
+import { OpcoesDeStatus } from '../components/OpcoesDeStatus'
+import { nomeDoStatus, ordemComExtras } from '../statusConfig'
 import type { PedidoCompraInfo, QuoteRecord, QuoteStatus, TipoReferencia } from '../types'
 import { useEstadoPersistente } from '../estadoPersistente'
 import { diasUteisDesde, textoDiasUteis, useVersaoFeriados } from '../diasUteis'
@@ -264,7 +266,7 @@ function QuoteCard({
             className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold"
             style={{ backgroundColor: corDoStatus(r.status), color: corTexto(corDoStatus(r.status)) }}
           >
-            {r.status}
+            {nomeDoStatus(r.status)}
           </span>
           {r.status === 'PENDENTE' && <TempoPendente r={r} />}
           {r.status === 'PEDIDO CONFIRMADO' && r.producao && (
@@ -361,11 +363,7 @@ function QuoteCard({
                 className={`field-input text-xs py-1.5 ${travadaPorOutro ? 'opacity-60 cursor-not-allowed' : ''}`}
                 title={travadaPorOutro ? `Em análise por ${r.responsavelStatus} — só ele(a) pode mudar` : undefined}
               >
-                {QUOTE_STATUSES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
+                <OpcoesDeStatus tipo="cotacoes" atual={r.status} />
               </select>
             </div>
           </div>
@@ -403,7 +401,7 @@ function GrupoCotacoesCard({
           className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
           style={{ backgroundColor: corDoStatus(grupo.status), color: corTexto(corDoStatus(grupo.status)) }}
         >
-          {grupo.status}
+          {nomeDoStatus(grupo.status)}
         </span>
         <span className="text-xs text-ink-400">{grupo.itens.length}</span>
         <span aria-hidden className={`ml-auto text-ink-400 transition-transform ${aberto ? 'rotate-180' : ''}`}>
@@ -713,7 +711,7 @@ export function CotacoesPage({
   }, [records, busca])
 
   const grupos = useMemo(() => {
-    return QUOTE_STATUSES.map((status) => ({
+    return ordemComExtras('cotacoes', records.map((r) => r.status)).map((status) => ({
       status,
       itens: records.filter((r) => r.status === status).sort((a, b) => b.createdAt - a.createdAt),
     })).filter((g) => g.itens.length > 0)

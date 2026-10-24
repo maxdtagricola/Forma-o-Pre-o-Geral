@@ -41,7 +41,10 @@ export type NotaFiscalStatus =
   | 'DEVOLUÇÃO PARCIAL'
   | 'DEVOLUÇÃO'
   | 'CONCLUIDO'
+  // os criados pelo Max em Configurações (ver statusConfig.ts)
+  | (string & {})
 
+/** Os status do sistema, na ordem — a lista em uso (com os criados e os nomes editados) vem de statusConfig.ts. */
 export const NOTA_FISCAL_STATUSES: NotaFiscalStatus[] = [
   'AGUARDANDO COLETA',
   'EM TRANSPORTE',
@@ -338,7 +341,10 @@ export type QuoteStatus =
   | 'CONFERIDO'
   | 'FATURADO'
   | 'ARQUIVO'
+  // os criados pelo Max em Configurações (ver statusConfig.ts)
+  | (string & {})
 
+/** Os status do sistema, na ordem — a lista em uso (com os criados e os nomes editados) vem de statusConfig.ts. */
 export const QUOTE_STATUSES: QuoteStatus[] = [
   'PENDENTE',
   'AGUARDANDO FORNECEDOR',

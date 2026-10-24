@@ -35,18 +35,26 @@ import { itensDoPedidoDeCompra, perguntarAntesDoStatus, perguntarProducao } from
 import { DetalheProducao, SeloProducao } from '../components/SeloProducao'
 import { AndamentoDoPedido } from '../components/AndamentoDoPedido'
 import { entradaNoPedidoDeCompra } from '../historicoStatus'
-import { STATUS_A_CAMINHO } from '../avisosEntrega'
+import { estaACaminho } from '../avisosEntrega'
 import { fornecedoresDoPedido, previsoesDeEntrega, previsoesDeProducao } from '../fornecedoresDoPedido'
-import { QUOTE_STATUSES } from '../types'
+import { OpcoesDeStatus } from '../components/OpcoesDeStatus'
+import { nomeDoStatus, ordemComExtras, statusDe } from '../statusConfig'
 import type { DadosFreteTransportadora, DadosTransporte, ItemFechado, PedidoCompraInfo, QuoteItem, QuoteRecord, QuoteStatus } from '../types'
 
-// a partir de EM TRANSPORTE (no fluxo de QUOTE_STATUSES), cada fornecedor mostra o cartão Transporte
-const INDICE_EM_TRANSPORTE = QUOTE_STATUSES.indexOf('EM TRANSPORTE')
-// enquanto a mercadoria está a caminho (STATUS_A_CAMINHO) dá pra marcar a entrega (que leva a PARCIALMENTE ENTREGUE / ENTREGUE)
+// a partir de EM TRANSPORTE (no fluxo dos status), cada fornecedor mostra o cartão Transporte
+function aPartirDoTransporte(status: QuoteStatus): boolean {
+  const lista = statusDe('cotacoes')
+  return lista.indexOf(status) >= lista.indexOf('EM TRANSPORTE')
+}
+// enquanto a mercadoria está a caminho (estaACaminho) dá pra marcar a entrega (que leva a PARCIALMENTE ENTREGUE / ENTREGUE);
 // desfazer uma entrega marcada por engano: só até ENTREGUE (de CONFERIDO em diante, já foi conferida)
-const STATUS_DA_ENTREGA: QuoteStatus[] = [...STATUS_A_CAMINHO, 'ENTREGUE']
+function naFaseDaEntrega(status: QuoteStatus): boolean {
+  return estaACaminho(status) || status === 'ENTREGUE'
+}
 // "Pedidos em transporte": de EM TRANSPORTE em diante (as já entregues só quando pedidas)
-const STATUS_DEPOIS_DO_TRANSPORTE: QuoteStatus[] = QUOTE_STATUSES.filter((s, i) => i >= INDICE_EM_TRANSPORTE && s !== 'ARQUIVO')
+function depoisDoTransporte(status: QuoteStatus): boolean {
+  return status !== 'ARQUIVO' && aPartirDoTransporte(status)
+}
 
 /** Frete digitado em R$ (por unidade, ou o total do fornecedor) ou em % do valor dos produtos —
  * guardado do mesmo jeito (freteRate, fração do valor) nos dois casos. Preferência deste aparelho. */
@@ -199,7 +207,7 @@ function GrupoDaLista({ status, quantidade, children }: { status: QuoteStatus; q
     <div>
       <button type="button" aria-expanded={aberto} onClick={() => setAberto((v) => !v)} className="mb-1.5 flex w-full items-center gap-2 text-left">
         <span className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold" style={{ backgroundColor: cor, color: corTexto(cor) }}>
-          {status}
+          {nomeDoStatus(status)}
         </span>
         <span className="text-xs text-ink-400">{quantidade}</span>
         <span aria-hidden className={`ml-auto text-ink-400 transition-transform ${aberto ? 'rotate-180' : ''}`}>
@@ -299,19 +307,20 @@ export function PedidoCompraPage({
     refresh().finally(() => setLoading(false))
   }, [])
 
-  // cotações a partir de "PEDIDO DE COMPRA" (esse status em diante, no fluxo de QUOTE_STATUSES)
+  // cotações a partir de "PEDIDO DE COMPRA" (esse status em diante, no fluxo dos status)
   // aparecem sozinhas aqui, sem precisar procurar — assim que o status muda em Cotações, na
   // próxima vez que essa aba abre a cotação já está na lista, e continua aparecendo enquanto
   // avança pelo resto do fluxo (confirmado, em transporte, entregue etc.)
-  const indicePedidoDeCompra = QUOTE_STATUSES.indexOf('PEDIDO DE COMPRA')
-  const cotacoesEmPedido = useMemo(
-    () =>
+  const cotacoesEmPedido = useMemo(() => {
+    const lista = statusDe('cotacoes')
+    const indicePedidoDeCompra = lista.indexOf('PEDIDO DE COMPRA')
+    return (
       quotes
         // arquivada sem nunca ter virado pedido (não fechou) não é pedido de compra — continua na busca abaixo
-        .filter((q) => QUOTE_STATUSES.indexOf(q.status) >= indicePedidoDeCompra && !(q.status === 'ARQUIVO' && !q.pedidoCompra))
-        .sort((a, b) => b.updatedAt - a.updatedAt),
-    [quotes, indicePedidoDeCompra],
-  )
+        .filter((q) => lista.indexOf(q.status) >= indicePedidoDeCompra && !(q.status === 'ARQUIVO' && !q.pedidoCompra))
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+    )
+  }, [quotes])
 
   const cotacao = useMemo(() => quotes.find((q) => q.id === cotacaoId), [quotes, cotacaoId])
 
@@ -321,10 +330,10 @@ export function PedidoCompraPage({
   const pedidosEmTransporte = useMemo(
     () =>
       quotes
-        .filter((q) => (mostrarJaEntregues ? STATUS_DEPOIS_DO_TRANSPORTE : STATUS_A_CAMINHO).includes(q.status))
+        .filter((q) => (mostrarJaEntregues ? depoisDoTransporte(q.status) : estaACaminho(q.status)))
         .sort((a, b) => {
           // a caminho primeiro, e entre eles a previsão mais próxima (ou atrasada) no topo
-          const aCaminho = Number(STATUS_A_CAMINHO.includes(b.status)) - Number(STATUS_A_CAMINHO.includes(a.status))
+          const aCaminho = Number(estaACaminho(b.status)) - Number(estaACaminho(a.status))
           if (aCaminho) return aCaminho
           const pa = previsaoDaCotacao(a)
           const pb = previsaoDaCotacao(b)
@@ -473,7 +482,7 @@ export function PedidoCompraPage({
     if (entregue) {
       const entreguesDepois = todas.filter((c) => chaves.includes(c) || cotacao.transportePorFornecedor?.[c]?.entregueEm).length
       const proximo = entreguesDepois === todas.length ? 'ENTREGUE' : 'PARCIALMENTE ENTREGUE'
-      mensagem = `Marcar a mercadoria${deQuem} como entregue?${STATUS_A_CAMINHO.includes(cotacao.status) ? `\nA cotação vai para ${proximo}.` : ''}`
+      mensagem = `Marcar a mercadoria${deQuem} como entregue?${estaACaminho(cotacao.status) ? `\nA cotação vai para ${nomeDoStatus(proximo)}.` : ''}`
     } else {
       mensagem = `Desfazer a entrega${deQuem}? A mercadoria volta a constar como em transporte.`
     }
@@ -519,7 +528,7 @@ export function PedidoCompraPage({
       await salvarTransporte(cotacao.id, carimbarTransporte(dados))
     } catch (err) {
       void avisar(
-        `O status mudou para EM TRANSPORTE, mas os dados do envio não foram salvos (${err instanceof Error ? err.message : 'erro no servidor'}). ` +
+        `O status mudou para ${nomeDoStatus('EM TRANSPORTE')}, mas os dados do envio não foram salvos (${err instanceof Error ? err.message : 'erro no servidor'}). ` +
           'Preencha de novo no cartão Transporte de cada fornecedor.',
       )
     }
@@ -613,7 +622,7 @@ export function PedidoCompraPage({
 
   const cotacaoOptions = [
     { value: '', label: '— buscar outra cotação —' },
-    ...quotes.map((q) => ({ value: q.id, label: `${q.codigo || 'sem código'} — ${q.cliente || 'sem cliente'} (${q.status})` })),
+    ...quotes.map((q) => ({ value: q.id, label: `${q.codigo || 'sem código'} — ${q.cliente || 'sem cliente'} (${nomeDoStatus(q.status)})` })),
   ]
 
   return (
@@ -658,9 +667,9 @@ export function PedidoCompraPage({
                       {q.codigo || 'sem código'} — {q.cliente || 'sem cliente'}
                     </span>
                     <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: cor, color: corTexto(cor) }}>
-                      {q.status}
+                      {nomeDoStatus(q.status)}
                     </span>
-                    {STATUS_A_CAMINHO.includes(q.status) && <SelosPrevisao previsoes={previsoesDeEntrega(q)} />}
+                    {estaACaminho(q.status) && <SelosPrevisao previsoes={previsoesDeEntrega(q)} />}
                   </span>
                   <span className="shrink-0 text-xs text-ink-400">{transportadoras.length > 0 ? transportadoras.join(', ') : 'transportadora não informada'}</span>
                 </button>
@@ -680,7 +689,7 @@ export function PedidoCompraPage({
           <p className="text-sm text-ink-400 py-4 text-center">Nenhuma cotação em Pedido de Compra no momento.</p>
         ) : (
           <div className="space-y-4">
-            {QUOTE_STATUSES.map((status) => {
+            {ordemComExtras('cotacoes', cotacoesEmPedido.map((q) => q.status)).map((status) => {
               const doStatus = cotacoesEmPedido.filter((q) => q.status === status)
               if (doStatus.length === 0) return null
               return (
@@ -738,7 +747,7 @@ export function PedidoCompraPage({
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              {STATUS_A_CAMINHO.includes(cotacao.status) && chavesAEntregar.length > 0 && (
+              {estaACaminho(cotacao.status) && chavesAEntregar.length > 0 && (
                 <button
                   type="button"
                   onClick={() => void handleEntrega(chavesAEntregar, true)}
@@ -753,7 +762,7 @@ export function PedidoCompraPage({
                   className="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold"
                   style={{ backgroundColor: corStatus, color: corTexto(corStatus) }}
                 >
-                  {cotacao.status}
+                  {nomeDoStatus(cotacao.status)}
                 </span>
                 <select
                   value={cotacao.status}
@@ -761,11 +770,7 @@ export function PedidoCompraPage({
                   onChange={(e) => handleStatusChange(e.target.value as QuoteStatus)}
                   className="field-input text-xs py-1.5 w-auto"
                 >
-                  {QUOTE_STATUSES.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
+                  <OpcoesDeStatus tipo="cotacoes" atual={cotacao.status} />
                 </select>
               </label>
             </div>
@@ -920,7 +925,7 @@ export function PedidoCompraPage({
                 </div>
                 {!recolhido && (
                 <>
-                {QUOTE_STATUSES.indexOf(cotacao.status) >= INDICE_EM_TRANSPORTE && (
+                {aPartirDoTransporte(cotacao.status) && (
                   <CartaoTransporte
                     key={`${grupo.chave}-${cotacao.transportePorFornecedor?.[chaveTransporte(grupo.chave)]?.atualizadoEm ?? 0}`}
                     chave={chaveTransporte(grupo.chave)}
@@ -931,12 +936,12 @@ export function PedidoCompraPage({
                     entreguePor={cotacao.transportePorFornecedor?.[chaveTransporte(grupo.chave)]?.entreguePor}
                     // com um fornecedor só, o botão do topo ("Mercadoria entregue") já faz isso
                     onMarcarEntregue={
-                      chavesTransporte.length > 1 && STATUS_A_CAMINHO.includes(cotacao.status)
+                      chavesTransporte.length > 1 && estaACaminho(cotacao.status)
                         ? () => void handleEntrega([chaveTransporte(grupo.chave)], true)
                         : undefined
                     }
                     onDesfazerEntrega={
-                      STATUS_DA_ENTREGA.includes(cotacao.status) ? () => void handleEntrega([chaveTransporte(grupo.chave)], false) : undefined
+                      naFaseDaEntrega(cotacao.status) ? () => void handleEntrega([chaveTransporte(grupo.chave)], false) : undefined
                     }
                     onSalvar={(dados) => handleSalvarTransporteGrupo(chaveTransporte(grupo.chave), dados)}
                   />

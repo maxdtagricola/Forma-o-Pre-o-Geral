@@ -1,6 +1,6 @@
 import { dbDelete, dbGet, dbGetAll, dbPut } from './db'
 import { makeId } from '../utils'
-import { NOTA_FISCAL_STATUSES } from '../types'
+import { conferirPermissaoDeStatus, statusDe } from '../statusConfig'
 import type { NotaFiscal, NotaFiscalStatus } from '../types'
 
 // Mesmo modelo de dado da aba "Transferências Fiscais" (mesmo tipo NotaFiscal), mas guardado
@@ -20,7 +20,10 @@ export async function saveNotaFiscalGeral(
 ): Promise<NotaFiscal> {
   const existente = existingId ? await dbGet<NotaFiscal>(STORE_NOTAS_FISCAIS_GERAIS, existingId) : undefined
   const now = Date.now()
-  const status = existente?.status ?? statusInicial ?? NOTA_FISCAL_STATUSES[0]
+  const primeiro = statusDe('notas')[0]
+  // nota nova já num status que não é o primeiro: conta como mudança de status
+  if (!existente && statusInicial && statusInicial !== primeiro) conferirPermissaoDeStatus('notas', statusInicial)
+  const status = existente?.status ?? statusInicial ?? primeiro
   const nota: NotaFiscal = {
     id: existingId ?? makeId(),
     ...data,
@@ -36,6 +39,7 @@ export async function saveNotaFiscalGeral(
 export async function updateNotaFiscalGeralStatus(id: string, novoStatus: NotaFiscalStatus): Promise<NotaFiscal> {
   const atual = await dbGet<NotaFiscal>(STORE_NOTAS_FISCAIS_GERAIS, id)
   if (!atual) throw new Error('Nota fiscal não encontrada no servidor.')
+  if (atual.status !== novoStatus) conferirPermissaoDeStatus('notas', novoStatus)
   const atualizada: NotaFiscal = {
     ...atual,
     status: novoStatus,

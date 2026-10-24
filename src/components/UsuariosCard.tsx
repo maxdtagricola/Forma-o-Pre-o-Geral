@@ -1,36 +1,49 @@
 import { useEffect, useState } from 'react'
 import { cadastrarUsuario, definirPapel, excluirUsuario, liberarNovaSenha, listarUsuarios, type UsuarioCadastrado } from '../auth'
 import { avisar, confirmar } from '../dialogs'
-import { ABAS_CONFIGURAVEIS, ABAS_PADRAO, getAbasPorUsuario, salvarAbasDoUsuario } from '../abasPermitidas'
+import { ABAS_PADRAO, getAbasPorUsuario } from '../abasPermitidas'
+import { getPermissoesStatus, type PermissoesStatusDoUsuario } from '../statusConfig'
+import { getTelaInicialPorUsuario, type ParteTelaInicial } from '../telaInicialPorUsuario'
+import { aplicarPermissoes, getTiposUsuario, mesmasPermissoes, type PermissoesDoUsuario, type TipoUsuario } from '../tiposUsuario'
+import { EditorPermissoes } from './EditorPermissoes'
+import { ROTULO_PAPEL, resumoPermissoes } from './TiposUsuarioCard'
 import type { TabKey } from './Layout'
 import type { PapelUsuario } from '../sessaoUsuario'
 
-const ROTULO_PAPEL: Record<PapelUsuario, string> = {
-  xadrez: 'Só xadrez (Tela Inicial)',
-  admin: 'Administrador (site completo)',
-}
-
 const NOME_VALIDO = /^[\p{L}\p{N}][\p{L}\p{N} ._-]{1,19}$/u
 
-/** Configurações › Usuários — só pro Max: cadastra quem vai usar o site, define a função e as abas de
- * cada um, libera senha nova, exclui. */
+/** Configurações › Usuários — só pro Max: cadastra quem vai usar o site (escolhendo um tipo, ou a
+ * função), define as permissões de cada um (abas, Tela Inicial e status), libera senha nova, exclui. */
 /** `embutido`: dentro da janela de Configurações, que já tem a moldura e o título. */
 export function UsuariosCard({ embutido = false }: { embutido?: boolean } = {}) {
   const [usuarios, setUsuarios] = useState<UsuarioCadastrado[]>([])
   const [carregando, setCarregando] = useState(true)
   const [ocupado, setOcupado] = useState<string | null>(null)
   const [abasPorUsuario, setAbasPorUsuario] = useState<Record<string, TabKey[]>>({})
-  const [editandoAbas, setEditandoAbas] = useState<{ login: string; abas: Set<TabKey> } | null>(null)
+  const [statusPorUsuario, setStatusPorUsuario] = useState<Record<string, PermissoesStatusDoUsuario>>({})
+  const [telaPorUsuario, setTelaPorUsuario] = useState<Record<string, ParteTelaInicial[]>>({})
+  const [tipos, setTipos] = useState<TipoUsuario[]>([])
+  const [editando, setEditando] = useState<{ login: string; permissoes: PermissoesDoUsuario } | null>(null)
   const [nomeNovo, setNomeNovo] = useState('')
+  const [tipoNovo, setTipoNovo] = useState('')
   const [papelNovo, setPapelNovo] = useState<PapelUsuario>('admin')
 
   async function recarregar() {
     setCarregando(true)
     try {
-      const [lista, abas] = await Promise.all([listarUsuarios(), getAbasPorUsuario()])
+      const [lista, abas, status, tela, listaTipos] = await Promise.all([
+        listarUsuarios(),
+        getAbasPorUsuario(),
+        getPermissoesStatus(),
+        getTelaInicialPorUsuario(),
+        getTiposUsuario(),
+      ])
       // quem espera uma definição primeiro, depois na ordem do cadastro
       setUsuarios(lista.sort((a, b) => Number(b.pendente) - Number(a.pendente) || a.criadoEm.localeCompare(b.criadoEm)))
       setAbasPorUsuario(abas)
+      setStatusPorUsuario(status)
+      setTelaPorUsuario(tela)
+      setTipos(listaTipos)
     } catch (err) {
       void avisar(err instanceof Error ? err.message : 'Erro ao carregar os usuários.')
     } finally {
@@ -55,20 +68,39 @@ export function UsuariosCard({ embutido = false }: { embutido?: boolean } = {}) 
     }
   }
 
+  function permissoesDe(login: string): PermissoesDoUsuario {
+    const status = statusPorUsuario[login]
+    return {
+      abas: abasPorUsuario[login] ?? ABAS_PADRAO,
+      statusCotacoes: status?.cotacoes ?? null,
+      statusNotas: status?.notas ?? null,
+      telaInicial: telaPorUsuario[login] ?? null,
+    }
+  }
+
+  function tipoDe(u: UsuarioCadastrado): TipoUsuario | undefined {
+    if (u.papel !== 'admin') return undefined
+    const p = permissoesDe(u.login)
+    return tipos.find((t) => t.papel === 'admin' && mesmasPermissoes(t, p))
+  }
+
   async function handleCadastrar() {
     const nome = nomeNovo.trim().replace(/\s+/g, ' ')
     if (!NOME_VALIDO.test(nome)) {
       void avisar('O nome de usuário precisa ter de 2 a 20 letras ou números (pode ter espaço, ponto, hífen ou _).')
       return
     }
+    const tipo = tipos.find((t) => t.id === tipoNovo)
+    const papel = tipo ? tipo.papel : papelNovo
     await executar(
       '__novo__',
       async () => {
-        await cadastrarUsuario(nome, papelNovo)
+        const { login } = await cadastrarUsuario(nome, papel)
+        if (tipo && tipo.papel === 'admin') await aplicarPermissoes(login, tipo)
         setNomeNovo('')
       },
-      `${nome} cadastrado como "${ROTULO_PAPEL[papelNovo]}". No primeiro acesso, ele digita o nome de usuário e cria a própria senha` +
-        (papelNovo === 'admin' ? ' — as abas que ele vê dá pra escolher aqui, em "Abas".' : '.'),
+      `${nome} cadastrado como ${tipo ? `"${tipo.nome}"` : `"${ROTULO_PAPEL[papel]}"`}. No primeiro acesso, ele digita o nome de usuário e cria a própria senha` +
+        (papel === 'admin' ? ' — as permissões dele dá pra ajustar aqui, em "Permissões".' : '.'),
     )
   }
 
@@ -95,41 +127,27 @@ export function UsuariosCard({ embutido = false }: { embutido?: boolean } = {}) 
     await executar(u.login, () => excluirUsuario(u.login), `Usuário ${u.exibicao} excluído.`)
   }
 
-  function abasDe(login: string): TabKey[] {
-    return abasPorUsuario[login] ?? ABAS_PADRAO
-  }
-
-  function alternarAba(tab: TabKey) {
-    setEditandoAbas((atual) => {
-      if (!atual) return atual
-      const abas = new Set(atual.abas)
-      if (abas.has(tab)) abas.delete(tab)
-      else abas.add(tab)
-      return { ...atual, abas }
-    })
-  }
-
-  async function handleSalvarAbas(u: UsuarioCadastrado) {
-    if (!editandoAbas) return
-    // na ordem do menu
-    const abas = ABAS_CONFIGURAVEIS.map((a) => a.key).filter((k) => editandoAbas.abas.has(k))
+  async function handleSalvarPermissoes(u: UsuarioCadastrado) {
+    if (!editando) return
+    const permissoes = editando.permissoes
     await executar(
       u.login,
       async () => {
-        await salvarAbasDoUsuario(u.login, abas)
-        setEditandoAbas(null)
+        await aplicarPermissoes(u.login, permissoes)
+        setEditando(null)
       },
-      `Abas de ${u.exibicao} salvas — valem na próxima vez que ele abrir o site.`,
+      `Permissões de ${u.exibicao} salvas — valem na próxima vez que ele abrir o site.`,
     )
   }
 
-  const grupos = Array.from(new Set(ABAS_CONFIGURAVEIS.map((a) => a.grupo)))
+  const tipoEscolhido = tipos.find((t) => t.id === tipoNovo)
 
   return (
     <div className={embutido ? undefined : 'card'}>
       {!embutido && <h3 className="font-display text-base font-semibold text-ink-900 mb-1">Usuários</h3>}
       <p className="text-sm text-ink-400 mb-4">
-        Só você cadastra quem vai usar o site. Aqui também ficam a função e as abas que cada um vê.
+        Só você cadastra quem vai usar o site. Aqui também ficam a função e as permissões (abas, Tela Inicial e status) de cada um — os modelos
+        prontos ficam em Configurações › Tipos de usuário.
       </p>
 
       <form
@@ -151,17 +169,30 @@ export function UsuariosCard({ embutido = false }: { embutido?: boolean } = {}) 
           />
         </label>
         <label>
-          <span className="field-label">Função</span>
-          <select
-            className="field-input w-auto"
-            aria-label="Função do novo usuário"
-            value={papelNovo}
-            onChange={(e) => setPapelNovo(e.target.value as PapelUsuario)}
-          >
-            <option value="admin">{ROTULO_PAPEL.admin}</option>
-            <option value="xadrez">{ROTULO_PAPEL.xadrez}</option>
+          <span className="field-label">Tipo</span>
+          <select className="field-input w-auto" aria-label="Tipo do novo usuário" value={tipoNovo} onChange={(e) => setTipoNovo(e.target.value)}>
+            <option value="">— sem tipo (escolher a função) —</option>
+            {tipos.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.nome}
+              </option>
+            ))}
           </select>
         </label>
+        {!tipoEscolhido && (
+          <label>
+            <span className="field-label">Função</span>
+            <select
+              className="field-input w-auto"
+              aria-label="Função do novo usuário"
+              value={papelNovo}
+              onChange={(e) => setPapelNovo(e.target.value as PapelUsuario)}
+            >
+              <option value="admin">{ROTULO_PAPEL.admin}</option>
+              <option value="xadrez">{ROTULO_PAPEL.xadrez}</option>
+            </select>
+          </label>
+        )}
         <button
           type="submit"
           disabled={ocupado === '__novo__' || !nomeNovo.trim()}
@@ -170,6 +201,9 @@ export function UsuariosCard({ embutido = false }: { embutido?: boolean } = {}) 
           Cadastrar
         </button>
         <p className="w-full text-xs text-ink-400">
+          {tipoEscolhido
+            ? `Tipo "${tipoEscolhido.nome}": ${ROTULO_PAPEL[tipoEscolhido.papel]}${tipoEscolhido.papel === 'admin' ? ` · ${resumoPermissoes(tipoEscolhido)}` : ''}. `
+            : ''}
           A pessoa entra com esse nome e cria a própria senha (e o e-mail de recuperação) no primeiro acesso.
         </p>
       </form>
@@ -179,8 +213,9 @@ export function UsuariosCard({ embutido = false }: { embutido?: boolean } = {}) 
       ) : (
         <div className="divide-y divide-ink-100">
           {usuarios.map((u) => {
-            const abas = abasDe(u.login)
-            const editando = editandoAbas?.login === u.login ? editandoAbas : null
+            const permissoes = permissoesDe(u.login)
+            const tipo = tipoDe(u)
+            const aberto = editando?.login === u.login ? editando : null
             return (
               <div key={u.login} className="py-3">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -188,24 +223,20 @@ export function UsuariosCard({ embutido = false }: { embutido?: boolean } = {}) 
                     <p className="text-sm font-medium text-ink-900">
                       {u.exibicao}
                       {u.nome !== u.exibicao && <span className="font-normal text-ink-400"> · no app: {u.nome}</span>}
+                      {tipo && <span className="ml-2 rounded-full bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-800">{tipo.nome}</span>}
                       {u.pendente && (
                         <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">aguardando função</span>
                       )}
                       {!u.temSenha && <span className="ml-2 rounded-full bg-ink-100 px-2 py-0.5 text-xs text-ink-600">ainda sem senha</span>}
                     </p>
-                    <p className="truncate text-xs text-ink-400">
+                    <p className="text-xs text-ink-400">
                       {u.email || 'sem e-mail de recuperação'}
                       {u.criadoEm && ` · desde ${u.criadoEm.slice(0, 10).split('-').reverse().join('/')}`}
-                      {!u.gestor && u.papel === 'admin' && (
-                        <>
-                          {' · abas: '}
-                          {abas.length === ABAS_CONFIGURAVEIS.length ? 'todas' : `${abas.length} de ${ABAS_CONFIGURAVEIS.length}`}
-                        </>
-                      )}
+                      {!u.gestor && u.papel === 'admin' && ` · ${resumoPermissoes(permissoes)}`}
                     </p>
                   </div>
                   {u.gestor ? (
-                    <span className="text-xs text-ink-400">Administrador (gerencia os usuários, vê todas as abas)</span>
+                    <span className="text-xs text-ink-400">Administrador (gerencia os usuários, pode tudo)</span>
                   ) : (
                     <div className="flex flex-wrap items-center gap-2">
                       <select
@@ -221,12 +252,12 @@ export function UsuariosCard({ embutido = false }: { embutido?: boolean } = {}) 
                       {u.papel === 'admin' && (
                         <button
                           type="button"
-                          aria-expanded={!!editando}
+                          aria-expanded={!!aberto}
                           disabled={ocupado === u.login}
-                          onClick={() => setEditandoAbas(editando ? null : { login: u.login, abas: new Set(abas) })}
+                          onClick={() => setEditando(aberto ? null : { login: u.login, permissoes })}
                           className="rounded-lg border border-ink-200 px-3 py-1.5 text-xs font-medium text-ink-700 hover:bg-ink-50"
                         >
-                          Abas
+                          Permissões
                         </button>
                       )}
                       {u.pendente && (
@@ -263,58 +294,51 @@ export function UsuariosCard({ embutido = false }: { embutido?: boolean } = {}) 
                   )}
                 </div>
 
-                {editando && (
-                  <fieldset className="mt-3 rounded-xl border border-ink-200 bg-ink-50/60 p-3">
-                    <legend className="px-1 text-xs font-semibold text-ink-700">Abas que {u.exibicao} vê</legend>
-                    <p className="mb-2 text-xs text-ink-400">
-                      A Tela Inicial e as partes pessoais de Configurações (minha conta, saída automática, vídeo de fundo)
-                      aparecem sempre.
-                    </p>
-                    <div className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-                      {grupos.map((grupo) => (
-                        <div key={grupo}>
-                          <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-400">{grupo}</p>
-                          {ABAS_CONFIGURAVEIS.filter((a) => a.grupo === grupo).map((a) => (
-                            <label key={a.key} className="flex items-center gap-2 py-0.5 text-sm text-ink-700">
-                              <input type="checkbox" checked={editando.abas.has(a.key)} onChange={() => alternarAba(a.key)} />
-                              {a.label}
-                            </label>
-                          ))}
-                        </div>
-                      ))}
-                    </div>
-                    <div className="mt-3 flex flex-wrap gap-2">
+                {aberto && (
+                  <div className="mt-3 space-y-3 rounded-xl border border-ink-200 bg-ink-50/60 p-3" aria-label={`Permissões de ${u.exibicao}`}>
+                    {tipos.some((t) => t.papel === 'admin') && (
+                      <label className="flex flex-wrap items-center gap-2 text-sm text-ink-700">
+                        Copiar de um tipo:
+                        <select
+                          className="field-input w-auto py-1 text-sm"
+                          aria-label={`Copiar permissões de um tipo para ${u.exibicao}`}
+                          value=""
+                          onChange={(e) => {
+                            const t = tipos.find((x) => x.id === e.target.value)
+                            if (t) setEditando({ login: u.login, permissoes: { abas: t.abas, statusCotacoes: t.statusCotacoes, statusNotas: t.statusNotas, telaInicial: t.telaInicial ?? null } })
+                          }}
+                        >
+                          <option value="">— escolher —</option>
+                          {tipos
+                            .filter((t) => t.papel === 'admin')
+                            .map((t) => (
+                              <option key={t.id} value={t.id}>
+                                {t.nome}
+                              </option>
+                            ))}
+                        </select>
+                        <span className="text-xs text-ink-400">(preenche as caixinhas — confira e salve)</span>
+                      </label>
+                    )}
+                    <EditorPermissoes valor={aberto.permissoes} onChange={(p) => setEditando({ login: u.login, permissoes: p })} />
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
                         disabled={ocupado === u.login}
-                        onClick={() => void handleSalvarAbas(u)}
+                        onClick={() => void handleSalvarPermissoes(u)}
                         className="rounded-lg bg-ink-900 px-3 py-1.5 text-xs font-semibold text-surface transition hover:opacity-90"
                       >
-                        Salvar abas
+                        Salvar permissões
                       </button>
                       <button
                         type="button"
-                        onClick={() => setEditandoAbas({ login: u.login, abas: new Set(ABAS_CONFIGURAVEIS.map((a) => a.key)) })}
-                        className="rounded-lg border border-ink-200 px-3 py-1.5 text-xs font-medium text-ink-700 hover:bg-ink-100"
-                      >
-                        Marcar todas
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditandoAbas({ login: u.login, abas: new Set() })}
-                        className="rounded-lg border border-ink-200 px-3 py-1.5 text-xs font-medium text-ink-700 hover:bg-ink-100"
-                      >
-                        Desmarcar todas
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setEditandoAbas(null)}
+                        onClick={() => setEditando(null)}
                         className="rounded-lg px-3 py-1.5 text-xs font-medium text-ink-500 hover:bg-ink-100"
                       >
                         Cancelar
                       </button>
                     </div>
-                  </fieldset>
+                  </div>
                 )}
               </div>
             )
