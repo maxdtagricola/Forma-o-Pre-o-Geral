@@ -26,6 +26,7 @@ import { verificarSenhaAdmin } from '../db/db'
 import { avisar, pedirSenha } from '../dialogs'
 import { UsuariosCard } from '../components/UsuariosCard'
 import { TiposUsuarioCard } from '../components/TiposUsuarioCard'
+import { DadoDoSamurai } from '../components/DadoDoSamurai'
 import { EditorDeStatus } from '../components/EditorDeStatus'
 import { listQuotes } from '../db/analysesRepo'
 import { listNotasFiscais } from '../db/notasFiscaisRepo'
@@ -445,7 +446,7 @@ export function ConfiguracoesPage({
           <>
             <p className="text-xs text-ink-400 mb-4">
               A animação do samurai atrás das telas (e na tela de entrada). Vale só neste aparelho — cada um escolhe o seu.
-              Parada, fica a imagem fixa no lugar do vídeo.
+              Parada, fica a imagem fixa no lugar do vídeo, e o samurai para onde estiver.
             </p>
             <label className="relative flex cursor-pointer items-center justify-between gap-4 rounded-xl border border-ink-100 px-4 py-3">
               <span className="min-w-0">
@@ -465,6 +466,7 @@ export function ConfiguracoesPage({
                 className="relative h-6 w-11 shrink-0 rounded-full bg-ink-300 transition peer-checked:bg-emerald-600 peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-brand-500 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:shadow after:transition peer-checked:after:translate-x-5"
               />
             </label>
+            <DadoDoSamurai />
           </>
         )
       case 'tiposUsuario':
