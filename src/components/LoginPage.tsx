@@ -59,9 +59,7 @@ export function LoginPage() {
       <FundoEmVideo pausado={fundoPausado} />
       {/* "relative" (sem z-index): fica por cima do vídeo, e as caixas de aviso continuam por cima dela */}
       <div className="card relative max-w-sm w-full shadow-xl">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-brand-600 font-display text-base font-bold text-white">
-          R$
-        </div>
+        <img src={`${import.meta.env.BASE_URL}logo-archonix.png`} alt="Archonix" className="mx-auto mb-4 h-20 w-auto dark:invert" />
         {etapa.tipo === 'usuario' && (
           <EtapaUsuario
             usuario={usuario}
@@ -182,7 +180,7 @@ function EtapaUsuario({
   const { ocupado, erro, setErro, enviar } = useEnvio()
   return (
     <>
-      <Titulo subtitulo="Formação de Preço">Entrar</Titulo>
+      <Titulo subtitulo="Archonix">Entrar</Titulo>
       <Formulario
         onEnviar={() => {
           if (!usuario.trim()) return setErro('Digite seu usuário.')

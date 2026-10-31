@@ -1,4 +1,4 @@
-# Formação de Preço — Rondônia
+# Archonix
 
 Aplicativo web para substituir a planilha de análise e formação de preços.
 Roda 100% no navegador: **sem servidor e sem banco de dados externo** — os
