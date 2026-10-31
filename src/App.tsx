@@ -15,7 +15,7 @@ import { calculateItem, definirTabelasCustomizadas } from './calc/calculator'
 import { mesmoFornecedor, valoresDaCotacaoDoFornecedor } from './utils'
 import { buscarQuote, listQuotes, saveQuote, setPlanilhaOriginal, updateQuoteStatus } from './db/analysesRepo'
 import { lerPlanilhaCliente } from './db/planilhasClienteRepo'
-import { sincronizarProdutos } from './db/produtosRepo'
+import { observacoesPorReferencia, sincronizarProdutos } from './db/produtosRepo'
 import {
   DEFAULT_PRICING_GLOBAL,
   getFeriadosExtras,
@@ -59,6 +59,7 @@ const CompararFornecedoresPage = lazy(() =>
   import('./pages/CompararFornecedoresPage').then((m) => ({ default: m.CompararFornecedoresPage })),
 )
 const FaturamentoPage = lazy(() => import('./pages/FaturamentoPage').then((m) => ({ default: m.FaturamentoPage })))
+const RelatoriosPage = lazy(() => import('./pages/RelatoriosPage').then((m) => ({ default: m.RelatoriosPage })))
 const ProdutosPage = lazy(() => import('./pages/ProdutosPage').then((m) => ({ default: m.ProdutosPage })))
 const FornecedoresPage = lazy(() => import('./pages/FornecedoresPage').then((m) => ({ default: m.FornecedoresPage })))
 const FretePage = lazy(() => import('./pages/FretePage').then((m) => ({ default: m.FretePage })))
@@ -306,6 +307,9 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
   const [tabelasVersion, setTabelasVersion] = useState(0)
   const [planilhaOriginal, setPlanilhaOriginalState] = useState<QuoteRecord['planilhaOriginal']>(undefined)
   const [mostrarPlanilhaCliente, setMostrarPlanilhaCliente] = useState(false)
+  const planilhaDoCliente = planilhaOriginal
+    ? { nomeArquivo: planilhaOriginal.nomeArquivo, carregar: () => lerPlanilhaCliente(editingQuoteId ?? '', planilhaOriginal) }
+    : undefined
   const [rascunhoDisponivel, setRascunhoDisponivel] = useState<RascunhoCotacao | undefined>(undefined)
   // true logo depois de "Salvar cotação" até a primeira alteração seguinte — enquanto estiver
   // true, qualquer tentativa de mexer num dado já salvo passa primeiro por confirmação (ver
@@ -519,8 +523,10 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
     if (!raiz) return
     function barrar(e: Event) {
       if (!salvoInalteradoRef.current) return
-      const alvo = e.target as HTMLElement | null
-      if (!alvo || alvo.closest('[data-sem-guarda]')) return
+      const alvo = e.target
+      if (!(alvo instanceof HTMLElement) || alvo.closest('[data-sem-guarda]')) return
+      // o balão da observação é desenhado fora da área (ver CelulaObservacao), mas escreve na cotação igual
+      if (!raiz?.contains(alvo) && !alvo.closest('[data-linha-item]')) return
       const campo = alvo.closest('input, textarea, select, [contenteditable="true"]') as HTMLElement | null
       if (!campo) return
       if (campo instanceof HTMLInputElement && ['checkbox', 'radio', 'button', 'submit'].includes(campo.type)) return
@@ -536,14 +542,14 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       const alvo = e.target as HTMLElement | null
       if (alvo instanceof HTMLInputElement && alvo.type === 'number' && !alvo.closest('[data-sem-guarda]')) e.preventDefault()
     }
-    raiz.addEventListener('beforeinput', barrar, true)
-    raiz.addEventListener('paste', barrar, true)
-    raiz.addEventListener('drop', barrar, true)
+    document.addEventListener('beforeinput', barrar, true)
+    document.addEventListener('paste', barrar, true)
+    document.addEventListener('drop', barrar, true)
     raiz.addEventListener('keydown', barrarTecla, true)
     return () => {
-      raiz.removeEventListener('beforeinput', barrar, true)
-      raiz.removeEventListener('paste', barrar, true)
-      raiz.removeEventListener('drop', barrar, true)
+      document.removeEventListener('beforeinput', barrar, true)
+      document.removeEventListener('paste', barrar, true)
+      document.removeEventListener('drop', barrar, true)
       raiz.removeEventListener('keydown', barrarTecla, true)
     }
   }, [tab])
@@ -576,11 +582,15 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
     // trocar só o fornecedor (digitando, escolhendo na lista ou aplicando aos marcados) puxa o preço,
     // a marca, o prazo e o NCM da cotação desse fornecedor na comparação, se ele tiver uma
     const atual = items.find((item) => item.id === id)
-    const daCotacao =
+    const daCotacao: Partial<ProductInput> =
       atual && patch.fornecedor !== undefined && patch.valorUnt === undefined && !mesmoFornecedor(patch.fornecedor, atual.product.fornecedor)
         ? valoresDaCotacaoDoFornecedor(atual.product.cotacoesFornecedores, patch.fornecedor)
         : {}
     const completo: Partial<ProductInput> = { ...patch, ...daCotacao }
+    // fornecedor trocado fora do comparador: a escolha de lá passa a ser a cotação dele (ou nenhuma)
+    if (atual && patch.fornecedor !== undefined && patch.cotacoesFornecedores === undefined && !mesmoFornecedor(patch.fornecedor, atual.product.fornecedor)) {
+      completo.cotacaoEscolhidaId = daCotacao.cotacaoEscolhidaId
+    }
     // marca trocada na Precificação (na linha ou "Aplicar marca" nos marcados): a cotação do
     // fornecedor do item (a que veio da planilha/PDF dele) passa a ter a mesma marca
     if (atual && patch.marca !== undefined && patch.fornecedor === undefined && patch.cotacoesFornecedores === undefined) {
@@ -823,8 +833,11 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
     observacao: string,
   ) {
     if (!currentAdmin) return
+    // observação atrelada ao item no catálogo: entra junto (a escrita na tela, se houver, vale mais)
+    const atreladas = await observacoesPorReferencia().catch(() => new Map<string, string>())
     const itens: QuoteItem[] = itensImportados.map((it) => {
       const item = criarItemComGlobais()
+      const observacao = it.observacao?.trim() || atreladas.get(it.referencia.trim().toLowerCase())
       return {
         ...item,
         product: {
@@ -832,7 +845,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           referencia: it.referencia,
           descricao: it.descricao,
           qtd: it.quantidade || 1,
-          ...(it.observacao?.trim() ? { observacao: it.observacao.trim() } : {}),
+          ...(observacao ? { observacao } : {}),
         },
       }
     })
@@ -941,7 +954,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
           onGoToComparar={() => changeTab('comparar')}
           onGoToFrete={() => changeTab('frete')}
           onEnviarCotacao={handleEnviarCotacao}
-          temPlanilhaCliente={!!planilhaOriginal}
+          planilhaCliente={planilhaDoCliente}
           onVerPlanilhaCliente={() => setMostrarPlanilhaCliente(true)}
           createdAt={activeCreatedAt}
           dataSolicitacao={dataSolicitacao}
@@ -952,6 +965,7 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
         </div>
       )}
       {tab === 'faturamento' && <FaturamentoPage currentAdmin={currentAdmin} />}
+      {tab === 'relatorios' && podeVer('relatorios') && <RelatoriosPage currentAdmin={currentAdmin} />}
       {tab === 'produtos' && <ProdutosPage currentAdmin={currentAdmin} />}
       {tab === 'fornecedores' && <FornecedoresPage />}
       {tab === 'frete' && <FretePage cotacaoIdInicial={editingQuoteId} onGoToPrecificacao={() => changeTab('dashboard')} />}
@@ -977,14 +991,14 @@ function AppAdmin({ usuario }: { usuario: UsuarioLogado }) {
       )}
       </Suspense>
 
-      {mostrarPlanilhaCliente && planilhaOriginal && (
+      {mostrarPlanilhaCliente && (
         <Suspense fallback={null}>
           <PlanilhaClienteModal
-            nomeArquivo={planilhaOriginal.nomeArquivo}
-            carregar={() => lerPlanilhaCliente(editingQuoteId ?? '', planilhaOriginal)}
+            planilhaImportada={planilhaDoCliente}
             items={items}
             cliente={cliente}
             maquina={maquina}
+            vendedor={vendedor}
             onClose={() => setMostrarPlanilhaCliente(false)}
           />
         </Suspense>

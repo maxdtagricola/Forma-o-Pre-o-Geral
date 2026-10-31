@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { usePedidoDialog } from '../dialogs'
 
 // -----------------------------------------------------------------------
 // Observação de um item, do jeito do comentário (nota) do Excel: a célula
@@ -34,8 +35,9 @@ export function CelulaObservacao({
 }: {
   valor: string
   onChange: (valor: string) => void
-  /** Quando o balão de escrever fecha — pra quem grava no servidor só no fim, não a cada tecla. */
-  onFechar?: () => void
+  /** Quando o balão de escrever fecha — pra quem grava no servidor só no fim, não a cada tecla. Recebe
+   * o texto de quando ele abriu, pra saber se mudou. */
+  onFechar?: (textoAoAbrir: string) => void
   /** Marca o balão como parte da linha — o foco indo pro balão não conta como "saiu da linha". */
   idLinha: string
   /** Pra quem usa leitor de tela saber de qual item é a observação. */
@@ -48,6 +50,12 @@ export function CelulaObservacao({
   const celulaRef = useRef<HTMLButtonElement>(null)
   const balaoRef = useRef<HTMLDivElement>(null)
   const textoRef = useRef<HTMLTextAreaElement>(null)
+  // com o balão aberto, o texto de quando abriu (null: fechado) — Esc devolve o foco à célula, e o
+  // desfoque que isso causa não pode contar como um segundo fechamento
+  const textoAoAbrir = useRef<string | null>(null)
+  // uma confirmação por cima (cotação já salva) não é sair do balão: ele fica aberto esperando a
+  // resposta, sem tomar o Esc dela, e o cursor volta pra cá quando ela fecha
+  const caixaPorCima = usePedidoDialog() !== null
   const temTexto = valor.trim().length > 0
   const balaoVisivel = editando || (espiando && temTexto)
 
@@ -78,16 +86,20 @@ export function CelulaObservacao({
   }, [editando, valor])
 
   useEffect(() => {
-    if (editando) {
+    if (editando && !caixaPorCima) {
       const t = textoRef.current
       t?.focus()
       // cursor no fim do texto, pra continuar escrevendo
       if (t) t.setSelectionRange(t.value.length, t.value.length)
     }
-  }, [editando])
+  }, [editando, caixaPorCima])
 
   function fechar(devolverFoco: boolean) {
-    if (editando) onFechar?.()
+    if (textoAoAbrir.current !== null) {
+      const inicial = textoAoAbrir.current
+      textoAoAbrir.current = null
+      onFechar?.(inicial)
+    }
     setEditando(false)
     setEspiando(false)
     if (devolverFoco) celulaRef.current?.focus()
@@ -100,6 +112,7 @@ export function CelulaObservacao({
         type="button"
         onClick={(e) => {
           e.stopPropagation()
+          textoAoAbrir.current ??= valor
           setEditando(true)
         }}
         onMouseEnter={() => setEspiando(true)}
@@ -147,8 +160,11 @@ export function CelulaObservacao({
                   value={valor}
                   rows={3}
                   onChange={(e) => onChange(e.target.value)}
-                  onBlur={() => fechar(false)}
+                  onBlur={() => {
+                    if (!caixaPorCima) fechar(false)
+                  }}
                   onKeyDown={(e) => {
+                    if (caixaPorCima) return
                     if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) {
                       e.preventDefault()
                       fechar(true)

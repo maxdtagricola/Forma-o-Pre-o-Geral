@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Button } from '../components/ui/Basics'
 import { SelectField } from '../components/ui/Field'
-import { calculateItem } from '../calc/calculator'
 import { listQuotes, salvarFaturamento, updateQuoteStatus } from '../db/analysesRepo'
 import { corPadraoDoStatus, corTexto } from '../statusColors'
 import { formatCurrency } from '../utils'
 import { formatarNumeroBR, formatarNumeroCurtoBR, parseNumeroFlexivel } from '../numeros'
+import { custoFinal, precoPassado } from '../valoresDoPedido'
 import { avisar } from '../dialogs'
 import { perguntarAntesDoStatus } from '../mudancaDeStatus'
 import { OpcoesDeStatus } from '../components/OpcoesDeStatus'
@@ -41,14 +41,6 @@ function itensDoPedido(cotacao: QuoteRecord): QuoteItem[] {
   return cotacao.items.filter((item) => permitidos.has(item.id))
 }
 
-/** Valor final da peça (custo unitário, impostos e frete inclusos — a mesma conta da precificação) com o
- * que realmente fechou com o fornecedor no Pedido de Compra; sem fechamento registrado, o da cotação. */
-function custoFinal(cotacao: QuoteRecord, item: QuoteItem): number {
-  const f = cotacao.itensFechados?.[item.id]
-  const product = f ? { ...item.product, valorUnt: f.valorUnt, freteRate: f.freteRate, qtd: f.qtd || item.product.qtd } : item.product
-  return calculateItem(product, item.pricing).custoUnitario
-}
-
 function percentual(valor: number, base: number): string {
   return base > 0 ? `${formatarNumeroBR((valor / base) * 100, 1)}%` : '—'
 }
@@ -60,11 +52,6 @@ function Margem({ valor, base }: { valor: number; base: number }) {
       {formatCurrency(valor)} <span className="text-[11px]">({percentual(valor, base)})</span>
     </span>
   )
-}
-
-/** Preço de venda unitário que foi passado ao cliente na cotação. */
-function precoPassado(item: QuoteItem): number {
-  return calculateItem(item.product, item.pricing).precoVendaUnitario
 }
 
 function paraEdicao(f: ItemFaturado | undefined): FaturadoEmEdicao {

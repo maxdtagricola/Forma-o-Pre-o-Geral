@@ -12,6 +12,7 @@ interface EdicaoProduto {
   referencias: string
   ncm: string
   peso: string
+  observacao: string
 }
 
 /** Os dois preços mais baratos já registrados pro produto — o primeiro (mais barato) em destaque,
@@ -49,7 +50,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
   const [rascunhos, setRascunhos] = useState<Record<string, string>>({})
   const [salvando, setSalvando] = useState<string | undefined>(undefined)
   const [editando, setEditando] = useState<string | null>(null)
-  const [edicao, setEdicao] = useState<EdicaoProduto>({ descricao: '', referencias: '', ncm: '', peso: '' })
+  const [edicao, setEdicao] = useState<EdicaoProduto>({ descricao: '', referencias: '', ncm: '', peso: '', observacao: '' })
   const [confirmando, setConfirmando] = useState<string | null>(null)
   const [senhaEdicao, setSenhaEdicao] = useState('')
   const [excluindo, setExcluindo] = useState<string | null>(null)
@@ -159,6 +160,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
       referencias: produto.referencias.join(', '),
       ncm: produto.ncm,
       peso: produto.peso ? String(produto.peso) : '',
+      observacao: produto.observacao ?? '',
     })
   }
 
@@ -224,7 +226,13 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
           }
         }
       }
-      await updateProduto(produto.id, { descricao: novaDescricao, referencias: novasReferencias, ncm: novoNcm, peso: novoPeso })
+      await updateProduto(produto.id, {
+        descricao: novaDescricao,
+        referencias: novasReferencias,
+        ncm: novoNcm,
+        peso: novoPeso,
+        observacao: edicao.observacao.trim() || undefined,
+      })
       handleCancelarEdicao()
       await refresh()
       void avisar(
@@ -316,6 +324,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
               <tr className="text-left text-ink-400 border-b border-ink-100">
                 <th className="py-2 pr-4 font-medium min-w-[12rem]">Interno</th>
                 <th className="py-2 pr-4 font-medium">Descrição</th>
+                <th className="py-2 pr-4 font-medium" title="Aparece quando o item é carregado em uma cotação">Observação do item</th>
                 <th className="py-2 pr-4 font-medium">Referência(s)</th>
                 <th className="py-2 pr-4 font-medium">NCM</th>
                 <th className="py-2 pr-4 font-medium text-right">Peso (kg)</th>
@@ -368,6 +377,15 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
                             <input
                               type="text"
                               className="field-input py-1 text-xs"
+                              aria-label="Observação do item"
+                              value={edicao.observacao}
+                              onChange={(e) => setEdicao((prev) => ({ ...prev, observacao: e.target.value }))}
+                            />
+                          </td>
+                          <td className="py-2 pr-4">
+                            <input
+                              type="text"
+                              className="field-input py-1 text-xs"
                               placeholder="separe várias por vírgula"
                               value={edicao.referencias}
                               onChange={(e) => setEdicao((prev) => ({ ...prev, referencias: e.target.value }))}
@@ -394,6 +412,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
                       ) : (
                         <>
                           <td className="py-2 pr-4 text-ink-800">{p.descricao || '—'}</td>
+                          <td className="py-2 pr-4 text-xs text-ink-600">{p.observacao || '—'}</td>
                           <td className="py-2 pr-4 text-ink-600">{p.referencias.join(', ') || '—'}</td>
                           <td className="py-2 pr-4 font-mono text-ink-600">{p.ncm || '—'}</td>
                           <td className="py-2 pr-4 text-right font-mono tabular-nums text-ink-600">
@@ -442,7 +461,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
                     </tr>
                     {emConfirmacao && (
                       <tr className="border-b border-ink-50 last:border-0">
-                        <td colSpan={7} className="py-0">
+                        <td colSpan={8} className="py-0">
                           <div className="my-2 rounded-xl border border-rose-200 bg-rose-50 p-3">
                             <p className="text-xs text-ink-900 mb-2">
                               Confirme a senha pra salvar a alteração de "{p.descricao || p.referencias[0]}"
@@ -483,7 +502,7 @@ export function ProdutosPage({ currentAdmin }: { currentAdmin: string }) {
                     )}
                     {emExclusao && (
                       <tr className="border-b border-ink-50 last:border-0">
-                        <td colSpan={7} className="py-0">
+                        <td colSpan={8} className="py-0">
                           <div className="my-2 rounded-xl border border-rose-200 bg-rose-50 p-3">
                             <p className="text-xs text-ink-900 mb-2">
                               Confirme a senha pra excluir "{p.descricao || p.referencias[0] || p.interno}" do catálogo

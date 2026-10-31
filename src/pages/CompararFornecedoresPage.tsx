@@ -7,6 +7,7 @@ import {
   formatCurrency,
   makeId,
   melhorCotacaoFornecedor,
+  mesmoFornecedor,
   planoDeAtendimento,
   quantidadeAtendida,
   selecionarTudoAoFocar,
@@ -120,33 +121,41 @@ function LinhaCotacao({
   cotacao,
   qtdItem,
   menorValor,
+  emUso,
+  automatica,
   travadaPorOutro,
   rotuloItem,
   onChange,
+  onEscolher,
   onRemover,
 }: {
   cotacao: CotacaoFornecedorItem
   qtdItem: number
   menorValor: number | undefined
+  /** É a cotação que preenche o item — a mais barata ou a escolhida à mão. Ela leva o destaque. */
+  emUso: boolean
+  /** É a que o item usaria sem escolha nenhuma. Empatada no preço com ela, outra ainda pode ser escolhida. */
+  automatica: boolean
   travadaPorOutro: boolean
   /** Qual item é (referência), pros nomes dos campos no leitor de tela. */
   rotuloItem: string
   onChange: (patch: Partial<CotacaoFornecedorItem>) => void
+  onEscolher: () => void
   onRemover: () => void
 }) {
   const semQuantidade = cotacao.quantidadeDisponivel === 0
-  const melhor = !semQuantidade && menorValor !== undefined && cotacao.valorUnitario === menorValor
+  const maisBarata = !semQuantidade && menorValor !== undefined && cotacao.valorUnitario === menorValor
   const diferenca = menorValor !== undefined ? cotacao.valorUnitario - menorValor : 0
   const diferencaPct = menorValor ? (diferenca / menorValor) * 100 : 0
   const de = `cotação de ${cotacao.fornecedor || 'fornecedor'}, item ${rotuloItem}`
   return (
-    <tr className={melhor ? 'bg-emerald-500/10' : 'hover:bg-ink-50'}>
+    <tr className={emUso ? 'bg-emerald-500/10' : 'hover:bg-ink-50'}>
       <td className={`${cellCls} so-tela-larga text-center`}>
-        {melhor && <span className="text-emerald-600" title="Mais barato desse item">★</span>}
+        {maisBarata && <span className="text-emerald-600" title="Mais barato desse item">★</span>}
       </td>
       <td className={`${cellCls} celula-larga`} data-rotulo="Fornecedor">
         <input
-          className={`${inputCls} ${melhor ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}
+          className={`${inputCls} ${emUso ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}
           list={ID_LISTA_FORNECEDORES}
           value={cotacao.fornecedor}
           disabled={travadaPorOutro}
@@ -182,7 +191,7 @@ function LinhaCotacao({
       </td>
       <td className={cellCls} data-rotulo="NCM">
         <CampoNcm
-          className={`${inputCls} ${melhor ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}
+          className={`${inputCls} ${emUso ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}
           valor={cotacao.ncm ?? ''}
           placeholder="—"
           disabled={travadaPorOutro}
@@ -205,7 +214,7 @@ function LinhaCotacao({
           type="number"
           min={0}
           step={0.01}
-          className={`${inputCls} text-right tabular-nums ${melhor ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}
+          className={`${inputCls} text-right tabular-nums ${emUso ? 'font-semibold text-emerald-700 dark:text-emerald-300' : ''}`}
           value={cotacao.valorUnitario}
           disabled={travadaPorOutro}
           aria-label={`Valor unitário — ${de}`}
@@ -234,17 +243,39 @@ function LinhaCotacao({
         />
       </td>
       <td className={`${cellCls} text-right text-xs tabular-nums pr-2 max-md:self-center max-md:text-left`}>
-        {melhor ? (
-          <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">Melhor preço</span>
-        ) : semQuantidade ? (
-          <span className="text-ink-400" title="O fornecedor devolveu quantidade 0 — não entra na escolha do mais barato">
+        {semQuantidade ? (
+          <span className="text-ink-400" title="O fornecedor devolveu quantidade 0 — não dá pra escolher nem entra na conta do mais barato">
             sem quantidade
           </span>
-        ) : menorValor !== undefined ? (
-          <span className="text-rose-600">
-            +{formatCurrency(diferenca)} <span className="text-rose-400">(+{diferencaPct.toFixed(1).replace('.', ',')}%)</span>
+        ) : (
+          <span className="flex flex-col items-end gap-1 max-md:items-start">
+            {emUso && maisBarata ? (
+              <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">Melhor preço</span>
+            ) : emUso ? (
+              <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">✓ Escolhido</span>
+            ) : maisBarata ? (
+              <span className="inline-flex rounded-full border border-emerald-400 px-2 py-0.5 font-semibold text-emerald-700 dark:text-emerald-300">
+                ★ Mais barato
+              </span>
+            ) : null}
+            {!maisBarata && menorValor !== undefined && (
+              <span className="text-rose-600">
+                +{formatCurrency(diferenca)} <span className="text-rose-400">(+{diferencaPct.toFixed(1).replace('.', ',')}%)</span>
+              </span>
+            )}
+            {!emUso && !travadaPorOutro && cotacao.valorUnitario > 0 && (
+              <button
+                type="button"
+                onClick={onEscolher}
+                aria-label={`${automatica ? 'Voltar pro mais barato' : 'Escolher'} — ${de}`}
+                title="Esta cotação passa a preencher o fornecedor, a marca, o valor, o prazo e o NCM do item"
+                className="rounded-lg border border-ink-200 bg-surface px-2 py-0.5 font-medium text-ink-700 hover:bg-ink-50"
+              >
+                {automatica ? 'Voltar pro mais barato' : 'Escolher'}
+              </button>
+            )}
           </span>
-        ) : null}
+        )}
       </td>
       <td className={`${cellCls} text-center max-md:text-right`}>
         <button
@@ -388,7 +419,9 @@ function LinhaNovaCotacao({
  * vira um bloco com cabeçalho próprio, e as cotações dele ficam embaixo, editáveis direto na célula.
  * A cada cotação adicionada/editada/removida, a mais barata já atualiza fornecedor/marca/valor
  * unitário (e prazo, se informado) do item automaticamente (via onPatchItem, o mesmo callback usado
- * em "Itens da cotação"), então não existe um passo separado de "aplicar" ou "salvar" aqui.
+ * em "Itens da cotação"), então não existe um passo separado de "aplicar" ou "salvar" aqui. Às vezes
+ * compensa pagar mais: "Escolher" fixa outra cotação no lugar da mais barata (product.cotacaoEscolhidaId),
+ * que leva o destaque, e a mais barata continua indicada.
  */
 export function CompararFornecedoresPage({
   currentAdmin,
@@ -450,37 +483,56 @@ export function CompararFornecedoresPage({
     return Array.from(nomes.values()).sort((a, b) => a.localeCompare(b, 'pt-BR'))
   }, [items])
 
-  function aplicarCotacoes(itemId: string, cotacoes: CotacaoFornecedorItem[]) {
+  /** `escolhidaId` null tira a escolha; sem ele, vale a que o item já tem. */
+  function aplicarCotacoes(item: QuoteItem, cotacoes: CotacaoFornecedorItem[], escolhidaId: string | null | undefined = item.product.cotacaoEscolhidaId) {
     // quem devolveu quantidade 0 não atende nada — não vira o fornecedor do item, por mais barato que seja
-    const melhor = melhorCotacaoFornecedor(cotacoes.filter(cotacaoAtende))
-    // o NCM do item é o do fornecedor mais barato (quando ele informou um NCM válido) — cada
-    // fornecedor guarda o seu na própria cotação; sem NCM no mais barato, o do item fica como está
-    const ncmDoMelhor = melhor?.ncm ? normalizarNcm(melhor.ncm) : undefined
-    onPatchItem(itemId, {
+    const atendem = cotacoes.filter(cotacaoAtende)
+    // a escolhida à mão vale enquanto existir e atender; senão, volta a valer a mais barata
+    const escolhida = atendem.find((c) => c.id === escolhidaId)
+    const alvo = escolhida ?? melhorCotacaoFornecedor(atendem)
+    // o NCM do item é o do fornecedor em uso (quando ele informou um NCM válido) — cada fornecedor
+    // guarda o seu na própria cotação; sem NCM nele, o do item fica como está
+    const ncmDoAlvo = alvo?.ncm ? normalizarNcm(alvo.ncm) : undefined
+    // a filial que fatura muda a alíquota de ICMS da compra; sem ela na cotação, ao trocar de
+    // fornecedor vale o estado do cadastro dele (senão o item ficaria com a UF do fornecedor anterior)
+    const uf =
+      alvo?.ufOrigem ||
+      (alvo && !mesmoFornecedor(alvo.fornecedor, item.product.fornecedor)
+        ? fornecedores.find((f) => mesmoFornecedor(f.nome, alvo.fornecedor))?.estado
+        : undefined)
+    onPatchItem(item.id, {
       cotacoesFornecedores: cotacoes,
-      ...(melhor
+      cotacaoEscolhidaId: escolhida?.id,
+      ...(alvo
         ? {
-            valorUnt: melhor.valorUnitario,
-            fornecedor: melhor.fornecedor,
-            marca: melhor.marca,
-            ...(melhor.prazoEntrega ? { prazoEntrega: melhor.prazoEntrega } : {}),
-            ...(ncmDoMelhor ? { ncm: ncmDoMelhor } : {}),
-            // a filial que fatura muda a alíquota de ICMS da compra
-            ...(melhor.ufOrigem ? { estadoOrigem: melhor.ufOrigem } : {}),
+            valorUnt: alvo.valorUnitario,
+            fornecedor: alvo.fornecedor,
+            marca: alvo.marca,
+            ...(alvo.prazoEntrega ? { prazoEntrega: alvo.prazoEntrega } : {}),
+            ...(ncmDoAlvo ? { ncm: ncmDoAlvo } : {}),
+            ...(uf ? { estadoOrigem: uf } : {}),
           }
         : {}),
     })
   }
 
   function handleAddCotacao(item: QuoteItem, cotacao: Omit<CotacaoFornecedorItem, 'id'>) {
-    aplicarCotacoes(item.id, [...(item.product.cotacoesFornecedores ?? []), { ...cotacao, id: makeId() }])
+    aplicarCotacoes(item, [...(item.product.cotacoesFornecedores ?? []), { ...cotacao, id: makeId() }])
   }
 
   function handleEditarCotacao(item: QuoteItem, cotacaoId: string, patch: Partial<CotacaoFornecedorItem>) {
     aplicarCotacoes(
-      item.id,
+      item,
       (item.product.cotacoesFornecedores ?? []).map((c) => (c.id === cotacaoId ? { ...c, ...patch } : c)),
     )
+  }
+
+  /** Fixa essa cotação no item, mesmo mais cara. A mais barata não precisa ficar fixa: escolher ela
+   * volta ao automático, e o item acompanha se outra ficar mais barata depois. */
+  function handleEscolherCotacao(item: QuoteItem, cotacao: CotacaoFornecedorItem) {
+    const cotacoes = item.product.cotacoesFornecedores ?? []
+    const maisBarata = melhorCotacaoFornecedor(cotacoes.filter(cotacaoAtende))
+    aplicarCotacoes(item, cotacoes, cotacao.id === maisBarata?.id ? null : cotacao.id)
   }
 
   async function handleRemoveCotacao(item: QuoteItem, cotacaoId: string) {
@@ -490,7 +542,7 @@ export function CompararFornecedoresPage({
       return
     }
     aplicarCotacoes(
-      item.id,
+      item,
       (item.product.cotacoesFornecedores ?? []).filter((c) => c.id !== cotacaoId),
     )
   }
@@ -519,7 +571,7 @@ export function CompararFornecedoresPage({
         ...(c.ufOrigem ? { ufOrigem: c.ufOrigem } : {}),
         ...(c.observacao ? { observacao: c.observacao } : {}),
       }))
-      aplicarCotacoes(item.id, [...(item.product.cotacoesFornecedores ?? []), ...novas])
+      aplicarCotacoes(item, [...(item.product.cotacoesFornecedores ?? []), ...novas])
     }
   }
 
@@ -565,8 +617,9 @@ export function CompararFornecedoresPage({
             <h2 className="font-display text-lg font-semibold text-ink-900">Comparar fornecedores</h2>
             <p className="text-sm text-ink-400">
               Registre as cotações que os fornecedores devolverem — edite direto na tabela. A mais barata de cada item
-              (★) já atualiza o fornecedor, a marca, o valor unitário, o prazo e o NCM do item automaticamente. Em
-              "Qtd atende", quanto o fornecedor tem do item — vazio quer dizer que ele atende a quantidade toda.
+              (★) já atualiza o fornecedor, a marca, o valor unitário, o prazo e o NCM do item automaticamente; se
+              compensar outra, mesmo mais cara, clique em "Escolher" nela. Em "Qtd atende", quanto o fornecedor tem do
+              item — vazio quer dizer que ele atende a quantidade toda.
             </p>
           </div>
           {/* quebra linha no celular: lado a lado, os dois botões passavam da largura da tela */}
@@ -671,16 +724,20 @@ export function CompararFornecedoresPage({
                   const validas = todas.filter(cotacaoAtende)
                   const menorValor = validas.length > 0 ? Math.min(...validas.map((c) => c.valorUnitario)) : undefined
                   const melhor = melhorCotacaoFornecedor(validas)
+                  // a que preenche o item: a escolhida à mão, se houver, senão a mais barata
+                  const escolhida = validas.find((c) => c.id === p.cotacaoEscolhidaId && c !== melhor)
+                  const emUso = escolhida ?? melhor
                   // fornecedores que classificaram o item com NCMs diferentes — vale um aviso, porque o
-                  // NCM muda o imposto (o item fica com o do mais barato)
+                  // NCM muda o imposto (o item fica com o do fornecedor em uso)
                   const ncmsDosFornecedores = new Set(
                     todas.map((c) => normalizarNcm(c.ncm ?? '')).filter((n): n is string => !!n),
                   )
-                  const ncmDoMelhor = melhor?.ncm ? normalizarNcm(melhor.ncm) : undefined
+                  const ncmDoMelhor = emUso?.ncm ? normalizarNcm(emUso.ncm) : undefined
                   // o mais barato não tem a quantidade toda: quem completa (do mais barato pro mais caro)
                   const qtdItem = p.qtd || 0
                   const melhorParcial = !!melhor && quantidadeAtendida(melhor, qtdItem) < qtdItem
-                  const plano = melhorParcial ? planoDeAtendimento(validas, qtdItem) : undefined
+                  const plano = melhorParcial && !escolhida ? planoDeAtendimento(validas, qtdItem) : undefined
+                  const escolhidaParcial = !!escolhida && quantidadeAtendida(escolhida, qtdItem) < qtdItem
                   const cotacoesVisiveis = filtroFornecedor
                     ? todas.filter((c) => c.fornecedor.trim().toUpperCase() === filtroFornecedor.toUpperCase())
                     : todas
@@ -703,7 +760,7 @@ export function CompararFornecedoresPage({
                                   <>
                                     {' '}· NCM <span className="font-mono">{p.ncm}</span>
                                     {ncmDoMelhor && normalizarNcm(p.ncm) === ncmDoMelhor && (
-                                      <span className="text-ink-400"> (do mais barato)</span>
+                                      <span className="text-ink-400"> (do {escolhida ? 'escolhido' : 'mais barato'})</span>
                                     )}
                                   </>
                                 ) : null}
@@ -718,7 +775,23 @@ export function CompararFornecedoresPage({
                                 </span>
                               )}
                             </div>
-                            {melhor ? (
+                            {escolhida && melhor ? (
+                              <span className="flex flex-wrap items-center gap-1.5">
+                                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs text-emerald-800">
+                                  ✓ Escolhido: <strong className="font-mono tabular-nums">{formatCurrency(escolhida.valorUnitario)}</strong>
+                                  · {escolhida.fornecedor}
+                                  <span className="text-emerald-600">
+                                    {escolhidaParcial
+                                      ? `(atende ${qtdTexto(quantidadeAtendida(escolhida, qtdItem))} de ${qtdTexto(qtdItem)})`
+                                      : `(total ${formatCurrency(escolhida.valorTotal ?? escolhida.valorUnitario * qtdItem)})`}
+                                  </span>
+                                </span>
+                                <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400 px-2.5 py-1 text-xs text-emerald-800 dark:text-emerald-300">
+                                  ★ Mais barato: <strong className="font-mono tabular-nums">{formatCurrency(melhor.valorUnitario)}</strong>
+                                  · {melhor.fornecedor}
+                                </span>
+                              </span>
+                            ) : melhor ? (
                               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-2.5 py-1 text-xs text-emerald-800">
                                 Melhor: <strong className="font-mono tabular-nums">{formatCurrency(melhor.valorUnitario)}</strong>
                                 · {melhor.fornecedor}
@@ -732,6 +805,11 @@ export function CompararFornecedoresPage({
                               <span className="text-xs text-amber-700">Sem cotação ainda</span>
                             )}
                           </div>
+                          {escolhidaParcial && escolhida && (
+                            <p className="mt-1.5 text-xs text-amber-800">
+                              ⚠ O fornecedor escolhido atende {qtdTexto(quantidadeAtendida(escolhida, qtdItem))} de {qtdTexto(qtdItem)}.
+                            </p>
+                          )}
                           {plano && (
                             <p className="mt-1.5 text-xs text-amber-800">
                               ⚠ O mais barato não tem a quantidade toda.{' '}
@@ -766,9 +844,12 @@ export function CompararFornecedoresPage({
                           cotacao={c}
                           qtdItem={p.qtd || 0}
                           menorValor={menorValor}
+                          emUso={c === emUso}
+                          automatica={c === melhor}
                           travadaPorOutro={travadaPorOutro}
                           rotuloItem={p.referencia || p.interno || String(numero)}
                           onChange={(patch) => handleEditarCotacao(item, c.id, patch)}
+                          onEscolher={() => handleEscolherCotacao(item, c)}
                           onRemover={() => handleRemoveCotacao(item, c.id)}
                         />
                       ))}

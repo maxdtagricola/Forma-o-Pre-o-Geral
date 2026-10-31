@@ -9,6 +9,7 @@ export type TabKey =
   | 'xadrez'
   | 'cotacoes'
   | 'analytics'
+  | 'relatorios'
   | 'dashboard'
   | 'comparar'
   | 'faturamento'
@@ -55,6 +56,7 @@ export const GRUPOS_DE_ABAS: NavGroup[] = [
     label: 'Visão geral',
     items: [
       { key: 'analytics', label: 'Dashboard' },
+      { key: 'relatorios', label: 'Relatórios' },
       { key: 'notasFiscaisDashboard', label: 'Dashboard de Transferências', somenteGestor: true },
     ],
   },

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useMemo, useState } from 'react'
+import { lazy, Suspense, useMemo, useState, type ReactNode } from 'react'
 import { ResultPanel } from '../components/ResultPanel'
 import { QuoteItemsList } from '../components/QuoteItemsList'
 import { ProductValuesTable } from '../components/ProductValuesTable'
@@ -6,6 +6,8 @@ import { Button } from '../components/ui/Basics'
 import { SelectField, TextField } from '../components/ui/Field'
 import { calculateItem } from '../calc/calculator'
 import { dateToInputValue, formatCurrency, formatDate, inputValueToDate } from '../utils'
+import type { PlanilhaClienteArquivo } from '../db/planilhasClienteRepo'
+import { useEstadoPersistente } from '../estadoPersistente'
 import { ESTADOS_DESTINO, VENDEDORES } from '../types'
 import type {
   CalculationResult,
@@ -23,6 +25,25 @@ const EnvioCotacaoModal = lazy(() => import('../components/EnvioCotacaoModal').t
 
 const vendedorOptions = [{ value: '', label: '— selecione —' }, ...VENDEDORES.map((v) => ({ value: v, label: v }))]
 const perfilOptions = ESTADOS_DESTINO.map((e) => ({ value: e.value, label: e.label }))
+
+/** Título de um cartão que recolhe clicando nele (lembrado no aparelho): sem os dados de cima à
+ * vista, os valores lá de baixo ficam a poucos passos. */
+function TituloRecolhivel({ recolhido, onAlternar, children }: { recolhido: boolean; onAlternar: () => void; children: ReactNode }) {
+  return (
+    <h2 className="font-display text-lg font-semibold text-ink-900">
+      <button
+        type="button"
+        onClick={onAlternar}
+        aria-expanded={!recolhido}
+        title={recolhido ? 'Mostrar' : 'Recolher'}
+        className="flex items-center gap-2 rounded text-left transition hover:text-ink-700"
+      >
+        <span aria-hidden className={`text-sm text-ink-400 transition-transform ${recolhido ? '-rotate-90' : ''}`}>▾</span>
+        <span>{children}</span>
+      </button>
+    </h2>
+  )
+}
 
 export function Dashboard({
   currentAdmin,
@@ -60,7 +81,7 @@ export function Dashboard({
   onGoToComparar,
   onGoToFrete,
   onEnviarCotacao,
-  temPlanilhaCliente,
+  planilhaCliente,
   onVerPlanilhaCliente,
   createdAt,
   dataSolicitacao,
@@ -106,7 +127,8 @@ export function Dashboard({
   onGoToComparar: () => void
   onGoToFrete: () => void
   onEnviarCotacao: () => Promise<void>
-  temPlanilhaCliente: boolean
+  /** A planilha que veio do cliente, se a cotação foi importada de uma — sem ela, gera no molde padrão. */
+  planilhaCliente?: { nomeArquivo: string; carregar: () => Promise<PlanilhaClienteArquivo | undefined> }
   onVerPlanilhaCliente: () => void
   createdAt?: number
   dataSolicitacao?: number
@@ -117,6 +139,8 @@ export function Dashboard({
   cotacaoId?: string
 }) {
   const [mostrarEnvioCotacao, setMostrarEnvioCotacao] = useState(false)
+  const [dadosRecolhidos, setDadosRecolhidos] = useEstadoPersistente('precificacao:dadosRecolhidos', false)
+  const [perfilRecolhido, setPerfilRecolhido] = useEstadoPersistente('precificacao:perfilRecolhido', false)
   // itens em foco em Itens da cotação (marcados ou filtrados) — "Valores dos produtos" mostra só eles
   const [recorteItens, setRecorteItens] = useState<{ ids: string[]; motivo: string } | undefined>(undefined)
   const itensValores = useMemo(
@@ -161,16 +185,14 @@ export function Dashboard({
       )}
 
       <div className="card">
-        <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
-          <h2 className="font-display text-lg font-semibold text-ink-900">
+        <div className={`flex flex-wrap items-center justify-between gap-3 ${dadosRecolhidos ? '' : 'mb-1'}`}>
+          <TituloRecolhivel recolhido={dadosRecolhidos} onAlternar={() => setDadosRecolhidos((v) => !v)}>
             Dados da cotação{codigo && <span className="ml-2 font-mono text-sm text-ink-400">{codigo}</span>}
-          </h2>
+          </TituloRecolhivel>
           <div className="flex flex-wrap gap-2">
-            {temPlanilhaCliente && (
-              <Button variant="ghost" onClick={onVerPlanilhaCliente}>
-                Planilha do cliente
-              </Button>
-            )}
+            <Button variant="ghost" onClick={onVerPlanilhaCliente} disabled={items.length === 0}>
+              {planilhaCliente ? 'Planilha do cliente' : 'Gerar planilha do cliente'}
+            </Button>
             <Button variant="secondary" onClick={() => setMostrarEnvioCotacao(true)} disabled={items.length === 0}>
               Enviar cotação
             </Button>
@@ -179,58 +201,70 @@ export function Dashboard({
             </Button>
           </div>
         </div>
-        <p className="text-sm text-ink-400 mb-4">Informações gerais — servem de base pra recursos futuros.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <SelectField label="Vendedor" value={vendedor} onChange={onVendedorChange} options={vendedorOptions} />
-          <TextField label="Cliente" value={cliente} onChange={onClienteChange} uppercase />
-          <TextField label="Máquina" value={maquina} onChange={onMaquinaChange} />
-          <SelectField
-            label="Empresa (destinatário)"
-            value={empresaId}
-            onChange={onEmpresaIdChange}
-            options={empresaOptions}
-            hint={empresas.length === 0 ? 'Cadastre empresas em Configurações' : 'Usada pra carregar o frete automaticamente'}
-          />
-        </div>
+        {!dadosRecolhidos && (
+          <>
+            <p className="text-sm text-ink-400 mb-4">Informações gerais — servem de base pra recursos futuros.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <SelectField label="Vendedor" value={vendedor} onChange={onVendedorChange} options={vendedorOptions} />
+              <TextField label="Cliente" value={cliente} onChange={onClienteChange} uppercase />
+              <TextField label="Máquina" value={maquina} onChange={onMaquinaChange} />
+              <SelectField
+                label="Empresa (destinatário)"
+                value={empresaId}
+                onChange={onEmpresaIdChange}
+                options={empresaOptions}
+                hint={empresas.length === 0 ? 'Cadastre empresas em Configurações' : 'Usada pra carregar o frete automaticamente'}
+              />
+            </div>
 
-        <div className="mt-4 flex flex-wrap items-end gap-x-6 gap-y-3 rounded-lg border border-ink-100 bg-ink-50/60 px-3 py-2.5">
-          <div>
-            <p className="text-xs text-ink-400">Data criada</p>
-            <p className="text-sm text-ink-700">{createdAt ? formatDate(createdAt) : '—'}</p>
-          </div>
-          <label className="block">
-            <span className="field-label">Data de solicitação</span>
-            <input
-              // não-controlado (defaultValue, não value): um <input type="date"> controlado fica
-              // com o .value vazio enquanto o ano não tem os 4 dígitos completos — isso zerava
-              // dataSolicitacao a cada tecla e o campo voltava pro vazio, brigando com quem tava
-              // digitando o ano na mão. Só remonta (e recarrega o valor certo) quando a key muda,
-              // isto é, ao trocar de cotação — dentro da mesma cotação o campo edita livre.
-              key={codigo || 'nova'}
-              type="date"
-              className="field-input"
-              defaultValue={dateToInputValue(dataSolicitacao)}
-              disabled={travadaPorOutro}
-              onChange={(e) => onChangeDataSolicitacao(inputValueToDate(e.target.value))}
-            />
-          </label>
-        </div>
+            <div className="mt-4 flex flex-wrap items-end gap-x-6 gap-y-3 rounded-lg border border-ink-100 bg-ink-50/60 px-3 py-2.5">
+              <div>
+                <p className="text-xs text-ink-400">Data criada</p>
+                <p className="text-sm text-ink-700">{createdAt ? formatDate(createdAt) : '—'}</p>
+              </div>
+              <label className="block">
+                <span className="field-label">Data de solicitação</span>
+                <input
+                  // não-controlado (defaultValue, não value): um <input type="date"> controlado fica
+                  // com o .value vazio enquanto o ano não tem os 4 dígitos completos — isso zerava
+                  // dataSolicitacao a cada tecla e o campo voltava pro vazio, brigando com quem tava
+                  // digitando o ano na mão. Só remonta (e recarrega o valor certo) quando a key muda,
+                  // isto é, ao trocar de cotação — dentro da mesma cotação o campo edita livre.
+                  key={codigo || 'nova'}
+                  type="date"
+                  className="field-input"
+                  defaultValue={dateToInputValue(dataSolicitacao)}
+                  disabled={travadaPorOutro}
+                  onChange={(e) => onChangeDataSolicitacao(inputValueToDate(e.target.value))}
+                />
+              </label>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="card">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="font-display text-lg font-semibold text-ink-900">Perfil de cálculo</h2>
-            <p className="text-sm text-ink-400">Estado de destino usado no cálculo (RBC/ICMS-ST) de todos os itens desta cotação.</p>
+            <TituloRecolhivel recolhido={perfilRecolhido} onAlternar={() => setPerfilRecolhido((v) => !v)}>
+              Perfil de cálculo
+            </TituloRecolhivel>
+            {!perfilRecolhido && (
+              <p className="text-sm text-ink-400">Estado de destino usado no cálculo (RBC/ICMS-ST) de todos os itens desta cotação.</p>
+            )}
           </div>
-          <div className="w-full sm:w-56">
-            <SelectField
-              label="Perfil"
-              value={activeProduct.perfil}
-              onChange={(v) => onApplyPerfilToAll(v as EstadoDestino)}
-              options={perfilOptions}
-            />
-          </div>
+          {perfilRecolhido ? (
+            <span className="text-sm text-ink-600">{perfilOptions.find((o) => o.value === activeProduct.perfil)?.label}</span>
+          ) : (
+            <div className="w-full sm:w-56">
+              <SelectField
+                label="Perfil"
+                value={activeProduct.perfil}
+                onChange={(v) => onApplyPerfilToAll(v as EstadoDestino)}
+                options={perfilOptions}
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -298,6 +332,8 @@ export function Dashboard({
             cliente={cliente}
             maquina={maquina}
             codigo={codigo}
+            vendedor={vendedor}
+            planilhaCliente={planilhaCliente}
             onClose={() => setMostrarEnvioCotacao(false)}
             onEnviado={async () => {
               await onEnviarCotacao()

@@ -1,90 +1,73 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFecharComEsc } from '../teclaEsc'
 import { Button } from './ui/Basics'
+import { PreviaPlanilhaCliente, usePlanilhaMontada } from './PreviaPlanilhaCliente'
 import {
   abrirPaginaParaImpressao,
   baixarBlob,
   compartilharArquivo,
-  gerarPlanilhaAtualizada,
   linkEmail,
   linkWhatsApp,
+  montarPlanilhaImportada,
   suportaCompartilharArquivo,
-  type PlanilhaAtualizada,
 } from '../planilhaCliente'
+import { gerarPlanilhaPadrao, nomePlanilhaPadrao } from '../planilhaClientePadrao'
 import { avisar } from '../dialogs'
 import { formatCurrency } from '../utils'
 import type { PlanilhaClienteArquivo } from '../db/planilhasClienteRepo'
 import type { QuoteItem } from '../types'
 
 export function PlanilhaClienteModal({
-  nomeArquivo,
-  carregar,
+  planilhaImportada,
   items,
   cliente,
   maquina,
+  vendedor,
   onClose,
 }: {
-  nomeArquivo: string
-  /** Busca o arquivo da planilha (fica à parte da cotação no servidor — só vem quando a janela abre). */
-  carregar: () => Promise<PlanilhaClienteArquivo | undefined>
+  /** A planilha que veio do cliente. O arquivo fica à parte da cotação no servidor — só vem quando a
+   * janela abre. Sem ela, a planilha é gerada do zero no molde padrão. */
+  planilhaImportada?: { nomeArquivo: string; carregar: () => Promise<PlanilhaClienteArquivo | undefined> }
   items: QuoteItem[]
   cliente: string
   maquina: string
+  vendedor: string
   onClose: () => void
 }) {
-  const [conteudoBase64, setConteudoBase64] = useState<string | undefined>(undefined)
-  const [erro, setErro] = useState<string | undefined>(undefined)
-  const [resultado, setResultado] = useState<PlanilhaAtualizada | undefined>(undefined)
   const [compartilhando, setCompartilhando] = useState(false)
   const podeCompartilharArquivo = useMemo(() => suportaCompartilharArquivo(), [])
   // o aviso de "já tem valor na planilha" sai uma vez só por abertura
   const jaAvisou = useRef(false)
   const titulo = `Orçamento — ${cliente || 'cliente'} — ${maquina || 'máquina'}`
+  const nomeArquivo = planilhaImportada?.nomeArquivo ?? nomePlanilhaPadrao({ cliente, maquina })
 
-  useEffect(() => {
-    let aberta = true
-    carregar()
-      .then((planilha) => {
-        if (!aberta) return
-        if (planilha) setConteudoBase64(planilha.conteudoBase64)
-        else setErro('A planilha original dessa cotação não foi encontrada no servidor.')
-      })
-      .catch((err) => {
-        if (aberta) setErro(err instanceof Error ? err.message : 'Erro ao buscar a planilha no servidor.')
-      })
-    return () => {
-      aberta = false
-    }
+  const montar = useCallback(
+    () =>
+      planilhaImportada
+        ? montarPlanilhaImportada(planilhaImportada.carregar, items, nomeArquivo, titulo)
+        : gerarPlanilhaPadrao(items, { cliente, maquina, vendedor }, titulo),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+    [items, nomeArquivo],
+  )
+  const { resultado, erro } = usePlanilhaMontada(montar)
 
+  // a planilha do cliente já tinha valor nessas linhas — o site não escreveu por cima; avisa na hora
   useEffect(() => {
-    if (!conteudoBase64) return
-    try {
-      const gerado = gerarPlanilhaAtualizada(conteudoBase64, items, nomeArquivo, titulo)
-      setResultado(gerado)
-      setErro(undefined)
-      // a planilha do cliente já tinha valor nessas linhas — o site não escreveu por cima; avisa na hora
-      const conflitos = gerado.itensComValorNaPlanilha
-      if (conflitos.length > 0 && !jaAvisou.current) {
-        jaAvisou.current = true
-        void avisar(
-          `${conflitos.length === 1 ? 'Um item já tem' : `${conflitos.length} itens já têm`} valor na planilha do cliente — ` +
-            'esses valores foram mantidos, o site não escreveu por cima:\n\n' +
-            conflitos
-              .slice(0, 12)
-              .map((c) => `• ${c.referencia}: ${formatCurrency(c.valorNaPlanilha)} na planilha (o site calculou ${formatCurrency(c.valorDoSite)})`)
-              .join('\n') +
-            (conflitos.length > 12 ? `\n… e mais ${conflitos.length - 12}.` : ''),
-          { titulo: 'Item já com valor na planilha' },
-        )
-      }
-    } catch (err) {
-      setResultado(undefined)
-      setErro(err instanceof Error ? err.message : 'Erro ao ler a planilha original.')
+    const conflitos = resultado?.itensComValorNaPlanilha ?? []
+    if (conflitos.length > 0 && !jaAvisou.current) {
+      jaAvisou.current = true
+      void avisar(
+        `${conflitos.length === 1 ? 'Um item já tem' : `${conflitos.length} itens já têm`} valor na planilha do cliente — ` +
+          'esses valores foram mantidos, o site não escreveu por cima:\n\n' +
+          conflitos
+            .slice(0, 12)
+            .map((c) => `• ${c.referencia}: ${formatCurrency(c.valorNaPlanilha)} na planilha (o site calculou ${formatCurrency(c.valorDoSite)})`)
+            .join('\n') +
+          (conflitos.length > 12 ? `\n… e mais ${conflitos.length - 12}.` : ''),
+        { titulo: 'Item já com valor na planilha' },
+      )
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conteudoBase64, items, nomeArquivo])
+  }, [resultado])
 
   useFecharComEsc(onClose)
 
@@ -132,7 +115,7 @@ export function PlanilhaClienteModal({
         <div className="flex items-start justify-between gap-3 mb-1">
           <div>
             <h3 className="font-display text-lg font-semibold text-ink-900">Planilha do cliente</h3>
-            <p className="text-sm text-ink-400">{nomeArquivo}</p>
+            <p className="text-sm text-ink-400 break-all">{nomeArquivo}</p>
           </div>
           <button type="button" onClick={onClose} className="text-ink-400 hover:text-ink-700 text-xl leading-none px-1">
             ×
@@ -144,36 +127,7 @@ export function PlanilhaClienteModal({
 
         {resultado && (
           <>
-            <p className="text-xs text-ink-400 my-2">
-              {resultado.itensAtualizados > 0
-                ? `${resultado.itensAtualizados} item(ns) atualizado(s) com valor e prazo.`
-                : resultado.itensComValorNaPlanilha.length > 0
-                  ? 'Nenhum item preenchido pelo site — todos os que bateram já tinham valor na planilha.'
-                  : 'Nenhum item da cotação bateu com a Referência de alguma linha dessa planilha.'}
-            </p>
-            {resultado.itensComValorNaPlanilha.length > 0 && (
-              <div role="status" className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-                <p className="mb-1 font-semibold">
-                  {resultado.itensComValorNaPlanilha.length} item(ns) já com valor na planilha — mantidos como estavam:
-                </p>
-                <ul className="space-y-0.5">
-                  {resultado.itensComValorNaPlanilha.map((c) => (
-                    <li key={`${c.linha}-${c.referencia}`}>
-                      <span className="font-mono">{c.referencia}</span>
-                      {c.descricao ? ` — ${c.descricao}` : ''}: {formatCurrency(c.valorNaPlanilha)} ({c.tipoDoValor}) na planilha · o site
-                      calculou {formatCurrency(c.valorDoSite)}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {/* prévia fiel: a planilha como ela é (fundo branco de papel, cores e bordas dela), também no modo escuro */}
-            <div
-              data-testid="previa-planilha-cliente"
-              className={`${resultado.previaFiel ? 'bg-white p-2' : 'planilha-preview'} flex-1 overflow-auto rounded-xl border border-ink-100 mb-4`}
-              dangerouslySetInnerHTML={{ __html: resultado.htmlPreview }}
-            />
+            <PreviaPlanilhaCliente resultado={resultado} gerada={!planilhaImportada} />
 
             <div className="flex flex-wrap gap-2 mb-3">
               <Button variant="secondary" onClick={() => baixarBlob(resultado.arquivo, nomeArquivo)}>

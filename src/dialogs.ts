@@ -146,7 +146,8 @@ function assinar(ouvinte: () => void): () => void {
   }
 }
 
-/** Só o <DialogHost/> usa isso, pra saber o que desenhar (ou nada, se não houver pedido pendente).
+/** O <DialogHost/> usa isso pra saber o que desenhar (ou nada, se não houver pedido pendente); o balão
+ * da observação, pra saber se tem caixa por cima dele.
  * useSyncExternalStore (e não useState + useEffect pra assinar): com o useEffect, um aviso disparado
  * no intervalo entre o DialogHost desenhar e o efeito começar a escutar se perdia — ninguém estava
  * ouvindo ainda, e a caixa nunca aparecia. Aqui o React confere o valor de novo depois de assinar. */

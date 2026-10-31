@@ -100,6 +100,7 @@ export function valoresDaCotacaoDoFornecedor(
   if (!cotacao) return {}
   const ncm = cotacao.ncm ? normalizarNcm(cotacao.ncm) : undefined
   return {
+    cotacaoEscolhidaId: cotacao.id,
     valorUnt: cotacao.valorUnitario,
     marca: cotacao.marca,
     ...(cotacao.prazoEntrega ? { prazoEntrega: cotacao.prazoEntrega } : {}),

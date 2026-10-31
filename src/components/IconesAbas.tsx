@@ -116,6 +116,13 @@ export const ICONES_ABAS: Record<TabKey, ReactNode> = {
       <path d="M7.5 16v-5M12 16V6.5M16.5 16V9.5" />
     </Icone>
   ),
+  // folha com barras — relatório geral pros supervisores
+  relatorios: (
+    <Icone>
+      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+      <path d="M14 3v5h5M9 17v-3M12 17v-6M15 17v-4" />
+    </Icone>
+  ),
   // gráfico de pizza — dashboard das transferências
   notasFiscaisDashboard: (
     <Icone>

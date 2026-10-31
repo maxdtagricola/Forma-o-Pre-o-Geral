@@ -11,7 +11,7 @@ export async function listProdutos(): Promise<Produto[]> {
 
 export async function updateProduto(
   id: string,
-  patch: Partial<Pick<Produto, 'interno' | 'descricao' | 'referencias' | 'ncm' | 'peso'>>,
+  patch: Partial<Pick<Produto, 'interno' | 'descricao' | 'referencias' | 'ncm' | 'peso' | 'observacao'>>,
 ): Promise<Produto> {
   const atual = await dbGet<Produto>(STORE_PRODUTOS, id)
   if (!atual) throw new Error('Produto não encontrado.')
@@ -40,6 +40,46 @@ export async function findProdutoPorInternoOuReferencia(interno: string, referen
     return todos.find((p) => p.referencias.some((r) => r.trim().toLowerCase() === referenciaAlvo))
   }
   return undefined
+}
+
+/** Atrela a observação ao item (vazia: tira), pra ela aparecer quando ele for carregado em outra
+ * cotação. O item pode ainda não estar no catálogo (cotação não salva): aí ele entra agora. A data do
+ * produto não muda: é ela que diz à sincronização quais cotações ainda têm novidade pra ele. */
+export async function salvarObservacaoDoProduto(
+  dados: { interno: string; referencia: string; descricao: string; ncm: string; peso: number },
+  observacao: string,
+): Promise<void> {
+  const texto = observacao.trim()
+  const atual = await findProdutoPorInternoOuReferencia(dados.interno, dados.referencia)
+  if (atual) {
+    await dbPut(STORE_PRODUTOS, { ...atual, observacao: texto || undefined })
+    return
+  }
+  if (!texto) return
+  const agora = Date.now()
+  const referencia = dados.referencia.trim()
+  const novo: Produto = {
+    id: makeId(),
+    interno: dados.interno.trim(),
+    descricao: dados.descricao,
+    referencias: referencia ? [referencia] : [],
+    ncm: dados.ncm,
+    peso: dados.peso,
+    createdAt: agora,
+    updatedAt: agora,
+    observacao: texto,
+  }
+  await dbPut(STORE_PRODUTOS, novo)
+}
+
+/** As observações atreladas, por referência (minúscula) — pros itens que entram por planilha. */
+export async function observacoesPorReferencia(): Promise<Map<string, string>> {
+  const mapa = new Map<string, string>()
+  for (const p of await dbGetAll<Produto>(STORE_PRODUTOS)) {
+    const texto = p.observacao?.trim()
+    if (texto) for (const r of p.referencias) mapa.set(r.trim().toLowerCase(), texto)
+  }
+  return mapa
 }
 
 /** Os 2 preços mais baratos — a mesma oferta (fornecedor + marca + valor) vista em várias cotações, ou

@@ -30,7 +30,7 @@ import {
   type RemetenteFrete,
   type UltimoUsoDoProduto,
 } from '../db/analysesRepo'
-import { findProdutoPorInternoOuReferencia } from '../db/produtosRepo'
+import { findProdutoPorInternoOuReferencia, salvarObservacaoDoProduto } from '../db/produtosRepo'
 import { FreteFornecedorSlots } from './FreteFornecedorSlots'
 import { CelulaObservacao } from './CelulaObservacao'
 import { Button } from './ui/Basics'
@@ -174,6 +174,21 @@ function carregarLarguras(): Partial<Record<ColunaKey, number>> {
   }
 }
 
+/** Tópicos de fornecedor recolhidos — um por cotação, guardados enquanto a aba do navegador estiver
+ * aberta (sobrevive a ir no Comparar e voltar, sem acumular nada de cotações antigas). */
+function chaveRecolhidos(cotacaoId: string | undefined): string {
+  return `itensCotacao:recolhidos:${cotacaoId ?? 'nova'}`
+}
+
+function carregarRecolhidos(cotacaoId: string | undefined): string[] {
+  try {
+    const salvo: unknown = JSON.parse(sessionStorage.getItem(chaveRecolhidos(cotacaoId)) ?? '[]')
+    return Array.isArray(salvo) ? salvo.filter((c): c is string => typeof c === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 function carregarOcultas(): ColunaKey[] {
   try {
     const salvo: unknown = JSON.parse(localStorage.getItem(CHAVE_COLUNAS_OCULTAS) ?? '[]')
@@ -271,6 +286,8 @@ function descricaoDoItem(item: QuoteItem): string {
 interface HistoricoPreco {
   ultimoUso?: UltimoUsoDoProduto
   maisBarato?: ProdutoCotacaoHistorico
+  /** Observação atrelada ao item no catálogo de Produtos. */
+  observacaoDoItem?: string
 }
 
 // valores especiais dos filtros (não colidem com nenhum valor real de célula)
@@ -405,6 +422,21 @@ export function QuoteItemsList({
   // fica aqui (e não dentro de cada linha) porque carregar o histórico costuma trocar o fornecedor
   // do item — e aí ele muda de grupo, a linha é remontada em outro lugar e perderia o aviso
   const [historicos, setHistoricos] = useState<Record<string, HistoricoPreco>>({})
+  const [gruposRecolhidos, setGruposRecolhidos] = useState<string[]>(() => carregarRecolhidos(cotacaoId))
+  useEffect(() => setGruposRecolhidos(carregarRecolhidos(cotacaoId)), [cotacaoId])
+
+  function definirRecolhidos(chaves: string[]) {
+    setGruposRecolhidos(chaves)
+    try {
+      sessionStorage.setItem(chaveRecolhidos(cotacaoId), JSON.stringify(chaves))
+    } catch {
+      // sem sessionStorage: só não lembra ao voltar pra tela
+    }
+  }
+
+  function alternarGrupo(chave: string) {
+    definirRecolhidos(gruposRecolhidos.includes(chave) ? gruposRecolhidos.filter((c) => c !== chave) : [...gruposRecolhidos, chave])
+  }
 
   // --- medidas da tela pra barra fixa, o cabeçalho fixo e o ajuste das colunas -------------------
   const blocoRef = useRef<HTMLDivElement>(null)
@@ -691,6 +723,7 @@ export function QuoteItemsList({
     return Array.from(mapa.entries()).map(([chave, g]) => ({ chave, ...g }))
   }, [itensFiltrados, linhaEmEdicao])
   const agrupar = grupos.length > 1
+  const todosRecolhidos = grupos.length > 0 && grupos.every((g) => gruposRecolhidos.includes(g.chave))
 
   // número da linha = posição do item na cotação inteira, não na tela — continua o mesmo com filtro
   // ou agrupamento, pra "item 7" ser sempre o mesmo item
@@ -850,6 +883,11 @@ export function QuoteItemsList({
     onRemoveItems(alvo.map((item) => item.id))
     setMarcados(new Set())
     setAcoesAbertasCelular(false)
+  }
+
+  function handleAdicionarItem() {
+    definirRecolhidos(gruposRecolhidos.filter((c) => c !== chaveFornecedorFrete('')))
+    onAdd()
   }
 
   function handleAplicarMargemUnica() {
@@ -1072,6 +1110,7 @@ export function QuoteItemsList({
         totalColunas={totalColunas}
         fixarInicio={rolaDeLado}
         colunaFixa={colunaFixa}
+        podeAtrelarObservacao={podeSalvar}
         historico={historicos[item.id]}
         onHistorico={(h) =>
           setHistoricos((prev) => {
@@ -1152,7 +1191,7 @@ export function QuoteItemsList({
             </button>
             <button
               type="button"
-              onClick={onAdd}
+              onClick={handleAdicionarItem}
               className={`${btnBarraCls} border border-brand-600 bg-brand-600 text-white hover:bg-brand-700`}
             >
               + Adicionar item
@@ -1317,7 +1356,8 @@ export function QuoteItemsList({
       <div className="card rounded-t-none border-t-0">
         <p className="mb-3 text-sm text-ink-400">
           Edite direto na planilha — arraste o título de uma coluna pra reordenar, e use a setinha ▾ ao lado do nome
-          dela pra filtrar. Pra excluir, marque os itens: a opção aparece na barra de cima.
+          dela pra filtrar. Pra excluir, marque os itens: a opção aparece na barra de cima. Clique no nome de um
+          fornecedor pra recolher os itens dele e chegar mais rápido nos valores.
         </p>
 
         {items.length > 1 && (
@@ -1387,6 +1427,17 @@ export function QuoteItemsList({
         )}
 
         <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
+          {grupos.length > 0 && (
+            <button
+              type="button"
+              onClick={() => definirRecolhidos(todosRecolhidos ? [] : grupos.map((g) => g.chave))}
+              aria-expanded={!todosRecolhidos}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-ink-200 px-2.5 py-1 text-xs font-medium text-ink-600 transition hover:bg-ink-50"
+            >
+              <span aria-hidden className={`transition-transform ${todosRecolhidos ? '-rotate-90' : ''}`}>▾</span>
+              {todosRecolhidos ? (agrupar ? 'Mostrar todos' : 'Mostrar itens') : agrupar ? 'Recolher todos' : 'Recolher itens'}
+            </button>
+          )}
           <div className="relative" ref={menuColunasRef}>
             <button
               type="button"
@@ -1502,6 +1553,8 @@ export function QuoteItemsList({
                   ? grupos.flatMap((grupo) => {
                       const idsGrupo = grupo.itens.map((i) => i.id)
                       const grupoMarcado = idsGrupo.every((id) => marcados.has(id))
+                      const recolhido = gruposRecolhidos.includes(grupo.chave)
+                      const nomeGrupo = grupo.remetente.nome || 'Sem fornecedor definido'
                       const subtotal = grupo.itens.reduce(
                         (s, i) => s + (i.product.qtd || 0) * (i.product.valorUnt || 0),
                         0,
@@ -1525,12 +1578,18 @@ export function QuoteItemsList({
                                   title="Marcar/desmarcar todos os itens desse fornecedor"
                                   aria-label={`Marcar/desmarcar todos os itens de ${grupo.remetente.nome || 'sem fornecedor'}`}
                                 />
-                                <span className="inline-flex items-center gap-1.5">
-                                  <span className="font-display text-[13px] font-bold uppercase tracking-wide text-ink-900">
-                                    {grupo.remetente.nome || 'Sem fornecedor definido'}
-                                  </span>
+                                <button
+                                  type="button"
+                                  onClick={() => alternarGrupo(grupo.chave)}
+                                  aria-expanded={!recolhido}
+                                  aria-label={`${recolhido ? 'Mostrar' : 'Recolher'} os itens de ${nomeGrupo}`}
+                                  title={recolhido ? 'Mostrar os itens' : 'Recolher os itens'}
+                                  className="inline-flex items-center gap-1.5 rounded text-left transition hover:opacity-70"
+                                >
+                                  <span aria-hidden className={`text-sm text-ink-400 transition-transform ${recolhido ? '-rotate-90' : ''}`}>▾</span>
+                                  <span className="font-display text-[13px] font-bold uppercase tracking-wide text-ink-900">{nomeGrupo}</span>
                                   {grupo.remetente.nome && renderSeloUf(grupo.remetente.uf)}
-                                </span>
+                                </button>
                                 <span className="text-[11px] text-ink-500">
                                   {grupo.itens.length} {grupo.itens.length > 1 ? 'itens' : 'item'} ·{' '}
                                   <span className="font-mono font-semibold tabular-nums text-ink-900">{formatCurrency(subtotal)}</span>
@@ -1544,10 +1603,18 @@ export function QuoteItemsList({
                               </div>
                             </td>
                           </tr>,
-                          ...grupo.itens.map(renderLinha),
+                          ...(recolhido ? [] : grupo.itens.map(renderLinha)),
                         ]
                     })
-                  : itensFiltrados.map(renderLinha)}
+                  : todosRecolhidos
+                    ? [
+                        <tr key="recolhidos">
+                          <td colSpan={totalColunas} className="py-3 text-center text-xs text-ink-400">
+                            {itensFiltrados.length} {itensFiltrados.length > 1 ? 'itens recolhidos' : 'item recolhido'}
+                          </td>
+                        </tr>,
+                      ]
+                    : itensFiltrados.map(renderLinha)}
               </tbody>
             </table>
           </div>
@@ -1680,6 +1747,7 @@ function LinhaItem({
   totalColunas,
   fixarInicio,
   colunaFixa,
+  podeAtrelarObservacao,
   historico,
   onHistorico,
 }: {
@@ -1707,6 +1775,8 @@ function LinhaItem({
   /** Planilha rolando de lado: marcar e nº presos à esquerda (e `colunaFixa`, se houver). */
   fixarInicio: boolean
   colunaFixa: ColunaKey | undefined
+  /** false com a cotação travada por outro admin: a observação nem vai ser salva. */
+  podeAtrelarObservacao: boolean
   historico: HistoricoPreco | undefined
   onHistorico: (h: HistoricoPreco | null) => void
 }) {
@@ -1737,7 +1807,7 @@ function LinhaItem({
   // dados dele — menos qtd (quantidade é sempre desse pedido, não do histórico) e as cotações de
   // fornecedor registradas (pertencem à análise antiga, não fazem sentido aqui) — e mostra, logo
   // abaixo da linha, o último preço usado (com o fornecedor) e o mais barato já registrado no
-  // catálogo de Produtos
+  // catálogo de Produtos. A observação escrita em outra cotação fica nela; só a atrelada ao item vem
   async function carregarHistorico(campo: 'interno' | 'referencia') {
     const valor = item.product[campo].trim()
     if (!valor || valor === ultimaBusca.current[campo]) return
@@ -1751,13 +1821,17 @@ function LinhaItem({
       ).catch(() => undefined),
     ])
     const maisBarato = produto?.melhoresCotacoes?.[0]
-    if (!ultimoUso && !maisBarato) {
+    const observacaoDoItem = produto?.observacao?.trim() || undefined
+    if (!ultimoUso && !maisBarato && !observacaoDoItem) {
       onHistorico(null)
       return
     }
+    // a escrita nesta cotação vale mais que a atrelada
+    const comObservacao: Pick<ProductInput, 'observacao'> = observacaoDoItem && !item.product.observacao?.trim() ? { observacao: observacaoDoItem } : {}
     if (ultimoUso) {
       const found = ultimoUso.product
       onPatch({
+        ...comObservacao,
         perfil: found.perfil,
         referencia: found.referencia,
         ncm: found.ncm,
@@ -1778,8 +1852,43 @@ function LinhaItem({
         credIcmsFrete: found.credIcmsFrete,
       })
       ultimaBusca.current = { interno: found.interno.trim(), referencia: found.referencia.trim() }
+    } else if (comObservacao.observacao) {
+      onPatch(comObservacao)
     }
-    onHistorico({ ultimoUso, maisBarato })
+    onHistorico({ ultimoUso, maisBarato, observacaoDoItem })
+  }
+
+  /** O texto da observação mudou: pergunta se ele fica só nesta cotação ou atrelado ao item — atrelado,
+   * aparece quando o item for carregado em outra cotação. Sem código o item não tem como ser achado
+   * depois, então fica só aqui, sem perguntar. */
+  async function perguntarOndeGuardarObservacao(textoAoAbrir: string, valorAtual: string) {
+    const texto = valorAtual.trim()
+    const { interno, referencia, descricao, ncm, peso } = item.product
+    if (texto === textoAoAbrir.trim() || !podeAtrelarObservacao || (!interno.trim() && !referencia.trim())) return
+    try {
+      const produto = await findProdutoPorInternoOuReferencia(interno, referencia)
+      const atrelada = produto?.observacao?.trim() ?? ''
+      if (texto === atrelada) return
+      const dados = { interno, referencia, descricao, ncm, peso }
+      if (!texto) {
+        if (!atrelada) return
+        const tirar = await confirmar(`Este item tem esta observação atrelada, que aparece nas outras cotações:\n\n"${atrelada}"\n\nTirar do item também?`, {
+          titulo: 'Apagar observação',
+          confirmText: 'Tirar do item',
+          cancelText: 'Só desta cotação',
+        })
+        if (tirar) await salvarObservacaoDoProduto(dados, '')
+        return
+      }
+      const atrelar = await confirmar(
+        `Salvar esta observação só nesta cotação ou atrelada ao item?\n\n"${texto}"\n\nAtrelada, ela aparece quando o item for carregado em outra cotação.` +
+          (atrelada ? `\n\nEla substitui a que o item tem hoje: "${atrelada}"` : ''),
+        { titulo: 'Salvar observação', confirmText: 'Atrelar ao item', cancelText: 'Só nesta cotação' },
+      )
+      if (atrelar) await salvarObservacaoDoProduto(dados, texto)
+    } catch (err) {
+      void avisar(err instanceof Error ? err.message : 'Erro ao salvar a observação no item.')
+    }
   }
 
   function usarMaisBarato() {
@@ -1834,6 +1943,7 @@ function LinhaItem({
         <CelulaObservacao
           valor={item.product.observacao ?? ''}
           onChange={(observacao) => onPatch({ observacao })}
+          onFechar={(textoAoAbrir) => void perguntarOndeGuardarObservacao(textoAoAbrir, item.product.observacao ?? '')}
           idLinha={item.id}
           descricaoItem={item.product.descricao.trim() || item.product.referencia.trim() || `item ${numero}`}
         />
@@ -2063,6 +2173,11 @@ function LinhaItem({
         <tr className="bg-surface">
           <td colSpan={totalColunas} className="px-3 pb-2 pt-0">
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 rounded-lg border border-ink-100 bg-ink-50/70 px-3 py-1.5 text-xs">
+              {historico.observacaoDoItem && (
+                <span className="w-full text-ink-600">
+                  <strong className="text-ink-900">Observação do item:</strong> {historico.observacaoDoItem}
+                </span>
+              )}
               {ultimoUso && ultimoUso.product.valorUnt > 0 && (
                 <span className="text-ink-600">
                   Último preço usado:{' '}

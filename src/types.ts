@@ -205,6 +205,9 @@ export interface ProductInput {
   observacao?: string
   /** Cotações de fornecedores registradas em "Comparar fornecedores" — a mais barata preenche fornecedor/marca/valorUnt automaticamente. */
   cotacoesFornecedores: CotacaoFornecedorItem[]
+  /** Cotação escolhida à mão no comparador, mesmo mais cara — ela é quem preenche o item no lugar da
+   * mais barata. Sem escolha (ou se ela sair ou deixar de atender), vale a mais barata. */
+  cotacaoEscolhidaId?: string
 
   // Campos avançados — existem na planilha (colunas U, V, W, Y, Z, AA) mas
   // não fazem parte da entrada principal pedida. Têm padrão 0.
@@ -629,6 +632,9 @@ export interface Produto {
   /** As duas cotações mais baratas já vistas pra esse produto (fornecedor/marca/valor), a mais
    * barata sempre no índice 0 — pra saber rápido onde comprou mais barato e por quanto. */
   melhoresCotacoes?: ProdutoCotacaoHistorico[]
+  /** Observação atrelada ao item: aparece quando ele é carregado em qualquer cotação (a observação
+   * de uma cotação só fica em product.observacao, daquela cotação). */
+  observacao?: string
 }
 
 // ---------------------------------------------------------------------------

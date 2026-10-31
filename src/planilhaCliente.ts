@@ -59,7 +59,7 @@ function tipoDoArquivo(nomeArquivo: string) {
   return TIPOS_POR_EXTENSAO[extensao] ?? TIPOS_POR_EXTENSAO.xlsx
 }
 
-function paginaDeImpressao(previa: PreviaOriginal, titulo: string): string {
+export function paginaDeImpressao(previa: PreviaOriginal, titulo: string): string {
   // mesma escala/orientação/margens configuradas na planilha; se ainda não couber na largura da folha, reduz
   const larguraFolhaPol = previa.orientacao === 'landscape' ? 11.69 : 8.27
   const larguraUtilPx = (larguraFolhaPol - previa.margens.left - previa.margens.right) * 96
@@ -222,6 +222,18 @@ export function gerarPlanilhaAtualizada(
   }
 }
 
+/** Busca a planilha que veio do cliente (fica à parte da cotação no servidor) e preenche com a cotação. */
+export async function montarPlanilhaImportada(
+  carregar: () => Promise<{ conteudoBase64: string } | undefined>,
+  items: QuoteItem[],
+  nomeArquivo: string,
+  titulo: string,
+): Promise<PlanilhaAtualizada> {
+  const planilha = await carregar()
+  if (!planilha) throw new Error('A planilha original dessa cotação não foi encontrada no servidor.')
+  return gerarPlanilhaAtualizada(planilha.conteudoBase64, items, nomeArquivo, titulo)
+}
+
 export function baixarBlob(blob: Blob, nomeArquivo: string): void {
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -285,7 +297,7 @@ export function linkEmail(assunto: string, corpo: string): string {
   return `mailto:?subject=${encodeURIComponent(assunto)}&body=${encodeURIComponent(corpo)}`
 }
 
-const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+export const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 export function suportaCompartilharArquivo(tipo: string = MIME_XLSX): boolean {
   const nav = navigator as Navigator & { canShare?: (data: ShareData) => boolean }
